@@ -1,0 +1,47 @@
+name: MRixk Monorepo CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  backend-and-packages:
+    name: Backend & Cryptography Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          check-latest: false
+
+      - name: Verify Go dependencies
+        run: |
+          go version
+          go mod download
+
+      - name: Run all Go test suites (Crypto, Devices, AI Isolation, API)
+        run: |
+          go test -v -race ./...
+
+      - name: Build server binary
+        run: |
+          mkdir -p bin
+          CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/mrixk-server ./backend/cmd/server
+          ls -lh bin/mrixk-server
+
+  docker-and-infrastructure:
+    name: Infrastructure Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate Docker Compose configuration
+        run: |
+          docker compose config
