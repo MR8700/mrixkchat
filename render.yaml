@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: mrixk-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: frankfurt
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATA_FILE_PATH
+        value: /app/data/mrixk_state.json
+      - key: MAX_DEVICES_PER_USER
+        value: "3"
+      - key: JWT_SIGNING_KEY
+        generateValue: true

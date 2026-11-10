@@ -1,6 +1,7 @@
 package config
 
 import (
+	"log"
 	"os"
 	"strconv"
 )
@@ -9,18 +10,33 @@ import (
 type Config struct {
 	Port              string
 	DatabaseURL       string
+	DataFilePath      string
 	RedisURL          string
 	MaxDevicesPerUser int
 	StorageEndpoint   string
 	StorageBucket     string
 	JWTSecret         string
+	Environment       string
 }
 
 // LoadConfig loads configuration from environment variables with safe defaults.
 func LoadConfig() *Config {
+	env := os.Getenv("APP_ENV")
+	if env == "" {
+		env = os.Getenv("ENVIRONMENT")
+		if env == "" {
+			env = "development"
+		}
+	}
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
+	}
+
+	dataFilePath := os.Getenv("DATA_FILE_PATH")
+	if dataFilePath == "" {
+		dataFilePath = "data/mrixk_state.json"
 	}
 
 	dbURL := os.Getenv("DATABASE_URL")
@@ -42,16 +58,21 @@ func LoadConfig() *Config {
 
 	jwtSecret := os.Getenv("JWT_SIGNING_KEY")
 	if jwtSecret == "" {
+		if env == "production" {
+			log.Fatalf("[CRITICAL SECURITY] JWT_SIGNING_KEY must be explicitly configured in production environment!")
+		}
 		jwtSecret = "mrixk_jwt_dev_secret_2026_super_secure"
 	}
 
 	return &Config{
 		Port:              port,
 		DatabaseURL:       dbURL,
+		DataFilePath:      dataFilePath,
 		RedisURL:          redisURL,
 		MaxDevicesPerUser: maxDevices,
 		StorageEndpoint:   os.Getenv("STORAGE_ENDPOINT"),
 		StorageBucket:     os.Getenv("STORAGE_BUCKET"),
 		JWTSecret:         jwtSecret,
+		Environment:       env,
 	}
 }

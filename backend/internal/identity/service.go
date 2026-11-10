@@ -1,11 +1,14 @@
 package identity
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +19,11 @@ var (
 	ErrInvalidHandle   = errors.New("invalid handle format: must be 3-30 chars, alphanumeric with optional dot or underscore")
 	ErrInvalidPassword = errors.New("password must be at least 8 characters")
 	ErrAuthFailed      = errors.New("authentication failed: invalid handle or credentials")
+)
+
+const (
+	pbkdf2Iterations = 64000
+	pbkdf2KeyLen     = 32
 )
 
 type Service struct {
@@ -103,22 +111,83 @@ func (s *Service) Authenticate(handle, password string) (*database.User, error) 
 	return user, nil
 }
 
-// hashPassword creates a salted SHA-256 hash (PBKDF2/Argon2 abstraction).
+// VerifyUserPassword verifies password directly against an existing user model.
+func (s *Service) VerifyUserPassword(user *database.User, password string) bool {
+	if user == nil {
+		return false
+	}
+	return verifyPassword(password, user.PasswordHash)
+}
+
+// hashPassword creates a hardened PBKDF2-HMAC-SHA256 password hash.
 func hashPassword(password string) string {
 	salt := make([]byte, 16)
 	_, _ = rand.Read(salt)
 	saltHex := hex.EncodeToString(salt)
 
-	sum := sha256.Sum256([]byte(saltHex + password))
-	return fmt.Sprintf("%s$%s", saltHex, hex.EncodeToString(sum[:]))
+	derived := pbkdf2SHA256([]byte(password), salt, pbkdf2Iterations, pbkdf2KeyLen)
+	return fmt.Sprintf("pbkdf2_sha256$%d$%s$%s", pbkdf2Iterations, saltHex, hex.EncodeToString(derived))
 }
 
+// verifyPassword verifies password in constant time to eliminate timing side-channel attacks.
 func verifyPassword(password, storedHash string) bool {
 	parts := strings.Split(storedHash, "$")
-	if len(parts) != 2 {
-		return false
+	if len(parts) == 4 && parts[0] == "pbkdf2_sha256" {
+		iter, err := strconv.Atoi(parts[1])
+		if err != nil || iter <= 0 {
+			return false
+		}
+		salt, err := hex.DecodeString(parts[2])
+		if err != nil {
+			return false
+		}
+		expectedHash, err := hex.DecodeString(parts[3])
+		if err != nil {
+			return false
+		}
+		computed := pbkdf2SHA256([]byte(password), salt, iter, len(expectedHash))
+		return subtle.ConstantTimeCompare(computed, expectedHash) == 1
 	}
-	saltHex, expectedHash := parts[0], parts[1]
-	sum := sha256.Sum256([]byte(saltHex + password))
-	return hex.EncodeToString(sum[:]) == expectedHash
+
+	// Legacy fallback (salted SHA256) with constant-time verification
+	if len(parts) == 2 {
+		saltHex, expectedHex := parts[0], parts[1]
+		sum := sha256.Sum256([]byte(saltHex + password))
+		expectedBytes, err := hex.DecodeString(expectedHex)
+		if err != nil {
+			return false
+		}
+		return subtle.ConstantTimeCompare(sum[:], expectedBytes) == 1
+	}
+	return false
+}
+
+// pbkdf2SHA256 implements RFC 2898 / RFC 8018 PBKDF2 using HMAC-SHA256.
+func pbkdf2SHA256(password, salt []byte, iter, keyLen int) []byte {
+	prf := hmac.New(sha256.New, password)
+	hashLen := prf.Size()
+	numBlocks := (keyLen + hashLen - 1) / hashLen
+	result := make([]byte, 0, numBlocks*hashLen)
+
+	for block := 1; block <= numBlocks; block++ {
+		prf.Reset()
+		prf.Write(salt)
+		buf := []byte{byte(block >> 24), byte(block >> 16), byte(block >> 8), byte(block)}
+		prf.Write(buf)
+		u := prf.Sum(nil)
+
+		t := make([]byte, len(u))
+		copy(t, u)
+
+		for i := 1; i < iter; i++ {
+			prf.Reset()
+			prf.Write(u)
+			u = prf.Sum(nil)
+			for j := range t {
+				t[j] ^= u[j]
+			}
+		}
+		result = append(result, t...)
+	}
+	return result[:keyLen]
 }

@@ -25,6 +25,13 @@ func main() {
 	log.Printf("[MRixk Server] Max active devices per user: %d", cfg.MaxDevicesPerUser)
 
 	repo := database.NewMemoryRepository(cfg.MaxDevicesPerUser)
+	if cfg.DataFilePath != "" {
+		if err := repo.SetStoragePath(cfg.DataFilePath); err != nil {
+			log.Printf("[MRixk Server] Notice: Initialized new durable state at %s", cfg.DataFilePath)
+		} else {
+			log.Printf("[MRixk Server] Durable persistence loaded successfully from: %s", cfg.DataFilePath)
+		}
+	}
 	idService := identity.NewService(repo)
 	deviceService := devices.NewService(repo)
 	msgService := messaging.NewService(repo)
@@ -57,6 +64,14 @@ func main() {
 
 	if err := httpServer.Shutdown(ctx); err != nil {
 		log.Printf("[MRixk Server] Forced shutdown error: %v", err)
+	}
+
+	if cfg.DataFilePath != "" {
+		if err := repo.SaveToFile(cfg.DataFilePath); err != nil {
+			log.Printf("[MRixk Server] Error persisting state on shutdown: %v", err)
+		} else {
+			log.Printf("[MRixk Server] State successfully persisted to: %s", cfg.DataFilePath)
+		}
 	}
 	log.Printf("[MRixk Server] Server terminated cleanly.")
 }

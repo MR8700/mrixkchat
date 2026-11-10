@@ -4,8 +4,11 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -21,15 +24,43 @@ var (
 )
 
 type User struct {
-	ID                 string    `json:"id"`
-	Handle             string    `json:"handle"`
-	PasswordHash       string    `json:"-"`
-	RecoveryPublicKey  string    `json:"recovery_public_key"`
-	DisplayName        string    `json:"display_name"`
-	AvatarRef          string    `json:"avatar_ref,omitempty"`
-	Bio                string    `json:"bio,omitempty"`
-	CreatedAt          time.Time `json:"created_at"`
-	UpdatedAt          time.Time `json:"updated_at"`
+	ID                string    `json:"id"`
+	Handle            string    `json:"handle"`
+	PasswordHash      string    `json:"password_hash,omitempty"`
+	RecoveryPublicKey string    `json:"recovery_public_key"`
+	DisplayName       string    `json:"display_name"`
+	AvatarRef         string    `json:"avatar_ref,omitempty"`
+	Bio               string    `json:"bio,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}
+
+type UserPublic struct {
+	ID                string    `json:"id"`
+	Handle            string    `json:"handle"`
+	RecoveryPublicKey string    `json:"recovery_public_key,omitempty"`
+	DisplayName       string    `json:"display_name"`
+	AvatarRef         string    `json:"avatar_ref,omitempty"`
+	Bio               string    `json:"bio,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}
+
+// Public returns a sanitized user profile safe for API responses without password hash.
+func (u *User) Public() *UserPublic {
+	if u == nil {
+		return nil
+	}
+	return &UserPublic{
+		ID:                u.ID,
+		Handle:            u.Handle,
+		RecoveryPublicKey: u.RecoveryPublicKey,
+		DisplayName:       u.DisplayName,
+		AvatarRef:         u.AvatarRef,
+		Bio:               u.Bio,
+		CreatedAt:         u.CreatedAt,
+		UpdatedAt:         u.UpdatedAt,
+	}
 }
 
 type DeviceStatus string
@@ -52,12 +83,12 @@ type Device struct {
 }
 
 type DeviceSession struct {
-	ID               string    `json:"id"`
-	DeviceID         string    `json:"device_id"`
-	SessionTokenHash string    `json:"-"`
-	ExpiresAt        time.Time `json:"expires_at"`
-	RevokedAt        *time.Time`json:"revoked_at,omitempty"`
-	CreatedAt        time.Time `json:"created_at"`
+	ID               string     `json:"id"`
+	DeviceID         string     `json:"device_id"`
+	SessionTokenHash string     `json:"session_token_hash,omitempty"`
+	ExpiresAt        time.Time  `json:"expires_at"`
+	RevokedAt        *time.Time `json:"revoked_at,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
 }
 
 type KeyPackage struct {
@@ -122,8 +153,111 @@ type MemoryRepository struct {
 	messages      map[string]*EncryptedMessageEnvelope
 	syncEvents    []*SyncEvent
 	securityLogs  []*SecurityEvent
+	storagePath   string
 	mu            sync.RWMutex
 	maxDevices    int
+}
+
+// SnapshotData represents the serializable state of the repository for durable persistence.
+type SnapshotData struct {
+	Users         map[string]*User                     `json:"users"`
+	Devices       map[string]*Device                   `json:"devices"`
+	Sessions      map[string]*DeviceSession            `json:"sessions,omitempty"`
+	Conversations map[string]*Conversation             `json:"conversations"`
+	Messages      map[string]*EncryptedMessageEnvelope `json:"messages"`
+	SyncEvents    []*SyncEvent                         `json:"sync_events,omitempty"`
+}
+
+// SetStoragePath sets the file path for durable persistence and attempts to load existing state.
+func (r *MemoryRepository) SetStoragePath(path string) error {
+	r.mu.Lock()
+	r.storagePath = path
+	r.mu.Unlock()
+
+	if _, err := os.Stat(path); err == nil {
+		return r.LoadFromFile(path)
+	}
+	return nil
+}
+
+func (r *MemoryRepository) saveIfConfigured() {
+	if r.storagePath != "" {
+		_ = r.saveToFileLocked(r.storagePath)
+	}
+}
+
+// SaveToFile serializes the current database state to disk atomically.
+func (r *MemoryRepository) SaveToFile(path string) error {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.saveToFileLocked(path)
+}
+
+func (r *MemoryRepository) saveToFileLocked(path string) error {
+	snap := SnapshotData{
+		Users:         r.users,
+		Devices:       r.devices,
+		Sessions:      r.sessions,
+		Conversations: r.conversations,
+		Messages:      r.messages,
+		SyncEvents:    r.syncEvents,
+	}
+
+	bytes, err := json.MarshalIndent(snap, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil && filepath.Dir(path) != "." {
+		return err
+	}
+
+	tmpFile := path + ".tmp"
+	if err := os.WriteFile(tmpFile, bytes, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmpFile, path)
+}
+
+// LoadFromFile restores the database state from disk.
+func (r *MemoryRepository) LoadFromFile(path string) error {
+	bytes, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	var snap SnapshotData
+	if err := json.Unmarshal(bytes, &snap); err != nil {
+		return err
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if snap.Users != nil {
+		r.users = snap.Users
+		r.usersByHandle = make(map[string]*User)
+		for _, u := range r.users {
+			r.usersByHandle[u.Handle] = u
+		}
+	}
+	if snap.Devices != nil {
+		r.devices = snap.Devices
+	}
+	if snap.Sessions != nil {
+		r.sessions = snap.Sessions
+	}
+	if snap.Conversations != nil {
+		r.conversations = snap.Conversations
+	}
+	if snap.Messages != nil {
+		r.messages = snap.Messages
+	}
+	if snap.SyncEvents != nil {
+		r.syncEvents = snap.SyncEvents
+	}
+
+	return nil
 }
 
 // NewMemoryRepository instantiates the store with the specified max devices quota (3).
@@ -149,6 +283,7 @@ func NewMemoryRepository(maxDevices int) *MemoryRepository {
 func (r *MemoryRepository) CreateUser(u *User) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	defer r.saveIfConfigured()
 
 	if _, exists := r.usersByHandle[u.Handle]; exists {
 		return ErrHandleAlreadyTaken
@@ -186,6 +321,7 @@ func (r *MemoryRepository) GetUserByID(id string) (*User, error) {
 func (r *MemoryRepository) RegisterDevice(d *Device) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	defer r.saveIfConfigured()
 
 	// Count active devices for this user
 	activeCount := 0
@@ -239,6 +375,7 @@ func (r *MemoryRepository) GetActiveDevicesForUser(userID string) []*Device {
 func (r *MemoryRepository) RevokeDevice(userID, deviceID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	defer r.saveIfConfigured()
 
 	dev, exists := r.devices[deviceID]
 	if !exists || dev.UserID != userID {
@@ -261,6 +398,7 @@ func (r *MemoryRepository) RevokeDevice(userID, deviceID string) error {
 func (r *MemoryRepository) CreateSession(deviceID string, ttl time.Duration) (string, *DeviceSession, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	defer r.saveIfConfigured()
 
 	dev, exists := r.devices[deviceID]
 	if !exists || dev.Status != DeviceStatusActive {
@@ -313,15 +451,29 @@ func (r *MemoryRepository) ValidateSession(rawToken string) (*Device, *DeviceSes
 func (r *MemoryRepository) CreateConversation(c *Conversation) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	defer r.saveIfConfigured()
 
 	r.conversations[c.ID] = c
 	return nil
+}
+
+// GetConversation returns a conversation by ID.
+func (r *MemoryRepository) GetConversation(id string) (*Conversation, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	c, exists := r.conversations[id]
+	if !exists {
+		return nil, ErrConversationNotFound
+	}
+	return c, nil
 }
 
 // SaveEncryptedMessage saves an E2EE encrypted envelope.
 func (r *MemoryRepository) SaveEncryptedMessage(msg *EncryptedMessageEnvelope) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	defer r.saveIfConfigured()
 
 	if _, exists := r.conversations[msg.ConversationID]; !exists {
 		return ErrConversationNotFound

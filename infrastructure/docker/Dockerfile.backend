@@ -4,20 +4,24 @@ FROM golang:1.22-alpine AS builder
 WORKDIR /app
 RUN apk add --no-cache git gcc musl-dev
 
-COPY . .
+COPY go.mod ./
+COPY backend ./backend
+COPY packages ./packages
 
-WORKDIR /app/backend
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/bin/mrixk-server ./cmd/server
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/bin/mrixk-server ./backend/cmd/server
 
 # Final runtime stage
 FROM alpine:3.19
 
 WORKDIR /app
-RUN apk add --no-cache ca-certificates tzdata
+RUN apk add --no-cache ca-certificates tzdata && mkdir -p /app/data
 
 COPY --from=builder /app/bin/mrixk-server /app/mrixk-server
-COPY --from=builder /app/infrastructure/postgres/migrations /app/migrations
 
-EXPOSE 8080
+EXPOSE 8080 10000
+
+ENV PORT=8080
+ENV DATA_FILE_PATH=/app/data/mrixk_state.json
+ENV APP_ENV=production
 
 ENTRYPOINT ["/app/mrixk-server"]

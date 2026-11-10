@@ -58,8 +58,17 @@ func TestAPI_FullEndToEndFlow(t *testing.T) {
 		t.Fatalf("Expected 409 Conflict for duplicate handle, got %d", rec.Code)
 	}
 
-	// 3. Authorize Device 1 (Android)
-	dev1Payload := fmt.Sprintf(`{"user_id":"%s","device_name":"Pixel Phone","platform":"Android","identity_public_key":"pub1","diffie_hellman_public_key":"dh1"}`, userID)
+	// 3. Unauthorized Device Authorization attempt (no credentials or session) -> MUST RETURN 401
+	unauthDevPayload := fmt.Sprintf(`{"user_id":"%s","device_name":"Attacker Phone","platform":"Android"}`, userID)
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/devices/authorize", bytes.NewBufferString(unauthDevPayload))
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("Security failure: unauthenticated device authorization should return 401, got: %d", rec.Code)
+	}
+
+	// 3b. Authorize Device 1 (Android) with valid password credentials
+	dev1Payload := fmt.Sprintf(`{"user_id":"%s","password":"mypassword2026","device_name":"Pixel Phone","platform":"Android","identity_public_key":"pub1","diffie_hellman_public_key":"dh1"}`, userID)
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/devices/authorize", bytes.NewBufferString(dev1Payload))
 	server.ServeHTTP(rec, req)
@@ -73,13 +82,14 @@ func TestAPI_FullEndToEndFlow(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &dev1Resp)
 	token1 := dev1Resp.SessionToken
 
-	// 4. Authorize Device 2 (Windows)
-	dev2Payload := fmt.Sprintf(`{"user_id":"%s","device_name":"Work PC","platform":"Windows","identity_public_key":"pub2","diffie_hellman_public_key":"dh2"}`, userID)
+	// 4. Authorize Device 2 (Windows) authenticated via Device 1's active session token
+	dev2Payload := fmt.Sprintf(`{"device_name":"Work PC","platform":"Windows","identity_public_key":"pub2","diffie_hellman_public_key":"dh2"}`)
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/devices/authorize", bytes.NewBufferString(dev2Payload))
+	req.Header.Set("Authorization", "Bearer "+token1)
 	server.ServeHTTP(rec, req)
 	if rec.Code != http.StatusCreated {
-		t.Fatalf("Authorize Device 2 failed: %d", rec.Code)
+		t.Fatalf("Authorize Device 2 failed: %d, body: %s", rec.Code, rec.Body.String())
 	}
 	var dev2Resp struct {
 		Device database.Device `json:"device"`
@@ -87,17 +97,17 @@ func TestAPI_FullEndToEndFlow(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &dev2Resp)
 	dev2ID := dev2Resp.Device.ID
 
-	// 5. Authorize Device 3 (Linux)
-	dev3Payload := fmt.Sprintf(`{"user_id":"%s","device_name":"Parrot Laptop","platform":"Linux","identity_public_key":"pub3","diffie_hellman_public_key":"dh3"}`, userID)
+	// 5. Authorize Device 3 (Linux) authenticated via user password
+	dev3Payload := fmt.Sprintf(`{"handle":"@mrixk.richard","password":"mypassword2026","device_name":"Parrot Laptop","platform":"Linux","identity_public_key":"pub3","diffie_hellman_public_key":"dh3"}`)
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/devices/authorize", bytes.NewBufferString(dev3Payload))
 	server.ServeHTTP(rec, req)
 	if rec.Code != http.StatusCreated {
-		t.Fatalf("Authorize Device 3 failed: %d", rec.Code)
+		t.Fatalf("Authorize Device 3 failed: %d, body: %s", rec.Code, rec.Body.String())
 	}
 
-	// 6. ATTEMPT 4TH DEVICE AUTHORIZATION -> MUST RETURN 403 FORBIDDEN
-	dev4Payload := fmt.Sprintf(`{"user_id":"%s","device_name":"Extra iPad","platform":"iOS","identity_public_key":"pub4","diffie_hellman_public_key":"dh4"}`, userID)
+	// 6. ATTEMPT 4TH DEVICE AUTHORIZATION -> MUST RETURN 403 FORBIDDEN (quota exceeded)
+	dev4Payload := fmt.Sprintf(`{"user_id":"%s","password":"mypassword2026","device_name":"Extra iPad","platform":"iOS","identity_public_key":"pub4","diffie_hellman_public_key":"dh4"}`, userID)
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/devices/authorize", bytes.NewBufferString(dev4Payload))
 	server.ServeHTTP(rec, req)
@@ -171,5 +181,84 @@ func TestAPI_FullEndToEndFlow(t *testing.T) {
 	server.ServeHTTP(rec, req)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("Expected 201 Created for re-attempted device after revocation, got: %d", rec.Code)
+	}
+
+	// 13. Test Encrypted Media Upload & Download
+	mediaPayload := []byte("ENCRYPTED_BLOB_IMAGE_CONTENT_AES_GCM")
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/media/upload", bytes.NewBuffer(mediaPayload))
+	req.Header.Set("Authorization", "Bearer "+token1)
+	req.Header.Set("X-Media-ID", "media_test_001")
+	req.Header.Set("Content-Type", "image/jpeg")
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("Media upload failed: %d, body: %s", rec.Code, rec.Body.String())
+	}
+
+	// Unauthenticated media download attempt -> MUST RETURN 401
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/media/media_test_001", nil)
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("Security failure: unauthenticated media download should return 401, got: %d", rec.Code)
+	}
+
+	// Download the uploaded media with valid session
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/media/media_test_001", nil)
+	req.Header.Set("Authorization", "Bearer "+token1)
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Authenticated media download failed: %d", rec.Code)
+	}
+	if !bytes.Equal(rec.Body.Bytes(), mediaPayload) {
+		t.Fatalf("Downloaded media payload mismatch")
+	}
+
+	// 14. Test WebRTC Call Offer Signaling
+	callOfferPayload := `{"call_id":"call_001","callee_id":"user_sophie","type":"AUDIO","sdp_offer":"v=0\r\no=- 42 2 IN IP4 127.0.0.1"}`
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/calls/offer", bytes.NewBufferString(callOfferPayload))
+	req.Header.Set("Authorization", "Bearer "+token1)
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("Call offer failed: %d", rec.Code)
+	}
+
+	// 15. Test Moments Feed
+	momentPayload := `{"id":"moment_001","type":"image","media_url":"https://example.com/moment.jpg","text":"Beau coucher de soleil !"}`
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/moments", bytes.NewBufferString(momentPayload))
+	req.Header.Set("Authorization", "Bearer "+token1)
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("Create moment failed: %d", rec.Code)
+	}
+
+	// Unauthenticated moments list attempt -> MUST RETURN 401
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/moments", nil)
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("Security failure: unauthenticated moments list should return 401, got: %d", rec.Code)
+	}
+
+	// Authenticated moments list
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/moments", nil)
+	req.Header.Set("Authorization", "Bearer "+token1)
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("List moments failed: %d", rec.Code)
+	}
+
+	// 16. Test Local AI Query Endpoint
+	aiQueryPayload := `{"prompt":"Quelles sont mes préférences de confidentialité ?"}`
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/ai/query", bytes.NewBufferString(aiQueryPayload))
+	req.Header.Set("Authorization", "Bearer "+token1)
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("AI query failed: %d", rec.Code)
 	}
 }
