@@ -16,6 +16,7 @@ import (
 	"mrixk.io/mrixk/backend/internal/contacts"
 	"mrixk.io/mrixk/backend/internal/database"
 	"mrixk.io/mrixk/backend/internal/devices"
+	"mrixk.io/mrixk/backend/internal/documents"
 	"mrixk.io/mrixk/backend/internal/identity"
 	"mrixk.io/mrixk/backend/internal/media"
 	"mrixk.io/mrixk/backend/internal/messaging"
@@ -32,6 +33,7 @@ type Server struct {
 	socialService *social.Service
 	contactService *contacts.Service
 	aiService     *ai.Service
+	docService    *documents.Service
 	hub           *Hub
 	repo          *database.MemoryRepository
 }
@@ -52,6 +54,7 @@ func NewServer(
 		socialService: social.NewService(),
 		contactService: contacts.NewService(),
 		aiService:     ai.NewService(),
+		docService:    documents.NewService(),
 		hub:           NewHub(),
 		repo:          repo,
 	}
@@ -124,6 +127,18 @@ func (s *Server) routes() {
 
 	// AI Local Cognitive Query
 	s.mux.HandleFunc("POST /api/v1/ai/query", s.handleAIQuery)
+
+	// Collaborative Bloc-Note & Group Workspaces (E2EE)
+	s.mux.HandleFunc("POST /api/v1/groups/{id}/documents", s.handleCreateGroupDocument)
+	s.mux.HandleFunc("GET /api/v1/groups/{id}/documents", s.handleGetGroupDocument)
+	s.mux.HandleFunc("PUT /api/v1/groups/{id}/documents/{docId}", s.handleUpdateGroupDocument)
+	s.mux.HandleFunc("POST /api/v1/groups/{id}/documents/{docId}/freeze", s.handleFreezeGroupDocument)
+	s.mux.HandleFunc("POST /api/v1/groups/{id}/documents/{docId}/unfreeze", s.handleUnfreezeGroupDocument)
+	s.mux.HandleFunc("GET /api/v1/groups/{id}/documents/{docId}/versions", s.handleGetGroupDocumentVersions)
+	s.mux.HandleFunc("POST /api/v1/groups/{id}/documents/{docId}/restore/{version}", s.handleRestoreGroupDocumentVersion)
+	s.mux.HandleFunc("DELETE /api/v1/groups/{id}/documents/{docId}/components/{name}", s.handleDeleteGroupDocumentComponent)
+	s.mux.HandleFunc("PUT /api/v1/groups/{id}/members/{userId}/role", s.handleAssignGroupMemberRole)
+	s.mux.HandleFunc("GET /api/v1/groups/{id}/documents/{docId}/audit", s.handleGetGroupDocumentAuditLogs)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -711,6 +726,488 @@ func (s *Server) handleAIQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonResponse(w, http.StatusOK, res)
+}
+
+// -----------------------------------------------------------------------------
+// Group Documents & Collaborative Bloc-Note Handlers (Lot S1 / E2EE)
+// -----------------------------------------------------------------------------
+
+func (s *Server) ensureGroupMemberRoles(groupID string, callerID string) error {
+	conv, err := s.repo.GetConversation(groupID)
+	if err != nil {
+		if errors.Is(err, database.ErrConversationNotFound) {
+			return errors.New("group conversation not found")
+		}
+		return err
+	}
+
+	isMember := false
+	for _, m := range conv.Members {
+		if m == callerID {
+			isMember = true
+			break
+		}
+	}
+	if !isMember && callerID != conv.CreatedBy {
+		return documents.ErrNotGroupMember
+	}
+
+	// Initialize group roles in docService if not present
+	if _, exists := s.docService.GetMemberRole(groupID, conv.CreatedBy); !exists {
+		s.docService.SetMemberRole(groupID, conv.CreatedBy, documents.RoleOwner)
+		for _, m := range conv.Members {
+			if m != conv.CreatedBy {
+				if _, hasRole := s.docService.GetMemberRole(groupID, m); !hasRole {
+					s.docService.SetMemberRole(groupID, m, documents.RoleMember)
+				}
+			}
+		}
+	} else {
+		if _, exists := s.docService.GetMemberRole(groupID, callerID); !exists {
+			s.docService.SetMemberRole(groupID, callerID, documents.RoleMember)
+		}
+	}
+
+	return nil
+}
+
+type CreateDocumentRequest struct {
+	Title            string            `json:"title"`
+	EncryptedContent string            `json:"encrypted_content"`
+	Components       map[string]string `json:"components"`
+	LineSpacing      float64           `json:"line_spacing"`
+	ParagraphSpacing float64           `json:"paragraph_spacing"`
+}
+
+func (s *Server) handleCreateGroupDocument(w http.ResponseWriter, r *http.Request) {
+	dev, err := s.authenticateDeviceSession(r)
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+
+	groupID := r.PathValue("id")
+	if groupID == "" {
+		jsonError(w, http.StatusBadRequest, "Missing group ID")
+		return
+	}
+
+	if err := s.ensureGroupMemberRoles(groupID, dev.UserID); err != nil {
+		if errors.Is(err, documents.ErrNotGroupMember) {
+			jsonError(w, http.StatusForbidden, err.Error())
+			return
+		}
+		jsonError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	var req CreateDocumentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request JSON payload")
+		return
+	}
+
+	doc, err := s.docService.CreateDocument(
+		dev.UserID, groupID, req.Title, req.EncryptedContent,
+		req.Components, req.LineSpacing, req.ParagraphSpacing,
+	)
+	if err != nil {
+		if errors.Is(err, documents.ErrPermissionDenied) {
+			jsonError(w, http.StatusForbidden, err.Error())
+			return
+		}
+		if errors.Is(err, documents.ErrDocumentTooLarge) || errors.Is(err, documents.ErrComponentTooLarge) || errors.Is(err, documents.ErrTooManyComponents) {
+			jsonError(w, http.StatusRequestEntityTooLarge, err.Error())
+			return
+		}
+		jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusCreated, map[string]interface{}{
+		"document": doc,
+	})
+}
+
+func (s *Server) handleGetGroupDocument(w http.ResponseWriter, r *http.Request) {
+	dev, err := s.authenticateDeviceSession(r)
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+
+	groupID := r.PathValue("id")
+	if err := s.ensureGroupMemberRoles(groupID, dev.UserID); err != nil {
+		if errors.Is(err, documents.ErrNotGroupMember) {
+			jsonError(w, http.StatusForbidden, err.Error())
+			return
+		}
+		jsonError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	doc, err := s.docService.GetDocument(dev.UserID, groupID)
+	if err != nil {
+		if errors.Is(err, documents.ErrDocumentNotFound) {
+			jsonError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		if errors.Is(err, documents.ErrNotGroupMember) || errors.Is(err, documents.ErrPermissionDenied) {
+			jsonError(w, http.StatusForbidden, err.Error())
+			return
+		}
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"document": doc,
+	})
+}
+
+type UpdateDocumentRequest struct {
+	ExpectedVersion  int               `json:"expected_version"`
+	EncryptedContent string            `json:"encrypted_content"`
+	Components       map[string]string `json:"components"`
+	LineSpacing      float64           `json:"line_spacing"`
+	ParagraphSpacing float64           `json:"paragraph_spacing"`
+	PublishType      string            `json:"publish_type"`
+}
+
+func (s *Server) handleUpdateGroupDocument(w http.ResponseWriter, r *http.Request) {
+	dev, err := s.authenticateDeviceSession(r)
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+
+	groupID := r.PathValue("id")
+	docID := r.PathValue("docId")
+
+	if err := s.ensureGroupMemberRoles(groupID, dev.UserID); err != nil {
+		if errors.Is(err, documents.ErrNotGroupMember) {
+			jsonError(w, http.StatusForbidden, err.Error())
+			return
+		}
+		jsonError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	var req UpdateDocumentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request JSON payload")
+		return
+	}
+
+	pubType := documents.PublishInPlace
+	if req.PublishType == string(documents.PublishPostToChat) {
+		pubType = documents.PublishPostToChat
+	}
+
+	doc, ver, err := s.docService.UpdateDocument(
+		dev.UserID, groupID, docID,
+		req.ExpectedVersion, req.EncryptedContent,
+		req.Components, req.LineSpacing, req.ParagraphSpacing,
+		pubType,
+	)
+	if err != nil {
+		if errors.Is(err, documents.ErrDocumentFrozen) {
+			jsonError(w, http.StatusLocked, err.Error())
+			return
+		}
+		if errors.Is(err, documents.ErrConcurrentModification) {
+			jsonError(w, http.StatusConflict, err.Error())
+			return
+		}
+		if errors.Is(err, documents.ErrPermissionDenied) || errors.Is(err, documents.ErrNotGroupMember) {
+			jsonError(w, http.StatusForbidden, err.Error())
+			return
+		}
+		if errors.Is(err, documents.ErrDocumentTooLarge) || errors.Is(err, documents.ErrComponentTooLarge) || errors.Is(err, documents.ErrTooManyComponents) {
+			jsonError(w, http.StatusRequestEntityTooLarge, err.Error())
+			return
+		}
+		if errors.Is(err, documents.ErrDocumentNotFound) {
+			jsonError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"document": doc,
+		"version":  ver,
+	})
+}
+
+func (s *Server) handleFreezeGroupDocument(w http.ResponseWriter, r *http.Request) {
+	dev, err := s.authenticateDeviceSession(r)
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+
+	groupID := r.PathValue("id")
+	docID := r.PathValue("docId")
+
+	if err := s.ensureGroupMemberRoles(groupID, dev.UserID); err != nil {
+		jsonError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	if err := s.docService.FreezeDocument(dev.UserID, groupID, docID); err != nil {
+		if errors.Is(err, documents.ErrPermissionDenied) {
+			jsonError(w, http.StatusForbidden, err.Error())
+			return
+		}
+		if errors.Is(err, documents.ErrDocumentNotFound) {
+			jsonError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"message": "Document frozen in read-only mode by administrator",
+		"doc_id":  docID,
+		"state":   "FROZEN",
+	})
+}
+
+func (s *Server) handleUnfreezeGroupDocument(w http.ResponseWriter, r *http.Request) {
+	dev, err := s.authenticateDeviceSession(r)
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+
+	groupID := r.PathValue("id")
+	docID := r.PathValue("docId")
+
+	if err := s.ensureGroupMemberRoles(groupID, dev.UserID); err != nil {
+		jsonError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	if err := s.docService.UnfreezeDocument(dev.UserID, groupID, docID); err != nil {
+		if errors.Is(err, documents.ErrPermissionDenied) {
+			jsonError(w, http.StatusForbidden, err.Error())
+			return
+		}
+		if errors.Is(err, documents.ErrDocumentNotFound) {
+			jsonError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"message": "Document unfrozen successfully",
+		"doc_id":  docID,
+		"state":   "ACTIVE",
+	})
+}
+
+func (s *Server) handleGetGroupDocumentVersions(w http.ResponseWriter, r *http.Request) {
+	dev, err := s.authenticateDeviceSession(r)
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+
+	groupID := r.PathValue("id")
+	docID := r.PathValue("docId")
+
+	if err := s.ensureGroupMemberRoles(groupID, dev.UserID); err != nil {
+		jsonError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	versions, err := s.docService.GetVersions(dev.UserID, groupID, docID)
+	if err != nil {
+		if errors.Is(err, documents.ErrDocumentNotFound) {
+			jsonError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		jsonError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"versions": versions,
+	})
+}
+
+func (s *Server) handleRestoreGroupDocumentVersion(w http.ResponseWriter, r *http.Request) {
+	dev, err := s.authenticateDeviceSession(r)
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+
+	groupID := r.PathValue("id")
+	docID := r.PathValue("docId")
+	verStr := r.PathValue("version")
+	targetVersion, err := strconv.Atoi(verStr)
+	if err != nil || targetVersion <= 0 {
+		jsonError(w, http.StatusBadRequest, "Invalid version number")
+		return
+	}
+
+	if err := s.ensureGroupMemberRoles(groupID, dev.UserID); err != nil {
+		jsonError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	doc, err := s.docService.RestoreVersion(dev.UserID, groupID, docID, targetVersion)
+	if err != nil {
+		if errors.Is(err, documents.ErrDocumentFrozen) {
+			jsonError(w, http.StatusLocked, err.Error())
+			return
+		}
+		if errors.Is(err, documents.ErrPermissionDenied) {
+			jsonError(w, http.StatusForbidden, err.Error())
+			return
+		}
+		if errors.Is(err, documents.ErrDocumentNotFound) {
+			jsonError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"document": doc,
+		"message":  fmt.Sprintf("Document restored from version %d", targetVersion),
+	})
+}
+
+func (s *Server) handleDeleteGroupDocumentComponent(w http.ResponseWriter, r *http.Request) {
+	dev, err := s.authenticateDeviceSession(r)
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+
+	groupID := r.PathValue("id")
+	docID := r.PathValue("docId")
+	compName := r.PathValue("name")
+	force := r.URL.Query().Get("force") == "true"
+
+	if err := s.ensureGroupMemberRoles(groupID, dev.UserID); err != nil {
+		jsonError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	if err := s.docService.DeleteComponent(dev.UserID, groupID, docID, compName, force); err != nil {
+		if errors.Is(err, documents.ErrDocumentFrozen) {
+			jsonError(w, http.StatusLocked, err.Error())
+			return
+		}
+		if errors.Is(err, documents.ErrComponentReferenced) {
+			jsonError(w, http.StatusConflict, err.Error())
+			return
+		}
+		if errors.Is(err, documents.ErrPermissionDenied) {
+			jsonError(w, http.StatusForbidden, err.Error())
+			return
+		}
+		if errors.Is(err, documents.ErrDocumentNotFound) {
+			jsonError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"message":   "Component deleted successfully",
+		"component": compName,
+	})
+}
+
+type AssignRoleRequest struct {
+	Role string `json:"role"`
+}
+
+func (s *Server) handleAssignGroupMemberRole(w http.ResponseWriter, r *http.Request) {
+	dev, err := s.authenticateDeviceSession(r)
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+
+	groupID := r.PathValue("id")
+	targetUserID := r.PathValue("userId")
+
+	if err := s.ensureGroupMemberRoles(groupID, dev.UserID); err != nil {
+		jsonError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	var req AssignRoleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request JSON payload")
+		return
+	}
+
+	role := documents.Role(req.Role)
+	if err := s.docService.AssignMemberRole(dev.UserID, groupID, targetUserID, role); err != nil {
+		if errors.Is(err, documents.ErrOwnerImmutable) || errors.Is(err, documents.ErrInvalidRoleHierarchy) || errors.Is(err, documents.ErrPermissionDenied) {
+			jsonError(w, http.StatusForbidden, err.Error())
+			return
+		}
+		if errors.Is(err, documents.ErrNotGroupMember) {
+			jsonError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"message": "Role assigned successfully",
+		"user_id": targetUserID,
+		"role":    string(role),
+	})
+}
+
+func (s *Server) handleGetGroupDocumentAuditLogs(w http.ResponseWriter, r *http.Request) {
+	dev, err := s.authenticateDeviceSession(r)
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+
+	groupID := r.PathValue("id")
+	docID := r.PathValue("docId")
+
+	if err := s.ensureGroupMemberRoles(groupID, dev.UserID); err != nil {
+		jsonError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	logs, err := s.docService.GetAuditLogs(dev.UserID, groupID, docID)
+	if err != nil {
+		if errors.Is(err, documents.ErrPermissionDenied) {
+			jsonError(w, http.StatusForbidden, err.Error())
+			return
+		}
+		if errors.Is(err, documents.ErrDocumentNotFound) {
+			jsonError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"audit_logs": logs,
+	})
 }
 
 func jsonResponse(w http.ResponseWriter, status int, data interface{}) {
