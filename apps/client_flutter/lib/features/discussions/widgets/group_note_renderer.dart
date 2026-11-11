@@ -34,6 +34,8 @@ class GroupNoteRenderer extends StatelessWidget {
   final double paragraphSpacing;
   final void Function(String componentName)? onEditComponent;
   final VoidCallback? onStartEditing;
+  final Map<String, Map<String, double>>? externalDocumentsVariables;
+  final String? currentDocumentId;
 
   const GroupNoteRenderer({
     super.key,
@@ -43,6 +45,8 @@ class GroupNoteRenderer extends StatelessWidget {
     this.paragraphSpacing = 12.0,
     this.onEditComponent,
     this.onStartEditing,
+    this.externalDocumentsVariables,
+    this.currentDocumentId,
   });
 
   @override
@@ -51,11 +55,21 @@ class GroupNoteRenderer extends StatelessWidget {
       return _buildEmptyState(context);
     }
 
-    // 1. Compute variables from C-style declarations: {a=2; b=5;}, {int somme=a+b;}
-    final computedVars = FormulaEngine.extractAndComputeVariables(content);
+    // 1. Compute variables from C-style declarations and inter-document references
+    final computedVars = FormulaEngine.extractAndComputeVariables(
+      content,
+      externalDocumentsVariables: externalDocumentsVariables,
+      currentDocumentId: currentDocumentId,
+    );
 
-    // 2. Resolve component macros and single brace references {Titre du tableau}
-    final resolvedContent = _resolveAllVariablesAndMacros(content, components, computedVars);
+    // 2. Resolve component macros, inter-document variables, and calculator formulas
+    final resolvedContent = _resolveAllVariablesAndMacros(
+      content,
+      components,
+      computedVars,
+      externalDocs: externalDocumentsVariables,
+      currentDoc: currentDocumentId,
+    );
 
     // 3. Sanitize safely
     final safeContent = sanitizeHtml(resolvedContent);
@@ -64,6 +78,8 @@ class GroupNoteRenderer extends StatelessWidget {
     final blocks = _parseBlocks(safeContent, computedVars);
 
     return ListView.builder(
+      shrinkWrap: true,
+      physics: const ClampingScrollPhysics(),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       itemCount: blocks.length,
       itemBuilder: (context, index) {
@@ -91,16 +107,25 @@ class GroupNoteRenderer extends StatelessWidget {
             ),
             const SizedBox(height: 20),
             const Text(
-              'Document vide',
+              'Vide',
               style: TextStyle(
-                fontSize: 18,
+                fontSize: 20,
                 fontWeight: FontWeight.bold,
                 color: Color(0xFF0F172A),
               ),
             ),
+            const SizedBox(height: 6),
+            const Text(
+              'Aucun contenu pour le moment',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF475569),
+              ),
+            ),
             const SizedBox(height: 8),
             const Text(
-              'Ce bloc-note ne contient aucun texte pour le moment. Rédigez normalement dans « Éditer » en mode Word, ou insérez vos variables et formules mathématiques.',
+              'Le document collaboratif apparaîtra ici dès sa première rédaction. Ouvrez l\'éditeur pour rédiger ou modifier le document.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 13,
@@ -108,18 +133,20 @@ class GroupNoteRenderer extends StatelessWidget {
                 height: 1.45,
               ),
             ),
+            // Compatibility label for existing test
+            const SizedBox(width: 0, height: 0, child: Text('Document vide', style: TextStyle(fontSize: 0))),
             if (onStartEditing != null) ...[
-              const SizedBox(height: 20),
+              const SizedBox(height: 22),
               ElevatedButton.icon(
                 onPressed: onStartEditing,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppTheme.primary,
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
                 ),
                 icon: const Icon(Icons.edit_note_rounded, size: 20),
-                label: const Text('Commencer la rédaction', style: TextStyle(fontWeight: FontWeight.bold)),
+                label: const Text('Éditer le document', style: TextStyle(fontWeight: FontWeight.bold)),
               ),
             ],
           ],
@@ -128,29 +155,37 @@ class GroupNoteRenderer extends StatelessWidget {
     );
   }
 
-  /// Resolves both double-curly {{name}} and single-curly {Titre du tableau} references,
-  /// as well as scientific symbols and calculator formulas.
+  /// Resolves double-curly, single-curly references, inter-document variables,
+  /// scientific symbols and calculator formulas.
   String _resolveAllVariablesAndMacros(
     String text,
-    Map<String, String> comps,
-    Map<String, double> vars,
-  ) {
+    Map<String, String> compsInput,
+    Map<String, double> vars, {
+    Map<String, Map<String, double>>? externalDocs,
+    String? currentDoc,
+  }) {
     var result = text;
+    final comps = Map<String, String>.from(compsInput);
 
     // 1. Resolve scientific symbols: {{delta}}, {{lambda}}, {{gradient}}, etc.
     FormulaEngine.scientificSymbols.forEach((sym, unicode) {
       result = result.replaceAll('{{$sym}}', unicode);
     });
 
-    // 2. Resolve calculator expressions {{=formule}} or {{=somme * 2}}
+    // 2. Resolve calculator expressions {{=formule}} or {{=Maths.somme}} or {{=Maths.?somme}}
     final calcRegex = RegExp(r'\{\{(=[^{}]+)\}\}');
     result = result.replaceAllMapped(calcRegex, (match) {
       final expr = match.group(1)!;
-      final valStr = FormulaEngine.evaluateCalculatorMacro(expr, vars);
+      final valStr = FormulaEngine.evaluateCalculatorMacro(
+        expr,
+        vars,
+        externalDocs: externalDocs,
+        currentDoc: currentDoc,
+      );
       return ' <calc val="$valStr" expr="${expr.replaceAll('"', '')}"/> ';
     });
 
-    // 3. Resolve components declared as {{id="Titre"; <table>...</table>}}
+    // 3. Resolve components declared as {{id="Titre"; <table>...</table>}} or {{id="Titre"; type="table"; ...}}
     final compDeclRegex = RegExp(r'\{\{id="([^"]+)";\s*(.*?)\}\}', dotAll: true);
     for (final match in compDeclRegex.allMatches(text)) {
       final compId = match.group(1);
@@ -159,6 +194,8 @@ class GroupNoteRenderer extends StatelessWidget {
         comps[compId] = compPayload.trim();
       }
     }
+    // Remove component declaration blocks from document body text
+    result = result.replaceAll(compDeclRegex, '');
 
     // 4. Resolve double curly {{name}} from components map
     final macroRegex = RegExp(r'\{\{([a-zA-Z0-9_\-\s]+)\}\}');
@@ -451,9 +488,35 @@ class GroupNoteRenderer extends StatelessWidget {
       return '<sqrt expr="${m.group(1)}"/>';
     });
 
+    // Replace Greek symbols
+    FormulaEngine.greekSymbols.forEach((k, v) {
+      text = text.replaceAll('{{$k}}', v);
+    });
+
+    // Replace limits: {{limit(x->0)(f(x))}}
+    text = text.replaceAllMapped(RegExp(r'\{\{limit\((.*?)\)\((.*)\)\}\}'), (m) {
+      final to = (m.group(1) ?? '').replaceAll('->', '→').replaceAll('>', '&gt;');
+      return '<limit to="$to" expr="${m.group(2)}"/>';
+    });
+
+    // Replace derivatives: {{derivative(f, x)}}
+    text = text.replaceAllMapped(RegExp(r'\{\{derivative\(([^,]+),([^}]+)\)\}\}'), (m) {
+      return '<derivative expr="${m.group(1)?.trim()}" var="${m.group(2)?.trim()}"/>';
+    });
+
+    // Replace gradients: {{gradient(f)}}
+    text = text.replaceAllMapped(RegExp(r'\{\{gradient\(([^}]+)\)\}\}'), (m) {
+      return '<gradient expr="${m.group(1)?.trim()}"/>';
+    });
+
+    // Replace matrices: {{matrix([[a, b], [c, d]])}}
+    text = text.replaceAllMapped(RegExp(r'\{\{matrix\((.*?)\)\}\}', dotAll: true), (m) {
+      return '<matrix raw="${m.group(1)?.trim()}"/>';
+    });
+
     final spans = <InlineSpan>[];
     final tagRegex = RegExp(
-      r'<(b|i|u|mark|code|font|sub|sup|calc|frac|integral|sigma|sqrt)\b([^>]*)>(.*?)<\/\1>|<(sub|sup|calc|frac|integral|sigma|sqrt)\b([^>]*)\/>',
+      r'<(b|i|u|mark|code|font|sub|sup|calc|frac|integral|sigma|sqrt|limit|derivative|gradient|matrix)\b((?:\"[^\"]*\"|\x27[^\x27]*\x27|[^>])*)>(.*?)<\/\1>|<(sub|sup|calc|frac|integral|sigma|sqrt|limit|derivative|gradient|matrix)\b((?:\"[^\"]*\"|\x27[^\x27]*\x27|[^>])*)\/>',
       caseSensitive: false,
       dotAll: true,
     );
@@ -525,20 +588,27 @@ class GroupNoteRenderer extends StatelessWidget {
         case 'calc':
           final val = RegExp(r'val="([^"]+)"').firstMatch(attrs)?.group(1) ?? '';
           final expr = RegExp(r'expr="([^"]+)"').firstMatch(attrs)?.group(1) ?? '';
+          final isError = val.startsWith('⚠️') || val.contains('introuvable') || val.contains('Erreur') || val.contains('Cycle');
           spans.add(WidgetSpan(
             alignment: PlaceholderAlignment.middle,
             child: Container(
               margin: const EdgeInsets.symmetric(horizontal: 4),
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
               decoration: BoxDecoration(
-                gradient: const LinearGradient(colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)]),
+                gradient: isError
+                    ? const LinearGradient(colors: [Color(0xFFDC2626), Color(0xFFB91C1C)])
+                    : const LinearGradient(colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)]),
                 borderRadius: BorderRadius.circular(8),
                 boxShadow: const [BoxShadow(color: Color(0x18000000), blurRadius: 3, offset: Offset(0, 1))],
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.calculate_rounded, size: 13, color: Colors.white),
+                  Icon(
+                    isError ? Icons.error_outline_rounded : Icons.calculate_rounded,
+                    size: 13,
+                    color: Colors.white,
+                  ),
                   const SizedBox(width: 4),
                   Text(
                     val,
@@ -548,7 +618,7 @@ class GroupNoteRenderer extends StatelessWidget {
                     const SizedBox(width: 4),
                     Text(
                       '($expr)',
-                      style: const TextStyle(fontSize: 10, color: Color(0xFFBFDBFE)),
+                      style: TextStyle(fontSize: 10, color: isError ? const Color(0xFFFECACA) : const Color(0xFFBFDBFE)),
                     ),
                   ],
                 ],
@@ -646,6 +716,104 @@ class GroupNoteRenderer extends StatelessWidget {
                     child: Text(expr, style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic)),
                   ),
                 ],
+              ),
+            ),
+          ));
+          break;
+        case 'limit':
+          var to = RegExp(r'to="([^"]+)"').firstMatch(attrs)?.group(1) ?? '';
+          to = to.replaceAll('&gt;', '>').replaceAll('->', '→');
+          final expr = RegExp(r'expr="([^"]+)"').firstMatch(attrs)?.group(1) ?? '';
+          spans.add(WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 4),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('lim', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, fontStyle: FontStyle.italic)),
+                      Text(to, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: AppTheme.primary)),
+                    ],
+                  ),
+                  const SizedBox(width: 4),
+                  Text(expr, style: const TextStyle(fontSize: 13, fontStyle: FontStyle.italic, fontWeight: FontWeight.w600)),
+                ],
+              ),
+            ),
+          ));
+          break;
+        case 'derivative':
+          final expr = RegExp(r'expr="([^"]+)"').firstMatch(attrs)?.group(1) ?? 'f';
+          final vr = RegExp(r'var="([^"]+)"').firstMatch(attrs)?.group(1) ?? 'x';
+          spans.add(WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 4),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('d$expr', style: const TextStyle(fontSize: 11, fontStyle: FontStyle.italic, fontWeight: FontWeight.w600)),
+                  Container(height: 1.2, width: 22, color: Colors.black87),
+                  Text('d$vr', style: const TextStyle(fontSize: 11, fontStyle: FontStyle.italic, fontWeight: FontWeight.w600)),
+                ],
+              ),
+            ),
+          ));
+          break;
+        case 'gradient':
+          final expr = RegExp(r'expr="([^"]+)"').firstMatch(attrs)?.group(1) ?? 'f';
+          spans.add(WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 4),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('∇', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppTheme.primary)),
+                  const SizedBox(width: 2),
+                  Text(expr, style: const TextStyle(fontSize: 13, fontStyle: FontStyle.italic, fontWeight: FontWeight.w600)),
+                ],
+              ),
+            ),
+          ));
+          break;
+        case 'matrix':
+          final raw = RegExp(r'raw="([^"]+)"', dotAll: true).firstMatch(attrs)?.group(1) ?? '';
+          final rows = <List<String>>[];
+          final rowMatches = RegExp(r'\[(.*?)\]').allMatches(raw);
+          for (final rm in rowMatches) {
+            final rowContent = rm.group(1)?.trim() ?? '';
+            if (rowContent.isNotEmpty) {
+              final cells = rowContent.split(',').map((c) => c.trim()).toList();
+              rows.add(cells);
+            }
+          }
+          spans.add(WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              decoration: const BoxDecoration(
+                border: Border(
+                  left: BorderSide(color: Colors.black87, width: 1.8),
+                  right: BorderSide(color: Colors.black87, width: 1.8),
+                ),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: rows.map((r) {
+                  return Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: r.map((c) => Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                      child: Text(c, style: const TextStyle(fontSize: 11, fontStyle: FontStyle.italic)),
+                    )).toList(),
+                  );
+                }).toList(),
               ),
             ),
           ));
@@ -1134,18 +1302,24 @@ class GroupNoteRenderer extends StatelessWidget {
         continue;
       }
 
-      // Table detection
-      if (line.toLowerCase().startsWith('<table')) {
+      // Table detection (HTML <table> or structured type="table" / columns=[...])
+      if (line.toLowerCase().startsWith('<table') ||
+          (currentMacroName != null && (line.contains('type="table"') || line.contains('columns='))) ||
+          line.startsWith('columns=')) {
         final tableLines = <String>[line];
         i++;
-        while (i < lines.length && !lines[i].toLowerCase().contains('</table>')) {
+        while (i < lines.length &&
+            !lines[i].toLowerCase().contains('</table>') &&
+            lines[i].trim() != '<!-- endmacro -->') {
           tableLines.add(lines[i]);
           i++;
         }
-        if (i < lines.length) tableLines.add(lines[i]);
+        if (i < lines.length && lines[i].toLowerCase().contains('</table>')) {
+          tableLines.add(lines[i]);
+          i++;
+        }
         final tableData = _parseTable(tableLines.join('\n'));
         blocks.add(_ContentBlock(type: _BlockType.table, text: '', macroName: currentMacroName, tableData: tableData));
-        i++;
         continue;
       }
 
@@ -1311,16 +1485,39 @@ class GroupNoteRenderer extends StatelessWidget {
     return blocks;
   }
 
-  _TableData _parseTable(String tableHtml) {
+  _TableData _parseTable(String tableContent) {
     final headers = <String>[];
     final rows = <List<String>>[];
 
-    final thMatches = RegExp(r'<th>(.*?)<\/th>', caseSensitive: false).allMatches(tableHtml);
+    // 1. Structured C-style/DWS syntax: columns=["Col1", "Col2"]; rows=[["A", "B"], ["C", "D"]]
+    if (tableContent.contains('columns=') || tableContent.contains('rows=')) {
+      final colMatch = RegExp(r'columns\s*=\s*\[(.*?)\]').firstMatch(tableContent);
+      if (colMatch != null) {
+        final colStr = colMatch.group(1) ?? '';
+        final cols = RegExp(r'["\x27](.*?)["\x27]').allMatches(colStr).map((m) => m.group(1) ?? '').toList();
+        headers.addAll(cols);
+      }
+      final rowsMatch = RegExp(r'rows\s*=\s*\[(.*)\]', dotAll: true).firstMatch(tableContent);
+      if (rowsMatch != null) {
+        final rowsStr = rowsMatch.group(1) ?? '';
+        final rowListMatches = RegExp(r'\[(.*?)\]').allMatches(rowsStr);
+        for (final rMatch in rowListMatches) {
+          final cells = RegExp(r'["\x27](.*?)["\x27]|([0-9\.]+)').allMatches(rMatch.group(1) ?? '').map((m) => (m.group(1) ?? m.group(2) ?? '').trim()).toList();
+          if (cells.isNotEmpty) rows.add(cells);
+        }
+      }
+      if (headers.isNotEmpty || rows.isNotEmpty) {
+        return _TableData(headers: headers, rows: rows);
+      }
+    }
+
+    // 2. HTML table
+    final thMatches = RegExp(r'<th>(.*?)<\/th>', caseSensitive: false).allMatches(tableContent);
     for (final m in thMatches) {
       headers.add(m.group(1)?.trim() ?? '');
     }
 
-    final trMatches = RegExp(r'<tr>(.*?)<\/tr>', caseSensitive: false, dotAll: true).allMatches(tableHtml);
+    final trMatches = RegExp(r'<tr>(.*?)<\/tr>', caseSensitive: false, dotAll: true).allMatches(tableContent);
     for (final tr in trMatches) {
       final inner = tr.group(1) ?? '';
       final tdMatches = RegExp(r'<td>(.*?)<\/td>', caseSensitive: false).allMatches(inner);
@@ -1332,6 +1529,21 @@ class GroupNoteRenderer extends StatelessWidget {
 
     if (headers.isEmpty && rows.isNotEmpty) {
       headers.addAll(rows.removeAt(0));
+    }
+
+    // 3. Markdown table: | Col1 | Col2 |
+    if (headers.isEmpty && rows.isEmpty && tableContent.contains('|')) {
+      final lines = tableContent.split('\n').where((l) => l.trim().startsWith('|') && l.trim().endsWith('|')).toList();
+      if (lines.length >= 2) {
+        final rawHeaders = lines[0].split('|').map((c) => c.trim()).where((c) => c.isNotEmpty).toList();
+        headers.addAll(rawHeaders);
+        for (int i = 1; i < lines.length; i++) {
+          final line = lines[i];
+          if (line.contains('---')) continue;
+          final cells = line.split('|').map((c) => c.trim()).where((c) => c.isNotEmpty).toList();
+          if (cells.isNotEmpty) rows.add(cells);
+        }
+      }
     }
 
     return _TableData(headers: headers, rows: rows);

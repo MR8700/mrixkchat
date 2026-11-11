@@ -79,10 +79,11 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      expect(find.text('Document vide'), findsOneWidget);
-      expect(find.text('Commencer la rédaction'), findsOneWidget);
+      expect(find.text('Vide'), findsOneWidget);
+      expect(find.text('Aucun contenu pour le moment'), findsOneWidget);
+      expect(find.text('Éditer le document'), findsOneWidget);
 
-      await tester.tap(find.text('Commencer la rédaction'));
+      await tester.tap(find.text('Éditer le document'));
       await tester.pumpAndSettle();
 
       expect(editTapped, isTrue);
@@ -266,9 +267,114 @@ Calculatrice: {{=formule}}
 
       // Verify the in-chat message card
       expect(find.text('Spécifications Système'), findsOneWidget);
-      expect(find.text('Créé le 14:30 • par Richard MARE'), findsOneWidget);
+      expect(find.text('Bloc-Notes du groupe • Collaboratif'), findsOneWidget);
+      expect(find.text('Synchronisé ✅'), findsOneWidget);
+      expect(find.textContaining('Créé le'), findsOneWidget);
       expect(find.text('Ouvrir'), findsWidgets);
       expect(find.text('Supprimer'), findsOneWidget);
+    });
+
+    test('Inter-document referencing and immediate verification operator ?', () {
+      final extDocs = {
+        'Maths': {'somme': 42.0, 'pi_approx': 3.14},
+        'Physique': {'vitesse': 300000.0},
+      };
+
+      // 1. Normal inter-document reference
+      final exprVal = FormulaEngine.evaluateExpression('Maths.somme * 2', {}, externalDocs: extDocs);
+      expect(exprVal, 84.0);
+
+      // 2. Immediate verification operator ? with existing variable
+      final checkOk = FormulaEngine.checkImmediateVariableExistence('Maths.?somme', extDocs);
+      expect(checkOk.exists, isTrue);
+      expect(checkOk.value, 42.0);
+      expect(checkOk.documentName, 'Maths');
+      expect(checkOk.variableName, 'somme');
+
+      // 3. Immediate verification operator ? with missing variable
+      final checkMissing = FormulaEngine.checkImmediateVariableExistence('Maths.?inconnue', extDocs);
+      expect(checkMissing.exists, isFalse);
+      expect(checkMissing.errorMessage, contains('n\'existe pas dans le document "Maths"'));
+
+      // 4. Missing document
+      final checkDocMissing = FormulaEngine.checkImmediateVariableExistence('Chimie.?ph', extDocs);
+      expect(checkDocMissing.exists, isFalse);
+      expect(checkDocMissing.errorMessage, contains('Chimie'));
+
+      // 5. Calculator macro with ?
+      final macroRes = FormulaEngine.evaluateCalculatorMacro('Maths.?somme + 8', {}, externalDocs: extDocs);
+      expect(macroRes, '50');
+
+      final macroErr = FormulaEngine.evaluateCalculatorMacro('Maths.?absente', {}, externalDocs: extDocs);
+      expect(macroErr, contains('⚠️ Variable introuvable'));
+    });
+
+    test('Circular dependency detection in inter-document formulas', () {
+      final extDocs = {
+        'DocA': {'valA': 10.0},
+        'DocB': {'valB': 20.0},
+      };
+
+      // Graph with cycle: DocA -> DocB -> DocA
+      final graph = {
+        'DocA': {'DocB'},
+        'DocB': {'DocA'},
+      };
+
+      expect(
+        () => FormulaEngine.evaluateExpression(
+          'DocB.valB + 1',
+          {},
+          externalDocs: extDocs,
+          currentDoc: 'DocA',
+          graph: graph,
+        ),
+        throwsA(isA<CircularDependencyException>()),
+      );
+    });
+
+    testWidgets('GroupNoteRenderer renders limits, derivatives, gradients, matrices and structured tables', (tester) async {
+      tester.view.physicalSize = const Size(1200, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      const advancedDoc = '''
+Calcul différentiel et tensoriel :
+Limite : {{limit(x->0)((sin(x))/x)}}
+Dérivée : {{derivative(f, x)}}
+Gradient : {{gradient(T)}}
+Matrice : {{matrix([[1, 2], [3, 4]])}}
+Symboles : {{delta}} {{lambda}} {{sigma}}
+
+{{id="TableauNotes";
+type="table";
+columns=["Étudiant", "Note", "Mention"];
+rows=[["Kaboré", 18, "Très Bien"], ["Diallo", 16, "Bien"]];
+}}
+
+{TableauNotes}
+''';
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: GroupNoteRenderer(
+              content: advancedDoc,
+            ),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      expect(find.text('lim'), findsOneWidget);
+      expect(find.text('df'), findsOneWidget);
+      expect(find.text('dx'), findsOneWidget);
+      expect(find.text('∇'), findsOneWidget);
+      expect(find.text('Étudiant'), findsOneWidget);
+      expect(find.text('Kaboré'), findsOneWidget);
+      expect(find.text('Diallo'), findsOneWidget);
     });
   });
 }

@@ -68,6 +68,9 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
   // Text selection tracking for contextual floating toolbar
   TextSelection _currentSelection = const TextSelection.collapsed(offset: -1);
 
+  // Immediate variable verification warning (e.g. Maths.?inconnue)
+  String? _immediateVariableWarning;
+
   @override
   void initState() {
     super.initState();
@@ -116,6 +119,24 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
       } else if (_showFormulaGuide) {
         setState(() => _showFormulaGuide = false);
       }
+    }
+
+    // Immediate verification of Doc.?var (e.g. Maths.?somme or Maths.?inconnue)
+    final immMatches = RegExp(r'\b([a-zA-Z0-9_\-]+)\.\?([a-zA-Z0-9_\-]+)\b').allMatches(text);
+    String? warning;
+    if (immMatches.isNotEmpty) {
+      final extVars = context.read<GroupNoteRepository>().getAllGroupVariables(widget.conversation.id);
+      for (final m in immMatches) {
+        final ref = '${m.group(1)}.?${m.group(2)}';
+        final check = FormulaEngine.checkImmediateVariableExistence(ref, extVars);
+        if (!check.exists) {
+          warning = check.errorMessage ?? 'Variable introuvable : $ref';
+          break;
+        }
+      }
+    }
+    if (_immediateVariableWarning != warning) {
+      setState(() => _immediateVariableWarning = warning);
     }
 
     // Auto-detect newly typed {Titre du tableau} variables and seed in components
@@ -702,6 +723,50 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
     );
   }
 
+  void _showRenameDialog() {
+    final titleEditCtrl = TextEditingController(text: _titleController.text);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Renommer le Bloc-Note', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        content: TextField(
+          controller: titleEditCtrl,
+          autofocus: true,
+          decoration: InputDecoration(
+            labelText: 'Titre du document',
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primary,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () {
+              final newTitle = titleEditCtrl.text.trim();
+              if (newTitle.isNotEmpty) {
+                setState(() {
+                  _titleController.text = newTitle;
+                  _currentNote = _currentNote.copyWith(title: newTitle);
+                });
+                _scheduleLiveInstantSync();
+              }
+              Navigator.of(ctx).pop();
+            },
+            child: const Text('Renommer'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _downloadDocument() {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -901,6 +966,9 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
                 case 'transfer':
                   _transferDocument();
                   break;
+                case 'rename':
+                  _showRenameDialog();
+                  break;
                 case 'spacing':
                   _showSpacingDialog();
                   break;
@@ -933,6 +1001,16 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
                     ],
                   ),
                 ),
+              const PopupMenuItem(
+                value: 'rename',
+                child: Row(
+                  children: [
+                    Icon(Icons.edit_rounded, size: 18, color: Color(0xFF475569)),
+                    SizedBox(width: 10),
+                    Text('Renommer le document'),
+                  ],
+                ),
+              ),
               const PopupMenuItem(
                 value: 'download',
                 child: Row(
@@ -1122,13 +1200,21 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
           ),
         ),
         Expanded(
-          child: GroupNoteRenderer(
-            content: _textController.text,
-            components: _components,
-            lineSpacing: _lineSpacing,
-            paragraphSpacing: _paragraphSpacing,
-            onStartEditing: () {
-              setState(() => _activeCompartment = 1);
+          child: Builder(
+            builder: (ctx) {
+              final repo = ctx.watch<GroupNoteRepository>();
+              final extVars = repo.getAllGroupVariables(widget.conversation.id);
+              return GroupNoteRenderer(
+                content: _textController.text,
+                components: _components,
+                lineSpacing: _lineSpacing,
+                paragraphSpacing: _paragraphSpacing,
+                externalDocumentsVariables: extVars,
+                currentDocumentId: _currentNote.id,
+                onStartEditing: () {
+                  setState(() => _activeCompartment = 1);
+                },
+              );
             },
           ),
         ),
@@ -1223,6 +1309,29 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
 
         // Contextual Floating Toolbar (Only in Word mode when canEdit)
         if (_editSubMode == 'word' && canEdit) _buildContextualWordToolbar(),
+
+        // Immediate variable warning banner (e.g. Maths.?inconnue)
+        if (_immediateVariableWarning != null)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            color: const Color(0xFFFEF2F2),
+            child: Row(
+              children: [
+                const Icon(Icons.error_outline_rounded, size: 16, color: Color(0xFFDC2626)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _immediateVariableWarning!,
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFFB91C1C)),
+                  ),
+                ),
+                InkWell(
+                  onTap: () => setState(() => _immediateVariableWarning = null),
+                  child: const Icon(Icons.close_rounded, size: 16, color: Color(0xFFB91C1C)),
+                ),
+              ],
+            ),
+          ),
 
         // Formula Suggestions / Autocomplete guide bar (like Excel)
         if (_editSubMode == 'word' && canEdit && _showFormulaGuide) _buildExcelFormulaGuideBar(),

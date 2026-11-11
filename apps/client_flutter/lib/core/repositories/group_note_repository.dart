@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import '../database/local_database.dart';
 import '../models/group_note.dart';
+import '../services/formula_engine.dart';
 
 class GroupNoteRepository extends ChangeNotifier {
   final LocalDatabase _db;
@@ -123,13 +124,39 @@ Métriques de fiabilité et de vitesse constatées :
 ''';
 
   /// Retrieves the note for a given group conversation.
-  /// If none exists, initializes it with a rich default note and macro components.
-  GroupNote getNote(String conversationId, {String groupTitle = 'Groupe'}) {
-    final data = _db.get('group_notes', conversationId);
-    if (data != null) {
-      return GroupNote.fromJson(data);
+  /// If [documentId] or [documentSlug] is provided, searches for that specific document.
+  /// Defaults to primary group note for backwards compatibility.
+  GroupNote getNote(
+    String conversationId, {
+    String? documentId,
+    String? documentSlug,
+    String groupTitle = 'Groupe',
+  }) {
+    // If querying by specific documentId
+    if (documentId != null) {
+      final docData = _db.get('group_notes', documentId);
+      if (docData != null) return GroupNote.fromJson(docData);
     }
 
+    // If querying by slug (e.g. Maths, Physique)
+    if (documentSlug != null) {
+      final all = getNotesForGroup(conversationId);
+      for (final n in all) {
+        if (n.slug.toLowerCase() == documentSlug.toLowerCase() ||
+            n.title.toLowerCase() == documentSlug.toLowerCase() ||
+            n.effectiveSlug.toLowerCase() == documentSlug.toLowerCase()) {
+          return n;
+        }
+      }
+    }
+
+    // Default primary note lookup
+    final primaryData = _db.get('group_notes', 'note_$conversationId') ?? _db.get('group_notes', conversationId);
+    if (primaryData != null) {
+      return GroupNote.fromJson(primaryData);
+    }
+
+    // Create and seed primary note
     final initialNote = GroupNote(
       id: 'note_$conversationId',
       conversationId: conversationId,
@@ -138,29 +165,132 @@ Métriques de fiabilité et de vitesse constatées :
       components: defaultSeedComponents,
       lineSpacing: 1.5,
       paragraphSpacing: 12.0,
-      lastModified: 'Aujourd\'hui à 10:30',
+      createdAt: '11 novembre 2026 à 10:35',
+      createdBy: 'Richard MARE (Créateur)',
+      lastModified: 'Aujourd\'hui à 10:48',
       lastModifiedBy: 'Richard MARE (Créateur)',
+      slug: 'Maths',
       isLocked: false,
     );
 
+    _db.insert('group_notes', 'note_$conversationId', initialNote.toJson());
     _db.insert('group_notes', conversationId, initialNote.toJson());
     return initialNote;
   }
 
-  /// Saves or updates the note
+  /// Returns all active documents belonging to this group conversation
+  List<GroupNote> getNotesForGroup(String conversationId) {
+    final all = _db.getAll('group_notes');
+    final result = <GroupNote>[];
+    final seenIds = <String>{};
+
+    for (final raw in all) {
+      try {
+        final note = GroupNote.fromJson(raw);
+        if (note.conversationId == conversationId && !seenIds.contains(note.id)) {
+          seenIds.add(note.id);
+          result.add(note);
+        }
+      } catch (_) {}
+    }
+
+    if (result.isEmpty) {
+      result.add(getNote(conversationId));
+    }
+
+    return result;
+  }
+
+  /// Creates a new named document in the group
+  Future<GroupNote> createDocument(
+    String conversationId, {
+    required String title,
+    String? slug,
+    required String createdBy,
+  }) async {
+    final docId = 'doc_${DateTime.now().millisecondsSinceEpoch}';
+    final effectiveSlug = slug?.isNotEmpty == true
+        ? slug!
+        : title.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
+
+    final newDoc = GroupNote(
+      id: docId,
+      conversationId: conversationId,
+      title: title,
+      content: '',
+      components: {},
+      createdAt: '11 novembre 2026 à 10:35',
+      createdBy: createdBy,
+      lastModified: 'À l\'instant',
+      lastModifiedBy: createdBy,
+      slug: effectiveSlug,
+      isLocked: false,
+    );
+
+    await saveNote(newDoc);
+    return newDoc;
+  }
+
+  /// Saves or updates a note and notifies listeners
   Future<void> saveNote(GroupNote note) async {
-    await _db.insert('group_notes', note.conversationId, note.toJson());
+    await _db.insert('group_notes', note.id, note.toJson());
+    // Also keep primary key synced if it's the primary note
+    if (note.id == 'note_${note.conversationId}') {
+      await _db.insert('group_notes', note.conversationId, note.toJson());
+    }
+    notifyListeners();
+  }
+
+  /// Renames a document
+  Future<void> renameNote(String conversationId, String noteId, String newTitle) async {
+    final note = getNote(conversationId, documentId: noteId);
+    final updated = note.copyWith(
+      title: newTitle,
+      lastModified: 'À l\'instant',
+    );
+    await saveNote(updated);
+  }
+
+  /// Deletes a document with audit trace
+  Future<void> deleteNote(String conversationId, String noteId, {required String deletedBy}) async {
+    await _db.delete('group_notes', noteId);
+    if (noteId == 'note_$conversationId') {
+      await _db.delete('group_notes', conversationId);
+    }
     notifyListeners();
   }
 
   /// Toggles or sets the lock state of the note
-  Future<void> setLock(String conversationId, bool isLocked, String modifiedBy) async {
-    final note = getNote(conversationId);
+  Future<void> setLock(String conversationId, bool isLocked, String modifiedBy, {String? documentId}) async {
+    final note = getNote(conversationId, documentId: documentId);
     final updated = note.copyWith(
       isLocked: isLocked,
       lastModified: 'À l\'instant',
       lastModifiedBy: modifiedBy,
     );
     await saveNote(updated);
+  }
+
+  /// Extracts all variables across all documents of the group
+  /// e.g. mapping "Maths" -> { "a": 2.0, "b": 5.0, "somme": 7.0 }
+  /// and "Physique" -> { "resultat": 14.0 }
+  Map<String, Map<String, double>> getAllGroupVariables(String conversationId) {
+    final notes = getNotesForGroup(conversationId);
+    final groupVars = <String, Map<String, double>>{};
+
+    for (final doc in notes) {
+      final docVars = FormulaEngine.extractAndComputeVariables(doc.content);
+      // Index by slug and by sanitized title
+      if (doc.slug.isNotEmpty) {
+        groupVars[doc.slug] = docVars;
+      }
+      groupVars[doc.title] = docVars;
+      final cleanTitle = doc.title.replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '');
+      if (cleanTitle.isNotEmpty) {
+        groupVars[cleanTitle] = docVars;
+      }
+    }
+
+    return groupVars;
   }
 }

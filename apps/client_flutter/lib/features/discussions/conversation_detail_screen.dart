@@ -1658,13 +1658,17 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
   Widget _buildGroupNoteInChatMessage(Message msg, Conversation conv) {
     final myProfile = context.read<ProfileRepository>().getProfile();
     final isAdmin = conv.isUserAdmin(myProfile.id);
+    final note = context.watch<GroupNoteRepository>().getNote(conv.id, groupTitle: conv.title);
 
-    // Extract title if present in quotes or fallback
-    var noteTitle = 'Bloc-Note Collaboratif';
+    // Extract title if present in quotes or fallback to note title
+    var noteTitle = note.title;
     final quoteMatch = RegExp(r'"([^"]+)"').firstMatch(msg.content);
-    if (quoteMatch != null) {
-      noteTitle = quoteMatch.group(1)!;
+    if (quoteMatch != null && quoteMatch.group(1)!.trim().isNotEmpty) {
+      noteTitle = quoteMatch.group(1)!.trim();
     }
+
+    final createdInfo = note.createdAt.isNotEmpty ? note.createdAt : msg.time;
+    final modifiedInfo = note.lastModified.isNotEmpty ? note.lastModified : msg.time;
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 6),
@@ -1684,41 +1688,49 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Header info bar: Bloc-Notes du groupe • Collaboratif | Synchronisé ✅ | ...
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(8),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: AppTheme.primarySoft,
-                  borderRadius: BorderRadius.circular(10),
+                  color: const Color(0xFFEFF6FF),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFBFDBFE)),
                 ),
-                child: const Icon(Icons.edit_note_rounded, color: AppTheme.primary, size: 22),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
+                    Icon(Icons.edit_note_rounded, size: 14, color: AppTheme.primary),
+                    SizedBox(width: 4),
                     Text(
-                      noteTitle,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF0F172A),
-                      ),
-                    ),
-                    Text(
-                      'Créé le ${msg.time} • par ${msg.senderName}',
-                      style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                      'Bloc-Notes du groupe • Collaboratif',
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.primary),
                     ),
                   ],
                 ),
               ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFECFDF5),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Text(
+                  'Synchronisé ✅',
+                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF047857)),
+                ),
+              ),
+              const SizedBox(width: 4),
               PopupMenuButton<String>(
                 icon: const Icon(Icons.more_vert_rounded, size: 18, color: Color(0xFF64748B)),
                 tooltip: 'Options du bloc-note',
                 onSelected: (val) {
                   switch (val) {
+                    case 'rename':
+                      _showRenameNoteDialog(conv);
+                      break;
                     case 'settings':
                       GroupNotepadScreen.showInConversation(context, conv);
                       break;
@@ -1728,14 +1740,26 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                       );
                       break;
                     case 'download':
-                      final note = context.read<GroupNoteRepository>().getNote(conv.id);
                       ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Téléchargement du document "${note.title}" (.md) terminé.')),
+                        SnackBar(content: Text('Téléchargement du document "$noteTitle" (.md) terminé.')),
                       );
+                      break;
+                    case 'delete':
+                      _showDeleteDialog([msg.id]);
                       break;
                   }
                 },
                 itemBuilder: (ctx) => [
+                  const PopupMenuItem(
+                    value: 'rename',
+                    child: Row(
+                      children: [
+                        Icon(Icons.edit_rounded, size: 16, color: Color(0xFF475569)),
+                        SizedBox(width: 8),
+                        Text('Renommer'),
+                      ],
+                    ),
+                  ),
                   if (isAdmin)
                     const PopupMenuItem(
                       value: 'settings',
@@ -1743,7 +1767,7 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                         children: [
                           Icon(Icons.settings_suggest_rounded, size: 16, color: AppTheme.primary),
                           SizedBox(width: 8),
-                          Text('Paramètres & Permissions'),
+                          Text('Gérer les permissions'),
                         ],
                       ),
                     ),
@@ -1753,7 +1777,7 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                       children: [
                         Icon(Icons.forward_rounded, size: 16, color: Color(0xFF475569)),
                         SizedBox(width: 8),
-                        Text('Transférer le bloc-note'),
+                        Text('Transférer le document'),
                       ],
                     ),
                   ),
@@ -1767,9 +1791,33 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                       ],
                     ),
                   ),
+                  const PopupMenuItem(
+                    value: 'delete',
+                    child: Row(
+                      children: [
+                        Icon(Icons.delete_outline_rounded, size: 16, color: Color(0xFFDC2626)),
+                        SizedBox(width: 8),
+                        Text('Supprimer', style: TextStyle(color: Color(0xFFDC2626))),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            noteTitle,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF0F172A),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Créé le $createdInfo • Dernière modification : $modifiedInfo',
+            style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
           ),
           const SizedBox(height: 10),
           Text(
@@ -1811,6 +1859,40 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                 ),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showRenameNoteDialog(Conversation conv) {
+    final note = context.read<GroupNoteRepository>().getNote(conv.id);
+    final ctrl = TextEditingController(text: note.title);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Renommer le Bloc-Note', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: InputDecoration(
+            labelText: 'Nouveau nom',
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Annuler')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primary, foregroundColor: Colors.white),
+            onPressed: () {
+              final newName = ctrl.text.trim();
+              if (newName.isNotEmpty) {
+                context.read<GroupNoteRepository>().renameNote(conv.id, note.id, newName);
+              }
+              Navigator.of(ctx).pop();
+            },
+            child: const Text('Enregistrer'),
           ),
         ],
       ),
