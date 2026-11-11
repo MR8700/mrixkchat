@@ -104,7 +104,7 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
     );
     _components = Map<String, String>.from(_currentNote.components);
     // Remove phantom unreferenced test components
-    _components.removeWhere((k, _) => !_currentNote.content.contains('{{$k}}') && !_currentNote.content.contains('<!-- macro:$k -->'));
+    _components.removeWhere((k, _) => !_currentNote.content.contains('{{$k}}') && !_currentNote.content.contains('{$k}') && !_currentNote.content.contains('<!-- macro:$k -->'));
     _textController = WordRichTextController(text: _currentNote.content);
     _codeController = TextEditingController(text: _buildCombinedCodeSource(_currentNote.content, _components));
     _titleController = TextEditingController(text: _currentNote.title);
@@ -215,7 +215,7 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
     // Only include components that are actually referenced in the document
     final activeComps = <String, String>{};
     for (final entry in comps.entries) {
-      if (cleanContent.contains('{{${entry.key}}}') || cleanContent.contains('<!-- macro:${entry.key} -->')) {
+      if (cleanContent.contains('{{${entry.key}}}') || cleanContent.contains('{${entry.key}}') || cleanContent.contains('<!-- macro:${entry.key} -->')) {
         activeComps[entry.key] = entry.value;
       }
     }

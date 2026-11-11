@@ -56,7 +56,7 @@ class GroupNoteRepository extends ChangeNotifier {
       // Clean up legacy test data and unreferenced components
       final cleanComponents = Map<String, String>.from(note.components);
       cleanComponents.removeWhere((k, _) =>
-        !note.content.contains('{{$k}}') && !note.content.contains('<!-- macro:$k -->')
+        !note.content.contains('{{$k}}') && !note.content.contains('{$k}') && !note.content.contains('<!-- macro:$k -->')
       );
       if (cleanComponents.length != note.components.length) {
         final updated = note.copyWith(components: cleanComponents);
