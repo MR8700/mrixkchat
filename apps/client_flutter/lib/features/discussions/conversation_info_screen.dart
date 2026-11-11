@@ -114,8 +114,8 @@ class _ConversationInfoScreenState extends State<ConversationInfoScreen> {
 
   void _showAddMemberDialog() {
     final contacts = context.read<ContactRepository>().getAllContacts();
-    final existingIds = _conv.groupMembers.map((m) => m.id).toSet();
-    final availableContacts = contacts.where((c) => !existingIds.contains(c.id)).toList();
+    final existingUserIds = _conv.groupMembers.map((m) => m.userId).toSet();
+    final availableContacts = contacts.where((c) => !existingUserIds.contains(c.id)).toList();
 
     showModalBottomSheet(
       context: context,
@@ -169,12 +169,23 @@ class _ConversationInfoScreenState extends State<ConversationInfoScreen> {
                       trailing: IconButton(
                         icon: const Icon(Icons.add_circle, color: AppTheme.primary),
                         onPressed: () {
+                          // Rule: UNIQUE (group_id, user_id) - Prevent duplicate additions
+                          final currentIds = _conv.groupMembers.map((m) => m.userId).toSet();
+                          if (currentIds.contains(contact.id)) {
+                            Navigator.of(ctx).pop();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('${contact.name} est déjà membre de ce groupe.')),
+                            );
+                            return;
+                          }
+
                           final newMember = GroupMember(
-                            id: contact.id,
+                            id: contact.id, // user_id is the sole identity reference
                             name: contact.name,
                             handle: contact.handle,
                             avatarUrl: contact.avatarUrl,
                             role: 'member',
+                            connectedDevicesCount: 1,
                           );
                           final updatedMembers = List<GroupMember>.from(_conv.groupMembers)..add(newMember);
                           final updated = _conv.copyWith(
@@ -615,7 +626,7 @@ class _ConversationInfoScreenState extends State<ConversationInfoScreen> {
                 const Icon(Icons.people_outline_rounded, color: AppTheme.primary, size: 20),
                 const SizedBox(width: 8),
                 Text(
-                  'Participants (${members.length})',
+                  'Membres du groupe (${members.length})',
                   style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
                 ),
                 const Spacer(),
@@ -659,7 +670,7 @@ class _ConversationInfoScreenState extends State<ConversationInfoScreen> {
                   ],
                 ),
                 subtitle: Text(
-                  member.handle.isNotEmpty ? member.handle : 'Participant sécurisé',
+                  '${member.roleLabel} · ${member.deviceCountLabel}',
                   style: const TextStyle(fontSize: 11, color: AppTheme.onSurfaceVariant),
                 ),
                 trailing: isAdmin && !member.isCreator
@@ -713,6 +724,89 @@ class _ConversationInfoScreenState extends State<ConversationInfoScreen> {
                     : null,
               );
             },
+          ),
+          const Divider(height: 1),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: const BoxDecoration(
+              color: Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.only(
+                bottomLeft: Radius.circular(18),
+                bottomRight: Radius.circular(18),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Total des comptes membres',
+                              style: TextStyle(fontSize: 10.5, color: AppTheme.onSurfaceVariant),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${_conv.totalUserAccountsCount}',
+                              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppTheme.primary),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Total des appareils',
+                              style: TextStyle(fontSize: 10.5, color: AppTheme.onSurfaceVariant),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${_conv.totalConnectedDevicesCount}',
+                              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0284C7)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                const Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.info_outline, size: 14, color: Color(0xFF64748B)),
+                    SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Un utilisateur = une identité unique (user_id). Les appareils autorisés sont rattachés au compte et ne constituent jamais des membres distincts.',
+                        style: TextStyle(fontSize: 10.5, color: Color(0xFF64748B), height: 1.3),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ],
       ),

@@ -208,6 +208,7 @@ Future<void> seedInitialDatabase(LocalDatabase db) async {
           handle: '@mrixk.richard',
           avatarUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuBJtx5mIqkHnR5_2AEJl8whigZY1P-Ppsr3iWQkiIjIiVQPXBdk32qz6X3dFn-KKWmF_ZpzpYc-YKUrZXLqo5v5E8ygyzgG5f0WSq3-ynWbQb8xj1MmTxTjleMKRzK8Kv84gjNvBzhHTdfrURVdi4S-ATHWee_uf-tI3NgsJmh_Vzh03ey_MoJHwv1bgF-8SCz8_nqqpVioBLBzVSmGePs_PasRnd6V59ZN-kNAEAo',
           role: 'creator',
+          connectedDevicesCount: 3,
         ),
         GroupMember(
           id: 'contact_sophie',
@@ -215,6 +216,7 @@ Future<void> seedInitialDatabase(LocalDatabase db) async {
           handle: '@sophie.v',
           avatarUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuBnQ6ZoC8wo3nLNU4wcm4uKYUvFAlBfMoP6saRcHGC1Pyc3O5sN3p45KfqLgu4iL5VgpHoAlSS9zFmJvzAoOMjpjts3jHV0wARsChitgTFNBJPSnJMkUsGNr6gfnlASfDCJOGtd1tb9whRc-S_2YEtwMojts7ttsd8CBl-ooFjsDwDZyGLGddcGKgOxk9A0SbOaLDb3Y-9HJ_vZRT88CL8KsSybmD4rrKu6RU-v8zc',
           role: 'admin',
+          connectedDevicesCount: 2,
         ),
         GroupMember(
           id: 'contact_marc',
@@ -222,6 +224,7 @@ Future<void> seedInitialDatabase(LocalDatabase db) async {
           handle: '@marc.d',
           avatarUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuDjuOp01aCyGb3MiFLNhDNbsm94oULBnGlisJ--YvDoW8DA_pOKtkXqYP6GLqPufbOpWN9fpGWtkWAJ9wX0QZ_glIaV20_dKHtz7ol4EEbq56IWcyraPZ1XASWS91VZkcCpQ83130quWwsXOAzA0ro-qy5ySKzLZVWh-6_ZH_yJPsmDqUqGx5SeNpsVOjBFWl33-HjgbXukytL2Q3Vu_TIoAkyw2mVU6ObNaRuHAR4',
           role: 'member',
+          connectedDevicesCount: 1,
         ),
         GroupMember(
           id: 'contact_amine',
@@ -229,6 +232,7 @@ Future<void> seedInitialDatabase(LocalDatabase db) async {
           handle: '@amine.t',
           avatarUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuAuBQ0RKTsmuyjfJRR-hJdxA9SNEFh09g_Ov4yS5s2471sykVEphazwgTKYWIECqeIzyA0cDmqXRQRrY6oLIAwFPP693adrp-n7EPBs8NtjuTVAod9xKPoMZe6kqqbbMMscdME6jlMaBITdDtK9Aw6Dz7aD53hVbTEalcFy8BxL8MHc2bM2YWOQeA6wgBXH78Q_3Wp9ikF9EA1sN_ecZ6HaMxYl8ARjCKwf-pT8bgo',
           role: 'member',
+          connectedDevicesCount: 2,
         ),
         GroupMember(
           id: 'contact_aicha',
@@ -236,6 +240,7 @@ Future<void> seedInitialDatabase(LocalDatabase db) async {
           handle: '@aicha.o',
           avatarUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuD02H-MuDhFnd_RJp4r1ONoWSWGnzPH4dbB067x3wBHK8kfkn5sucx2JRTslG07dL9GmV3k9312ln_EQlClYchbXwqp9NvQ0PiTlyPyo8kKjep7cP7t6KCG2jf1JXQC0ljDvs6TvTuTU_QTl9J9J959ImP0j3tblgpcrYJJvC6-R8TAhwyZ-KEBtUw_NkhRvtfTAqwvFvGsvIKrNdQlhG_AGQMNSzB9XSyIZMB7vm8',
           role: 'member',
+          connectedDevicesCount: 1,
         ),
       ],
     ),

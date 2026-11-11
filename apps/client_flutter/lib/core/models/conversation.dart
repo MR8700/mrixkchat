@@ -1,10 +1,11 @@
 class GroupMember {
-  final String id;
+  final String id; // Permanent unique user_id
   final String name;
   final String handle;
   final String avatarUrl;
   final String role; // 'creator', 'admin', 'member'
   final bool isMuted;
+  final int connectedDevicesCount; // Number of authorized devices for this account (1 to 3)
 
   const GroupMember({
     required this.id,
@@ -13,10 +14,31 @@ class GroupMember {
     this.avatarUrl = '',
     this.role = 'member',
     this.isMuted = false,
+    this.connectedDevicesCount = 1,
   });
 
+  String get userId => id;
   bool get isCreator => role == 'creator';
   bool get isAdmin => role == 'admin' || role == 'creator';
+
+  String get roleLabel {
+    switch (role.toLowerCase()) {
+      case 'creator':
+        return 'Créateur';
+      case 'admin':
+        return 'Administrateur';
+      case 'moderator':
+        return 'Modérateur';
+      case 'member':
+      default:
+        return 'Membre';
+    }
+  }
+
+  String get deviceCountLabel {
+    final count = connectedDevicesCount > 0 ? connectedDevicesCount : 1;
+    return '$count appareil${count > 1 ? "s" : ""} connecté${count > 1 ? "s" : ""}';
+  }
 
   GroupMember copyWith({
     String? id,
@@ -25,6 +47,7 @@ class GroupMember {
     String? avatarUrl,
     String? role,
     bool? isMuted,
+    int? connectedDevicesCount,
   }) {
     return GroupMember(
       id: id ?? this.id,
@@ -33,25 +56,29 @@ class GroupMember {
       avatarUrl: avatarUrl ?? this.avatarUrl,
       role: role ?? this.role,
       isMuted: isMuted ?? this.isMuted,
+      connectedDevicesCount: connectedDevicesCount ?? this.connectedDevicesCount,
     );
   }
 
   Map<String, dynamic> toJson() => {
     'id': id,
+    'user_id': id,
     'name': name,
     'handle': handle,
     'avatarUrl': avatarUrl,
     'role': role,
     'isMuted': isMuted,
+    'connectedDevicesCount': connectedDevicesCount,
   };
 
   factory GroupMember.fromJson(Map<String, dynamic> json) => GroupMember(
-    id: json['id'] as String,
+    id: (json['user_id'] ?? json['id']) as String,
     name: json['name'] as String,
     handle: json['handle'] as String? ?? '',
     avatarUrl: json['avatarUrl'] as String? ?? '',
     role: json['role'] as String? ?? 'member',
     isMuted: json['isMuted'] as bool? ?? false,
+    connectedDevicesCount: (json['connectedDevicesCount'] as num?)?.toInt() ?? 1,
   );
 }
 
@@ -111,6 +138,15 @@ class Conversation {
     this.onlyAdminsCanEditNotes = false,
     this.groupMembers = const [],
   });
+
+  /// Total count of unique user accounts in the group (based strictly on user_id)
+  int get totalUserAccountsCount => groupMembers.isNotEmpty ? groupMembers.length : groupMembersCount;
+
+  /// Total count of all connected devices across all members
+  int get totalConnectedDevicesCount {
+    if (groupMembers.isEmpty) return groupMembersCount;
+    return groupMembers.fold<int>(0, (sum, m) => sum + m.connectedDevicesCount);
+  }
 
   bool isUserAdmin(String userId) {
     if (!isGroup) return false;

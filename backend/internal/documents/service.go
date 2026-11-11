@@ -247,6 +247,91 @@ func (s *Service) AssignMemberRole(callerID, groupID, targetUserID string, newRo
 	return nil
 }
 
+// AddMember adds a user to a group using their unique user_id.
+// Deduplication rule: If user_id is already a member, no duplicate entry is created (idempotent / UNIQUE(group_id, user_id)).
+func (s *Service) AddMember(callerID, groupID, targetUserID string, role Role) (alreadyExisted bool, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	callerRole, isMember := s.getUserRoleLocked(groupID, callerID)
+	if !isMember {
+		return false, ErrNotGroupMember
+	}
+	if !s.HasPermission(callerRole, PermMemberInvite) {
+		return false, ErrPermissionDenied
+	}
+
+	if s.groupRoles[groupID] == nil {
+		s.groupRoles[groupID] = make(map[string]Role)
+	}
+
+	// Idempotent: check if targetUserID already in group
+	if _, exists := s.groupRoles[groupID][targetUserID]; exists {
+		return true, nil // Already member, no duplicate created
+	}
+
+	if role == "" {
+		role = RoleMember
+	}
+	s.groupRoles[groupID][targetUserID] = role
+	return false, nil
+}
+
+// RemoveMember removes a user from a group using their unique user_id.
+// This removes the user across all their devices and sessions.
+func (s *Service) RemoveMember(callerID, groupID, targetUserID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	callerRole, isMember := s.getUserRoleLocked(groupID, callerID)
+	if !isMember {
+		return ErrNotGroupMember
+	}
+
+	// User can remove self (leave group) or admin can remove other members
+	isSelf := callerID == targetUserID
+	if !isSelf && !s.HasPermission(callerRole, PermMemberRemove) {
+		return ErrPermissionDenied
+	}
+
+	targetRole, targetExists := s.getUserRoleLocked(groupID, targetUserID)
+	if !targetExists {
+		return ErrNotGroupMember
+	}
+
+	if targetRole == RoleOwner {
+		return ErrOwnerImmutable
+	}
+
+	delete(s.groupRoles[groupID], targetUserID)
+	return nil
+}
+
+// GetGroupMembersCount returns the unique count of members (users) in the group
+func (s *Service) GetGroupMembersCount(groupID string) int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if roles, ok := s.groupRoles[groupID]; ok {
+		return len(roles)
+	}
+	return 0
+}
+
+// GetGroupMemberUserIDs returns the list of unique user_ids in the group
+func (s *Service) GetGroupMemberUserIDs(groupID string) []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	roles, ok := s.groupRoles[groupID]
+	if !ok {
+		return nil
+	}
+	userIDs := make([]string, 0, len(roles))
+	for uid := range roles {
+		userIDs = append(userIDs, uid)
+	}
+	return userIDs
+}
+
 // CreateDocument initializes a collaborative document for the group (E2EE)
 func (s *Service) CreateDocument(
 	callerID, groupID, title, encContent string,
