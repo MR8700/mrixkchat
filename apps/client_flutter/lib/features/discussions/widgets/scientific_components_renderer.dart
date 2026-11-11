@@ -135,7 +135,7 @@ class DwsScientificChart extends StatelessWidget {
     final points = <Offset>[];
     final minX = (domain != null && domain!.isNotEmpty) ? domain![0] : 0.0;
     final maxX = (domain != null && domain!.length > 1) ? domain![1] : 4.0;
-    const stepCount = 60;
+    const stepCount = 120;
     final step = (maxX - minX) / stepCount;
 
     double minY = 0.0;
@@ -147,7 +147,19 @@ class DwsScientificChart extends StatelessWidget {
 
       if (functionExpr != null) {
         final expr = functionExpr!.toLowerCase();
-        if (expr.contains('sin')) {
+        if (expr.contains('sinc') ||
+            expr.contains('sin(pi*x)/(pi*x)') ||
+            expr.contains('sin(x)/x') ||
+            expr.contains('sin(pi*t)/(pi*t)') ||
+            expr.contains('sin(t)/t')) {
+          // Sinus cardinal : sinc(t) = sin(pi*t) / (pi*t)
+          if (x.abs() < 1e-6) {
+            y = 1.0;
+          } else {
+            final arg = (expr.contains('sin(x)/x') || expr.contains('sin(t)/t')) ? x : math.pi * x;
+            y = math.sin(arg) / arg;
+          }
+        } else if (expr.contains('sin')) {
           // 2*sin(2*pi*1000*x)
           y = 2.0 * math.sin(2 * math.pi * 1000 * x);
         } else if (expr.contains('0.5*9.81')) {
