@@ -14,6 +14,7 @@ import '../../core/repositories/profile_repository.dart';
 import '../../core/services/formula_engine.dart';
 import '../../core/services/real_media_service.dart';
 import '../../core/theme/app_theme.dart';
+import 'controllers/word_rich_text_controller.dart';
 import 'widgets/group_note_renderer.dart';
 
 class GroupNotepadScreen extends StatefulWidget {
@@ -98,7 +99,7 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
       documentId: widget.documentId,
       groupTitle: widget.conversation.title,
     );
-    _textController = TextEditingController(text: _currentNote.content);
+    _textController = WordRichTextController(text: _currentNote.content);
     _codeController = TextEditingController(text: _buildCombinedCodeSource(_currentNote.content, _currentNote.components));
     _titleController = TextEditingController(text: _currentNote.title);
     _components = Map<String, String>.from(_currentNote.components);
@@ -2469,7 +2470,45 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
         ),
         const Divider(height: 1, color: Color(0xFFE2E8F0)),
 
-        // Main Word Text Area
+        // Word Visual Formatting Indicator Bar
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+          color: const Color(0xFFF8FAFC),
+          child: Row(
+            children: [
+              const Icon(Icons.auto_awesome_rounded, size: 15, color: AppTheme.primary),
+              const SizedBox(width: 8),
+              const Text(
+                'Édition visuelle Word • Styles rendus en direct',
+                style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: Color(0xFF475569)),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEF3C7),
+                  borderRadius: BorderRadius.circular(5),
+                  border: Border.all(color: const Color(0xFFFDE68A)),
+                ),
+                child: const Text('{variables}', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF92400E), fontFamily: 'monospace')),
+              ),
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEEF2FF),
+                  borderRadius: BorderRadius.circular(5),
+                  border: Border.all(color: const Color(0xFFC7D2FE)),
+                ),
+                child: const Text('{{calculs & maths}}', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF3730A3), fontFamily: 'monospace')),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1, color: Color(0xFFE2E8F0)),
+
+        // Main Word Text Area (Powered by WordRichTextController)
         Expanded(
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -2487,7 +2526,7 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
               ),
               decoration: const InputDecoration(
                 hintText:
-                    'Rédigez normalement comme sous Word (Appuyez sur Entrée pour un nouveau paragraphe).\n\nPour insérer un tableau ou composant, écrivez simplement {Titre du tableau}.\nPour des maths : {{A_1}}, {{A^7}}, {{(a+b)/(a-b)}}, {{integral(1:2)(2x^2 dx)}}, {{sigma(k=1:n)(k^2)}}, {{sqrt(x)}}.\nPour calculer : {{=formule}} avec vos variables C {int somme = a + b} et {a=2; b=5;}.',
+                    'Rédigez visuellement comme sous Word.\n\nLes styles appliqués (Gras, Italique, Souligné, Polices, Couleurs) sont rendus directement sans balises.\nLes déclarations {variable = valeur} et évaluations {{=calcul}} restent brutes avec leur fond de mise en valeur.',
                 border: InputBorder.none,
               ),
             ),
