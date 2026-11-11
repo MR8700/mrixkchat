@@ -216,8 +216,8 @@ void main() {
       expect(find.text('Premier statut souverain'), findsOneWidget);
       expect(find.text('Deuxième statut souverain'), findsNothing);
 
-      // Tap right area to advance to next story immediately
-      await tester.tapAt(const Offset(600, 300));
+      // Tap right button to advance to next story immediately
+      await tester.tap(find.byIcon(Icons.chevron_right_rounded));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
@@ -225,8 +225,8 @@ void main() {
       expect(find.text('Deuxième statut souverain'), findsOneWidget);
       expect(find.text('Premier statut souverain'), findsNothing);
 
-      // Tap right area again on the last story -> closes dialog cleanly
-      await tester.tapAt(const Offset(600, 300));
+      // Tap right button again on the last story -> closes dialog cleanly
+      await tester.tap(find.byIcon(Icons.chevron_right_rounded));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 350));
       expect(find.byType(MomentStoryViewerDialog), findsNothing);

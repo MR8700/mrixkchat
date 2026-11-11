@@ -9,6 +9,7 @@ class AudioPlayerWidget extends StatefulWidget {
   final List<double>? waveform;
   final String? audioUrl;
   final bool isOutgoing;
+  final ValueChanged<bool>? onPlayStateChanged;
 
   const AudioPlayerWidget({
     super.key,
@@ -17,6 +18,7 @@ class AudioPlayerWidget extends StatefulWidget {
     this.waveform,
     this.audioUrl,
     this.isOutgoing = false,
+    this.onPlayStateChanged,
   });
 
   @override
@@ -44,6 +46,7 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
   void dispose() {
     _timer?.cancel();
     if (_isPlaying) {
+      widget.onPlayStateChanged?.call(false);
       RealMediaService.instance.stopAudio();
     }
     super.dispose();
@@ -52,6 +55,7 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
   void _togglePlay() {
     setState(() {
       _isPlaying = !_isPlaying;
+      widget.onPlayStateChanged?.call(_isPlaying);
       if (_isPlaying) {
         RealMediaService.instance.playAudio(widget.audioUrl);
         _timer?.cancel();
@@ -64,6 +68,7 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
               if (_currentSeconds >= _totalSeconds) {
                 _isPlaying = false;
                 _currentSeconds = 0;
+                widget.onPlayStateChanged?.call(false);
                 RealMediaService.instance.stopAudio();
                 _timer?.cancel();
               }

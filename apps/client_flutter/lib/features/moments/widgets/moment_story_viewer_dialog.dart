@@ -6,6 +6,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/app_avatar.dart';
 import '../../../shared/widgets/app_media_image.dart';
 import '../../discussions/widgets/audio_player_widget.dart';
+import '../../viewers/video_player_screen.dart';
 
 /// Fullscreen Sovereign Status / Story Viewer conforming to modern ephemeral story standards.
 class MomentStoryViewerDialog extends StatefulWidget {
@@ -29,6 +30,7 @@ class _MomentStoryViewerDialogState extends State<MomentStoryViewerDialog>
   late AnimationController _progressController;
   final TextEditingController _replyController = TextEditingController();
   bool _isReplying = false;
+  bool _isPaused = false;
   late List<Moment> _playlist;
   int _currentIndex = 0;
 
@@ -52,7 +54,7 @@ class _MomentStoryViewerDialogState extends State<MomentStoryViewerDialog>
     );
 
     _progressController.addStatusListener((status) {
-      if (status == AnimationStatus.completed && mounted && !_isReplying) {
+      if (status == AnimationStatus.completed && mounted && !_isReplying && !_isPaused) {
         _onStoryCompleted();
       }
     });
@@ -63,7 +65,7 @@ class _MomentStoryViewerDialogState extends State<MomentStoryViewerDialog>
   }
 
   void _onStoryCompleted() {
-    if (!mounted || _isReplying) return;
+    if (!mounted || _isReplying || _isPaused) return;
     if (_currentIndex < _playlist.length - 1) {
       setState(() {
         _currentIndex++;
@@ -79,13 +81,13 @@ class _MomentStoryViewerDialogState extends State<MomentStoryViewerDialog>
     if (!mounted || _isReplying) return;
     if (_progressController.value > 0.2 || _currentIndex == 0) {
       _progressController.reset();
-      _progressController.forward();
+      if (!_isPaused) _progressController.forward();
     } else {
       setState(() {
         _currentIndex--;
       });
       _progressController.reset();
-      _progressController.forward();
+      if (!_isPaused) _progressController.forward();
     }
   }
 
@@ -96,7 +98,7 @@ class _MomentStoryViewerDialogState extends State<MomentStoryViewerDialog>
         _currentIndex++;
       });
       _progressController.reset();
-      _progressController.forward();
+      if (!_isPaused) _progressController.forward();
     } else {
       Navigator.of(context).pop();
     }
@@ -116,8 +118,35 @@ class _MomentStoryViewerDialogState extends State<MomentStoryViewerDialog>
   }
 
   void _resumeProgress() {
-    if (!_progressController.isAnimating && !_isReplying) {
+    if (!_progressController.isAnimating && !_isReplying && !_isPaused) {
       _progressController.forward();
+    }
+  }
+
+  void _togglePause() {
+    setState(() {
+      _isPaused = !_isPaused;
+      if (_isPaused) {
+        _pauseProgress();
+      } else {
+        _resumeProgress();
+      }
+    });
+  }
+
+  Future<void> _openVideoPlayer(Moment moment) async {
+    _pauseProgress();
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => VideoPlayerScreen(
+          title: moment.caption.isNotEmpty ? moment.caption : 'Moment Vidéo',
+          videoUrl: moment.mediaUrl,
+          senderName: moment.authorName,
+        ),
+      ),
+    );
+    if (mounted && !_isPaused) {
+      _resumeProgress();
     }
   }
 
@@ -260,6 +289,41 @@ class _MomentStoryViewerDialogState extends State<MomentStoryViewerDialog>
                         ],
                       ),
                     ),
+                    if (_isPaused) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        margin: const EdgeInsets.only(right: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.amber.withOpacity(0.5)),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.pause, size: 12, color: Colors.amber),
+                            SizedBox(width: 4),
+                            Text(
+                              'En pause',
+                              style: TextStyle(
+                                color: Colors.amber,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    IconButton(
+                      icon: Icon(
+                        _isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
+                        color: Colors.white,
+                        size: 26,
+                      ),
+                      onPressed: _togglePause,
+                      tooltip: _isPaused ? 'Reprendre la lecture' : 'Mettre en pause',
+                    ),
                     IconButton(
                       icon: const Icon(Icons.close, color: Colors.white, size: 26),
                       onPressed: () => Navigator.of(context).pop(),
@@ -276,24 +340,61 @@ class _MomentStoryViewerDialogState extends State<MomentStoryViewerDialog>
                     Center(
                       child: _buildStatusContent(moment),
                     ),
-                    Positioned.fill(
-                      child: Row(
-                        children: [
-                          Expanded(
-                            flex: 1,
-                            child: GestureDetector(
-                              behavior: HitTestBehavior.translucent,
-                              onTap: _previousStory,
+                    // Navigation tap strips at left/right edges (54px) so central interactive elements are never blocked
+                    Positioned(
+                      left: 0,
+                      top: 0,
+                      bottom: 0,
+                      width: 54,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.translucent,
+                        onTap: _previousStory,
+                        child: Container(
+                          alignment: Alignment.centerLeft,
+                          padding: const EdgeInsets.only(left: 8),
+                          child: Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.35),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white24),
+                            ),
+                            child: const Icon(
+                              Icons.chevron_left_rounded,
+                              color: Colors.white,
+                              size: 24,
                             ),
                           ),
-                          Expanded(
-                            flex: 2,
-                            child: GestureDetector(
-                              behavior: HitTestBehavior.translucent,
-                              onTap: _nextStory,
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      right: 0,
+                      top: 0,
+                      bottom: 0,
+                      width: 54,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.translucent,
+                        onTap: _nextStory,
+                        child: Container(
+                          alignment: Alignment.centerRight,
+                          padding: const EdgeInsets.only(right: 8),
+                          child: Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.35),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white24),
+                            ),
+                            child: const Icon(
+                              Icons.chevron_right_rounded,
+                              color: Colors.white,
+                              size: 24,
                             ),
                           ),
-                        ],
+                        ),
                       ),
                     ),
                   ],
@@ -338,81 +439,118 @@ class _MomentStoryViewerDialogState extends State<MomentStoryViewerDialog>
     switch (moment.type) {
       case MomentType.image:
         if (moment.mediaUrl != null && moment.mediaUrl!.isNotEmpty) {
-          return ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: AppMediaImage(
-              imageUrl: moment.mediaUrl!,
-              fit: BoxFit.contain,
-              width: double.infinity,
-              height: double.infinity,
+          return GestureDetector(
+            onTap: _togglePause,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: AppMediaImage(
+                imageUrl: moment.mediaUrl!,
+                fit: BoxFit.contain,
+                width: double.infinity,
+                height: double.infinity,
+              ),
             ),
           );
         }
         return _buildQuoteContent(moment);
 
       case MomentType.video:
-        return Container(
-          margin: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: const Color(0xFF1E293B),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.white.withOpacity(0.1)),
-          ),
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              if (moment.mediaUrl != null && moment.mediaUrl!.isNotEmpty)
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(20),
-                  child: AppMediaImage(
-                    imageUrl: moment.mediaUrl!,
-                    fit: BoxFit.cover,
-                    width: double.infinity,
-                    height: double.infinity,
+        return GestureDetector(
+          onTap: () => _openVideoPlayer(moment),
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E293B),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.white.withOpacity(0.15)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.5),
+                  blurRadius: 24,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                if (moment.mediaUrl != null && moment.mediaUrl!.isNotEmpty)
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(20),
+                    child: AppMediaImage(
+                      imageUrl: moment.mediaUrl!,
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      height: double.infinity,
+                    ),
+                  ),
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.45),
+                    borderRadius: BorderRadius.circular(20),
                   ),
                 ),
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.4),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-              ),
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 64,
-                    height: 64,
-                    decoration: BoxDecoration(
-                      color: AppTheme.primary.withOpacity(0.9),
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppTheme.primary.withOpacity(0.5),
-                          blurRadius: 20,
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 68,
+                      height: 68,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [AppTheme.primary, Color(0xFF3B82F6)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
                         ),
-                      ],
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppTheme.primary.withOpacity(0.6),
+                            blurRadius: 22,
+                            spreadRadius: 2,
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.play_arrow_rounded,
+                        color: Colors.white,
+                        size: 44,
+                      ),
                     ),
-                    child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 40),
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Moment Vidéo Sécurisé',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
+                    const SizedBox(height: 14),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.6),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: Colors.white24),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.ondemand_video_rounded, color: Colors.white, size: 16),
+                          SizedBox(width: 6),
+                          Text(
+                            'Regarder la vidéo',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
-              ),
-            ],
+                  ],
+                ),
+              ],
+            ),
           ),
         );
 
       case MomentType.voice:
         return Container(
-          margin: const EdgeInsets.all(24),
+          margin: const EdgeInsets.symmetric(horizontal: 24),
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
           decoration: BoxDecoration(
             gradient: const LinearGradient(
@@ -462,13 +600,25 @@ class _MomentStoryViewerDialogState extends State<MomentStoryViewerDialog>
               AudioPlayerWidget(
                 duration: moment.voiceDuration ?? '0:30',
                 audioUrl: moment.mediaUrl,
+                onPlayStateChanged: (playing) {
+                  if (playing) {
+                    _pauseProgress();
+                  } else {
+                    if (!_isPaused) {
+                      _resumeProgress();
+                    }
+                  }
+                },
               ),
             ],
           ),
         );
 
       case MomentType.quote:
-        return _buildQuoteContent(moment);
+        return GestureDetector(
+          onTap: _togglePause,
+          child: _buildQuoteContent(moment),
+        );
     }
   }
 

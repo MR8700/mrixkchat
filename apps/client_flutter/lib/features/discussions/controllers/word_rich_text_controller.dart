@@ -289,11 +289,12 @@ class _CharStyle {
 
   TextStyle toTextStyle(TextStyle base) {
     if (isHidden) {
-      // Zero visual presence for markup tags
+      // Zero visual presence for markup tags without crushing or overlapping subsequent glyphs
       return const TextStyle(
         fontSize: 0.001,
         color: Colors.transparent,
-        letterSpacing: -1.0,
+        letterSpacing: 0.0,
+        height: 0.001,
       );
     }
 

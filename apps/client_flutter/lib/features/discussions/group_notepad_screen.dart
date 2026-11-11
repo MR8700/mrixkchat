@@ -422,6 +422,224 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
     setState(() => _showFormulaGuide = false);
   }
 
+  void _toggleWordBold() {
+    if (!_canEdit()) return;
+    _toggleWordWrapper('**', '**');
+  }
+
+  void _toggleWordItalic() {
+    if (!_canEdit()) return;
+    _toggleWordWrapper('*', '*');
+  }
+
+  void _toggleWordUnderline() {
+    if (!_canEdit()) return;
+    _toggleWordWrapper('<u>', '</u>');
+  }
+
+  void _toggleWordWrapper(String openTag, String closeTag) {
+    final text = _textController.text;
+    final sel = _textController.selection;
+    if (sel.start < 0 || sel.end < 0) return;
+
+    if (sel.start == sel.end) {
+      final placeholder = '$openTag' 'texte' '$closeTag';
+      final newText = text.replaceRange(sel.start, sel.end, placeholder);
+      _textController.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection(
+          baseOffset: sel.start + openTag.length,
+          extentOffset: sel.start + openTag.length + 5,
+        ),
+      );
+      return;
+    }
+
+    final sStart = sel.start;
+    final sEnd = sel.end;
+    final selectedText = text.substring(sStart, sEnd);
+
+    // Case 1: The selection itself is wrapped in openTag & closeTag
+    if (selectedText.startsWith(openTag) &&
+        selectedText.endsWith(closeTag) &&
+        selectedText.length >= openTag.length + closeTag.length) {
+      final unwrapped = selectedText.substring(openTag.length, selectedText.length - closeTag.length);
+      final newText = text.replaceRange(sStart, sEnd, unwrapped);
+      _textController.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection(baseOffset: sStart, extentOffset: sStart + unwrapped.length),
+      );
+      return;
+    }
+
+    // Case 2: The tags are immediately outside the selection
+    if (sStart >= openTag.length && sEnd + closeTag.length <= text.length) {
+      final before = text.substring(sStart - openTag.length, sStart);
+      final after = text.substring(sEnd, sEnd + closeTag.length);
+      if (before == openTag && after == closeTag) {
+        final newText = text.replaceRange(sStart - openTag.length, sEnd + closeTag.length, selectedText);
+        _textController.value = TextEditingValue(
+          text: newText,
+          selection: TextSelection(
+            baseOffset: sStart - openTag.length,
+            extentOffset: sStart - openTag.length + selectedText.length,
+          ),
+        );
+        return;
+      }
+    }
+
+    // Otherwise wrap selection cleanly
+    final formatted = '$openTag$selectedText$closeTag';
+    final newText = text.replaceRange(sStart, sEnd, formatted);
+    _textController.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection(baseOffset: sStart, extentOffset: sStart + formatted.length),
+    );
+  }
+
+  void _applyWordFontColor(String hex) {
+    if (!_canEdit()) return;
+    _applyFontAttribute(attrName: 'color', attrValue: hex);
+  }
+
+  void _applyWordFontFamily(String font) {
+    if (!_canEdit()) return;
+    _applyFontAttribute(attrName: 'face', attrValue: font);
+  }
+
+  void _applyFontAttribute({required String attrName, required String attrValue}) {
+    final text = _textController.text;
+    final sel = _textController.selection;
+    if (sel.start < 0 || sel.end < 0) return;
+
+    if (sel.start == sel.end) {
+      final placeholder = '<font $attrName="$attrValue">texte</font>';
+      final newText = text.replaceRange(sel.start, sel.end, placeholder);
+      final tagOffset = '<font $attrName="$attrValue">'.length;
+      _textController.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection(
+          baseOffset: sel.start + tagOffset,
+          extentOffset: sel.start + tagOffset + 5,
+        ),
+      );
+      return;
+    }
+
+    var selectedText = text.substring(sel.start, sel.end);
+    final fontMatch = RegExp(r'^<font\s+([^>]*?)>([\s\S]*?)</font>$', caseSensitive: false).firstMatch(selectedText);
+    if (fontMatch != null) {
+      var innerAttrs = fontMatch.group(1) ?? '';
+      final innerContent = fontMatch.group(2) ?? '';
+      innerAttrs = innerAttrs.replaceAll(RegExp('$attrName=["\x27][^"\x27]+["\x27]', caseSensitive: false), '').trim();
+      final newAttrs = ('$innerAttrs $attrName="$attrValue"').trim();
+      final formatted = '<font $newAttrs>$innerContent</font>';
+      final newText = text.replaceRange(sel.start, sel.end, formatted);
+      _textController.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection(baseOffset: sel.start, extentOffset: sel.start + formatted.length),
+      );
+      return;
+    }
+
+    final formatted = '<font $attrName="$attrValue">$selectedText</font>';
+    final newText = text.replaceRange(sel.start, sel.end, formatted);
+    _textController.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection(baseOffset: sel.start, extentOffset: sel.start + formatted.length),
+    );
+  }
+
+  void _applyWordHighlightColor(String hex) {
+    if (!_canEdit()) return;
+    final text = _textController.text;
+    final sel = _textController.selection;
+    if (sel.start < 0 || sel.end < 0) return;
+
+    if (sel.start == sel.end) {
+      final placeholder = '<mark color="$hex">texte</mark>';
+      final newText = text.replaceRange(sel.start, sel.end, placeholder);
+      final tagOffset = '<mark color="$hex">'.length;
+      _textController.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection(
+          baseOffset: sel.start + tagOffset,
+          extentOffset: sel.start + tagOffset + 5,
+        ),
+      );
+      return;
+    }
+
+    var selectedText = text.substring(sel.start, sel.end);
+    selectedText = selectedText.replaceAll(RegExp(r'</?mark[^>]*>', caseSensitive: false), '');
+    final formatted = '<mark color="$hex">$selectedText</mark>';
+    final newText = text.replaceRange(sel.start, sel.end, formatted);
+    _textController.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection(baseOffset: sel.start, extentOffset: sel.start + formatted.length),
+    );
+  }
+
+  void _applyParagraphAlignment(String align) {
+    if (!_canEdit()) return;
+    final text = _textController.text;
+    final sel = _textController.selection;
+    final cursor = (sel.start >= 0) ? sel.start : 0;
+
+    int lineStart = text.lastIndexOf('\n', cursor > 0 ? cursor - 1 : 0);
+    lineStart = lineStart == -1 ? 0 : lineStart + 1;
+
+    int lineEnd = text.indexOf('\n', cursor);
+    lineEnd = lineEnd == -1 ? text.length : lineEnd;
+
+    var currentLine = text.substring(lineStart, lineEnd);
+    currentLine = currentLine.replaceAll(RegExp(r'\[align=(?:left|center|right|justify)\]\s*', caseSensitive: false), '').trim();
+
+    final newLine = align == 'left'
+        ? '[align=left] $currentLine'
+        : align == 'center'
+            ? '[align=center] $currentLine'
+            : align == 'right'
+                ? '[align=right] $currentLine'
+                : '[align=justify] $currentLine';
+
+    final newText = text.replaceRange(lineStart, lineEnd, newLine);
+    _textController.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: lineStart + newLine.length),
+    );
+  }
+
+  void _toggleBulletList() {
+    if (!_canEdit()) return;
+    final text = _textController.text;
+    final sel = _textController.selection;
+    final cursor = (sel.start >= 0) ? sel.start : 0;
+
+    int lineStart = text.lastIndexOf('\n', cursor > 0 ? cursor - 1 : 0);
+    lineStart = lineStart == -1 ? 0 : lineStart + 1;
+
+    int lineEnd = text.indexOf('\n', cursor);
+    lineEnd = lineEnd == -1 ? text.length : lineEnd;
+
+    final currentLine = text.substring(lineStart, lineEnd);
+    String newLine;
+    if (currentLine.startsWith('- ')) {
+      newLine = currentLine.substring(2);
+    } else if (currentLine.startsWith('* ')) {
+      newLine = currentLine.substring(2);
+    } else {
+      newLine = '- $currentLine';
+    }
+
+    final newText = text.replaceRange(lineStart, lineEnd, newLine);
+    _textController.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: lineStart + newLine.length),
+    );
+  }
+
   void _applyInlineFormat(String openTag, String closeTag) {
     if (!_canEdit()) return;
     final text = _textController.text;
@@ -615,9 +833,9 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
                   onTap: () {
                     Navigator.of(ctx).pop();
                     if (isBackground) {
-                      _applyInlineFormat('<mark color="$hex">', '</mark>');
+                      _applyWordHighlightColor(hex);
                     } else {
-                      _applyInlineFormat('<font color="$hex">', '</font>');
+                      _applyWordFontColor(hex);
                     }
                   },
                   child: Container(
@@ -659,7 +877,7 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
                   title: Text(f, style: TextStyle(fontFamily: f)),
                   onTap: () {
                     Navigator.of(ctx).pop();
-                    _applyInlineFormat('<font face="$f">', '</font>');
+                    _applyWordFontFamily(f);
                   },
                 )),
           ],
@@ -2288,19 +2506,19 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
             IconButton(
               icon: const Icon(Icons.format_bold_rounded, size: 19),
               tooltip: 'Gras',
-              onPressed: () => _applyInlineFormat('**', '**'),
+              onPressed: _toggleWordBold,
             ),
             // Italic
             IconButton(
               icon: const Icon(Icons.format_italic_rounded, size: 19),
               tooltip: 'Italique',
-              onPressed: () => _applyInlineFormat('*', '*'),
+              onPressed: _toggleWordItalic,
             ),
             // Underline
             IconButton(
               icon: const Icon(Icons.format_underlined_rounded, size: 19),
               tooltip: 'Souligné',
-              onPressed: () => _applyInlineFormat('<u>', '</u>'),
+              onPressed: _toggleWordUnderline,
             ),
             const VerticalDivider(width: 16, thickness: 1, color: Color(0xFFE2E8F0)),
 
@@ -2347,17 +2565,17 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
             IconButton(
               icon: const Icon(Icons.format_align_left_rounded, size: 18),
               tooltip: 'Aligner à gauche',
-              onPressed: () => _insertTextAtCursor('[align=left]'),
+              onPressed: () => _applyParagraphAlignment('left'),
             ),
             IconButton(
               icon: const Icon(Icons.format_align_center_rounded, size: 18),
               tooltip: 'Centrer',
-              onPressed: () => _insertTextAtCursor('[align=center]'),
+              onPressed: () => _applyParagraphAlignment('center'),
             ),
             IconButton(
               icon: const Icon(Icons.format_align_right_rounded, size: 18),
               tooltip: 'Aligner à droite',
-              onPressed: () => _insertTextAtCursor('[align=right]'),
+              onPressed: () => _applyParagraphAlignment('right'),
             ),
 
             const VerticalDivider(width: 16, thickness: 1, color: Color(0xFFE2E8F0)),
@@ -2366,7 +2584,7 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
             IconButton(
               icon: const Icon(Icons.format_list_bulleted_rounded, size: 19),
               tooltip: 'Liste à puces',
-              onPressed: () => _insertTextAtCursor('\n- '),
+              onPressed: _toggleBulletList,
             ),
             IconButton(
               icon: const Icon(Icons.format_list_numbered_rounded, size: 19),
