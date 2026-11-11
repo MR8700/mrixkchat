@@ -44,6 +44,7 @@ class GroupNoteRenderer extends StatelessWidget {
   final String? currentDocumentId;
   final Map<String, DwsMedia>? mediaRegistry;
   final void Function(DwsMedia media)? onConfigureMedia;
+  final bool isFinalRenderMode;
 
   const GroupNoteRenderer({
     super.key,
@@ -57,6 +58,7 @@ class GroupNoteRenderer extends StatelessWidget {
     this.currentDocumentId,
     this.mediaRegistry,
     this.onConfigureMedia,
+    this.isFinalRenderMode = false,
   });
 
   @override
@@ -80,6 +82,7 @@ class GroupNoteRenderer extends StatelessWidget {
       externalDocs: externalDocumentsVariables,
       currentDoc: currentDocumentId,
       mediaReg: mediaRegistry,
+      isFinalRender: isFinalRenderMode,
     );
 
     // 3. Sanitize safely
@@ -175,6 +178,7 @@ class GroupNoteRenderer extends StatelessWidget {
     Map<String, Map<String, double>>? externalDocs,
     String? currentDoc,
     Map<String, DwsMedia>? mediaReg,
+    bool isFinalRender = false,
   }) {
     var result = text;
     final comps = Map<String, String>.from(compsInput);
@@ -194,6 +198,11 @@ class GroupNoteRenderer extends StatelessWidget {
         externalDocs: externalDocs,
         currentDoc: currentDoc,
       );
+      if (isFinalRender && !valStr.startsWith('⚠️') && !valStr.contains('Erreur')) {
+        final numVal = double.tryParse(valStr);
+        final formatted = numVal != null ? FormulaEngine.formatNumber(numVal, withThousandSeparators: true) : valStr;
+        return formatted;
+      }
       return ' <calc val="$valStr" expr="${expr.replaceAll('"', '')}"/> ';
     });
 
@@ -1881,14 +1890,61 @@ class GroupNoteRenderer extends StatelessWidget {
         continue;
       }
 
+      // Check for structured Code component e.g. { id = "titre_facture"; type = "heading"; level = 1; text = "Facture"; style = { color = "#059669"; }; }
+      if (line.startsWith('{') && line.contains('id =') && line.contains('type = "heading"')) {
+        final compBuffer = StringBuffer(line);
+        if (!line.endsWith('}') || line == '{') {
+          i++;
+          while (i < lines.length) {
+            compBuffer.writeln(lines[i]);
+            if (lines[i].trim() == '}' || lines[i].trim().endsWith('}')) break;
+            i++;
+          }
+        }
+        final compStr = compBuffer.toString();
+        final textVal = RegExp(r'text\s*=\s*"([^"]+)"').firstMatch(compStr)?.group(1) ?? '';
+        final levelVal = int.tryParse(RegExp(r'level\s*=\s*([0-9]+)').firstMatch(compStr)?.group(1) ?? '1') ?? 1;
+        final colorVal = RegExp(r'color\s*=\s*"([^"]+)"').firstMatch(compStr)?.group(1);
+        Color? headingColor;
+        if (colorVal != null) {
+          final hex = colorVal.replaceFirst('#', '');
+          if (hex.length == 6) {
+            headingColor = Color(int.parse('FF$hex', radix: 16));
+          }
+        }
+        blocks.add(_ContentBlock(
+          type: _BlockType.heading,
+          text: textVal,
+          headingLevel: levelVal,
+          textColor: headingColor,
+        ));
+        i++;
+        continue;
+      }
+
       // Check for C variable definitions line: {a=2; b=5;}
       final varDeclRegex = RegExp(r'^\{([a-zA-Z_0-9,\s=;+\-*\/%^.]+)\}$');
       if (varDeclRegex.hasMatch(line) && !line.startsWith('{Titre') && !line.startsWith('{{')) {
         final inner = varDeclRegex.firstMatch(line)!.group(1)!.trim();
-        blocks.add(_ContentBlock(
-          type: _BlockType.variableBadge,
-          text: 'Variables C : $inner',
-        ));
+        if (!isFinalRenderMode) {
+          blocks.add(_ContentBlock(
+            type: _BlockType.variableBadge,
+            text: 'Variables C : $inner',
+          ));
+        }
+        i++;
+        continue;
+      }
+
+      // Check for unbracketed C variable definitions in Code mode: int prix = 1500;
+      final codeDeclRegex = RegExp(r'^(int|float|double|number|string)\s+([a-zA-Z_0-9]+)\s*=\s*([^;]+);?$');
+      if (codeDeclRegex.hasMatch(line)) {
+        if (!isFinalRenderMode) {
+          blocks.add(_ContentBlock(
+            type: _BlockType.variableBadge,
+            text: 'Variable : $line',
+          ));
+        }
         i++;
         continue;
       }

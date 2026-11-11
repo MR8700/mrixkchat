@@ -317,12 +317,37 @@ class FormulaEngine {
       if (val == val.roundToDouble()) {
         return val.toInt().toString();
       }
+      if (val == val.toInt()) {
+        return formatNumber(val);
+      }
       return val.toStringAsFixed(4).replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '');
     } on CircularDependencyException catch (e) {
       return '⚠️ ${e.toString()}';
     } catch (_) {
       return 'Erreur de calcul ($expr)';
     }
+  }
+
+  /// Formats a number cleanly, handling integer rounding and optional thousands separator (e.g. 6 000)
+  static String formatNumber(double val, {bool withThousandSeparators = false}) {
+    if (val == val.toInt()) {
+      final intVal = val.toInt();
+      if (!withThousandSeparators || intVal.abs() < 1000) {
+        return '$intVal';
+      }
+      final str = '$intVal';
+      final buffer = StringBuffer();
+      int count = 0;
+      for (int i = str.length - 1; i >= 0; i--) {
+        buffer.write(str[i]);
+        count++;
+        if (count % 3 == 0 && i > 0 && str[i - 1] != '-') {
+          buffer.write(' ');
+        }
+      }
+      return buffer.toString().split('').reversed.join('');
+    }
+    return val.toStringAsFixed(4).replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '');
   }
 
   /// Scientific and Greek symbols mapping

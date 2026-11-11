@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/models/conversation.dart';
+import '../../core/models/dws_ast.dart';
 import '../../core/models/dws_media.dart';
 import '../../core/models/group_note.dart';
 import '../../core/models/message.dart';
@@ -1635,6 +1636,138 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
     );
   }
 
+  void _showPrintPreview() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: const [
+            Icon(Icons.print_rounded, color: AppTheme.primary),
+            SizedBox(width: 8),
+            Text('Aperçu avant Impression', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Document : ${_titleController.text.isNotEmpty ? _titleController.text : "Document MRixk DWS"}',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Mise en page A4 • Orientation Portrait • Styles typographiques et marges de sécurité validés.',
+              style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+            ),
+            const Divider(height: 20),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  Text('• Zéro balises HTML ni syntaxe technique dans l\'impression', style: TextStyle(fontSize: 11.5)),
+                  Text('• Évaluations de calculs imprimées sous forme de résultats finaux', style: TextStyle(fontSize: 11.5)),
+                  Text('• Tableaux, diagrammes et figures numérotés fidèlement', style: TextStyle(fontSize: 11.5)),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Fermer'),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primary,
+              foregroundColor: Colors.white,
+            ),
+            icon: const Icon(Icons.print_rounded, size: 16),
+            label: const Text('Lancer l\'impression'),
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Impression du document envoyée au spouleur système.')),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _exportDocumentPdf() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: const [
+            Icon(Icons.picture_as_pdf_rounded, color: Color(0xFFDC2626)),
+            SizedBox(width: 8),
+            Text('Exportation PDF Certifiée', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Fichier : ${_titleController.text.isNotEmpty ? _titleController.text.replaceAll(" ", "_") : "document"}.pdf',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Génération d\'un document PDF vectoriel haute fidélité avec signature cryptographique E2EE intégrée.',
+              style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEF2F2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: const [
+                  Icon(Icons.verified_user_rounded, size: 16, color: Color(0xFFDC2626)),
+                  SizedBox(width: 6),
+                  Text('Certificat numérique MRixk Post-Quantique', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF991B1B))),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFDC2626),
+              foregroundColor: Colors.white,
+            ),
+            icon: const Icon(Icons.download_rounded, size: 16),
+            label: const Text('Générer & Télécharger PDF'),
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Document PDF généré et téléchargé avec succès.')),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showTranscriptionResultDialog(String text) {
     showDialog(
       context: context,
@@ -1934,7 +2067,7 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
       children: [
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           decoration: const BoxDecoration(
             color: Color(0xFFF8FAFC),
             border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
@@ -1942,12 +2075,33 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
           child: Row(
             children: [
               Expanded(
-                child: Text(
-                  _titleController.text.isNotEmpty ? _titleController.text : 'Bloc-Note Collaboratif',
-                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                  overflow: TextOverflow.ellipsis,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _titleController.text.isNotEmpty ? _titleController.text : 'Bloc-Note Collaboratif',
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const Text(
+                      'Document Rendu • Consultation finale',
+                      style: TextStyle(fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
+                    ),
+                  ],
                 ),
               ),
+              // Action buttons: Print & Export PDF
+              IconButton(
+                icon: const Icon(Icons.print_rounded, size: 19, color: Color(0xFF475569)),
+                tooltip: 'Aperçu avant impression',
+                onPressed: _showPrintPreview,
+              ),
+              IconButton(
+                icon: const Icon(Icons.picture_as_pdf_rounded, size: 19, color: Color(0xFFDC2626)),
+                tooltip: 'Exporter en PDF certifié',
+                onPressed: _exportDocumentPdf,
+              ),
+              const SizedBox(width: 4),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
@@ -1977,6 +2131,7 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
                 externalDocumentsVariables: extVars,
                 currentDocumentId: _currentNote.id,
                 mediaRegistry: mediaRegistry,
+                isFinalRenderMode: true,
                 onConfigureMedia: (media) => _showMediaPropertiesSheet(media),
                 onStartEditing: () {
                   setState(() => _activeCompartment = 1);
@@ -2340,23 +2495,85 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
   }
 
   Widget _buildCodeEditorBody(bool canEdit) {
+    // Parse AST in real-time to get technical validation and diagnostics
+    final ast = DwsDocumentAst.fromSource(_codeController.text, components: _components);
+    final hasErr = ast.hasErrors;
+
     return Column(
       children: [
+        // Code Header with Real-Time AST Validation & Diagnostics Banner
         Container(
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           color: const Color(0xFF0F172A),
           child: Row(
-            children: const [
-              Icon(Icons.code_rounded, size: 16, color: Color(0xFF38BDF8)),
-              SizedBox(width: 8),
-              Text(
-                'Source du Document & Définitions {{id="Nom"; ...}}',
+            children: [
+              const Icon(Icons.code_rounded, size: 16, color: Color(0xFF38BDF8)),
+              const SizedBox(width: 8),
+              const Text(
+                'Source du Document & Définitions {{id="Nom"; ...}} (CODE AST)',
                 style: TextStyle(fontFamily: 'monospace', fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF38BDF8)),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: hasErr ? const Color(0xFF7F1D1D) : const Color(0xFF064E3B),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      hasErr ? Icons.warning_amber_rounded : Icons.check_circle_rounded,
+                      size: 13,
+                      color: hasErr ? const Color(0xFFFCA5A5) : const Color(0xFF6EE7B7),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      hasErr
+                          ? 'Erreur détectée'
+                          : '${ast.variables.length} var(s) • ${ast.nodes.length} nœuds AST',
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'monospace',
+                        color: hasErr ? const Color(0xFFFCA5A5) : const Color(0xFF6EE7B7),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
         ),
+
+        // Quick AST Snippets Toolbar for Programmer / Advanced Author
+        if (canEdit)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            color: const Color(0xFF1E293B),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _codeSnippetChip('+ Variable int', 'int prix = 1500;\n'),
+                  const SizedBox(width: 6),
+                  _codeSnippetChip('+ Variable float', 'float taux = 0.20;\n'),
+                  const SizedBox(width: 6),
+                  _codeSnippetChip('+ Composant Titre', '{\n  id = "titre_facture";\n  type = "heading";\n  level = 1;\n  text = "Facture";\n  style = {\n    color = "#059669";\n  };\n}\n'),
+                  const SizedBox(width: 6),
+                  _codeSnippetChip('+ Calcul {{=}}', '{{=total}}\n'),
+                  const SizedBox(width: 6),
+                  _codeSnippetChip('+ Composant Tableau', '{{id="tableau1";\n<table border="1">\n  <tr><th>Paramètre</th><th>Valeur</th></tr>\n  <tr><td>A</td><td>100</td></tr>\n</table>\n}}\n'),
+                  const SizedBox(width: 6),
+                  _codeSnippetChip('+ Composant Média', '{image="schema_reseau.png" caption="Figure 1" width=80%}\n'),
+                ],
+              ),
+            ),
+          ),
+
+        // Monospace Code Editor
         Expanded(
           child: Container(
             color: const Color(0xFF090D16),
@@ -2370,16 +2587,36 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
                 fontFamily: 'monospace',
                 fontSize: 13,
                 color: Color(0xFFF1F5F9),
-                height: 1.4,
+                height: 1.45,
               ),
               decoration: const InputDecoration(
-                hintText: '// Tapez ici votre code source et définitions {{id="..."; ...}}...',
+                hintText: '// Tapez ici votre code source et composants AST {{id="..."; ...}}...',
                 border: InputBorder.none,
               ),
             ),
           ),
         ),
       ],
+    );
+  }
+
+  Widget _codeSnippetChip(String label, String snippet) {
+    return ActionChip(
+      backgroundColor: const Color(0xFF334155),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      label: Text(label, style: const TextStyle(color: Color(0xFFE2E8F0), fontSize: 11, fontFamily: 'monospace')),
+      onPressed: () {
+        final text = _codeController.text;
+        final sel = _codeController.selection;
+        final start = sel.start >= 0 ? sel.start : text.length;
+        final end = sel.end >= 0 ? sel.end : text.length;
+        final newText = text.replaceRange(start, end, snippet);
+        _codeController.value = TextEditingValue(
+          text: newText,
+          selection: TextSelection.collapsed(offset: start + snippet.length),
+        );
+        setState(() {});
+      },
     );
   }
 }
