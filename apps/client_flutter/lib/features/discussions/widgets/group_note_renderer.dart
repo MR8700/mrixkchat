@@ -848,15 +848,18 @@ class GroupNoteRenderer extends StatelessWidget {
         break;
     }
 
-    return Text(
-      block.text,
-      textAlign: block.alignment ?? TextAlign.left,
-      style: TextStyle(
-        fontSize: fontSize,
-        fontWeight: weight,
-        color: block.textColor ?? color,
-        fontFamily: 'Inter',
-        letterSpacing: level <= 2 ? -0.4 : 0.0,
+    return SizedBox(
+      width: double.infinity,
+      child: Text(
+        block.text,
+        textAlign: block.alignment ?? TextAlign.left,
+        style: TextStyle(
+          fontSize: fontSize,
+          fontWeight: weight,
+          color: block.textColor ?? color,
+          fontFamily: 'Inter',
+          letterSpacing: level <= 2 ? -0.4 : 0.0,
+        ),
       ),
     );
   }
@@ -1313,9 +1316,16 @@ class GroupNoteRenderer extends StatelessWidget {
   Widget _buildRichParagraph(String rawText, {TextAlign? align}) {
     var text = rawText;
 
+    // Clean any residual alignment and structural tags from paragraph text
+    text = text.replaceAll(RegExp(r'\[align=(?:left|center|right|justify)\]\s*', caseSensitive: false), '')
+               .replaceAll(RegExp(r'<\/?div(?:\s+align="[^"]*")?>', caseSensitive: false), '')
+               .replaceAll(RegExp(r'<\/?(p|span)\b[^>]*>', caseSensitive: false), '');
+
     // Replace Markdown
+    text = text.replaceAllMapped(RegExp(r'\*\*\*(.*?)\*\*\*'), (m) => '<b><i>${m.group(1)}</i></b>');
     text = text.replaceAllMapped(RegExp(r'\*\*(.*?)\*\*'), (m) => '<b>${m.group(1)}</b>');
     text = text.replaceAllMapped(RegExp(r'\*(.*?)\*'), (m) => '<i>${m.group(1)}</i>');
+    text = text.replaceAllMapped(RegExp(r'~~(.*?)~~'), (m) => '<s>${m.group(1)}</s>');
     text = text.replaceAllMapped(RegExp(r'`(.*?)`'), (m) => '<code>${m.group(1)}</code>');
 
     // Replace subscripts: {{A_1}} -> <sub>
@@ -1374,9 +1384,85 @@ class GroupNoteRenderer extends StatelessWidget {
       return '<matrix raw="${m.group(1)?.trim()}"/>';
     });
 
+    final baseTextStyle = TextStyle(
+      fontSize: 14,
+      color: const Color(0xFF334155),
+      height: lineSpacing,
+    );
+
+    final spans = _parseInlineSpans(text, baseTextStyle);
+
+    return SizedBox(
+      width: double.infinity,
+      child: Text.rich(
+        TextSpan(
+          style: baseTextStyle,
+          children: spans,
+        ),
+        textAlign: align ?? TextAlign.left,
+      ),
+    );
+  }
+
+  List<InlineSpan> _parsePlainSpans(String text, TextStyle style) {
+    if (text.isEmpty) return [];
+
+    final spans = <InlineSpan>[];
+    // Match {{...}} or {...}
+    final braceRegex = RegExp(r'(\{\{[\s\S]*?\}\}|\{[^{}\n]+?\})');
+    int lastIndex = 0;
+
+    for (final match in braceRegex.allMatches(text)) {
+      if (match.start > lastIndex) {
+        spans.add(TextSpan(
+          text: text.substring(lastIndex, match.start),
+          style: style,
+        ));
+      }
+
+      final content = match.group(1)!;
+      if (content.startsWith('{{')) {
+        // Soft indigo badge for expressions / evaluations
+        spans.add(TextSpan(
+          text: content,
+          style: style.copyWith(
+            backgroundColor: const Color(0xFFEEF2FF),
+            color: const Color(0xFF4338CA),
+            fontFamily: 'monospace',
+            fontWeight: FontWeight.w600,
+          ),
+        ));
+      } else {
+        // Warm amber badge for declarations / variables
+        spans.add(TextSpan(
+          text: content,
+          style: style.copyWith(
+            backgroundColor: const Color(0xFFFEF3C7),
+            color: const Color(0xFF92400E),
+            fontFamily: 'monospace',
+            fontWeight: FontWeight.w600,
+          ),
+        ));
+      }
+      lastIndex = match.end;
+    }
+
+    if (lastIndex < text.length) {
+      spans.add(TextSpan(
+        text: text.substring(lastIndex),
+        style: style,
+      ));
+    }
+
+    return spans;
+  }
+
+  List<InlineSpan> _parseInlineSpans(String text, TextStyle currentStyle) {
+    if (text.isEmpty) return [];
+
     final spans = <InlineSpan>[];
     final tagRegex = RegExp(
-      r'<(b|i|u|mark|code|font|sub|sup|calc|frac|integral|sigma|sqrt|limit|derivative|gradient|matrix)\b((?:\"[^\"]*\"|\x27[^\x27]*\x27|[^>])*)>(.*?)<\/\1>|<(sub|sup|calc|frac|integral|sigma|sqrt|limit|derivative|gradient|matrix)\b((?:\"[^\"]*\"|\x27[^\x27]*\x27|[^>])*)\/>',
+      r'<(b|strong|i|em|u|s|strike|del|mark|code|font|sub|sup|calc|frac|integral|sigma|sqrt|limit|derivative|gradient|matrix)\b((?:\"[^\"]*\"|\x27[^\x27]*\x27|[^>])*)>(.*?)<\/\1>|<(sub|sup|calc|frac|integral|sigma|sqrt|limit|derivative|gradient|matrix)\b((?:\"[^\"]*\"|\x27[^\x27]*\x27|[^>])*)\/>',
       caseSensitive: false,
       dotAll: true,
     );
@@ -1385,7 +1471,8 @@ class GroupNoteRenderer extends StatelessWidget {
 
     for (final match in tagRegex.allMatches(text)) {
       if (match.start > lastIndex) {
-        spans.add(TextSpan(text: text.substring(lastIndex, match.start)));
+        final betweenText = text.substring(lastIndex, match.start);
+        spans.addAll(_parsePlainSpans(betweenText, currentStyle));
       }
 
       final tag = (match.group(1) ?? match.group(4))?.toLowerCase();
@@ -1394,29 +1481,87 @@ class GroupNoteRenderer extends StatelessWidget {
 
       switch (tag) {
         case 'b':
-          spans.add(TextSpan(text: innerText, style: const TextStyle(fontWeight: FontWeight.bold)));
+        case 'strong':
+          spans.add(TextSpan(
+            children: _parseInlineSpans(
+              innerText,
+              currentStyle.copyWith(fontWeight: FontWeight.bold),
+            ),
+          ));
           break;
         case 'i':
-          spans.add(TextSpan(text: innerText, style: const TextStyle(fontStyle: FontStyle.italic)));
+        case 'em':
+          spans.add(TextSpan(
+            children: _parseInlineSpans(
+              innerText,
+              currentStyle.copyWith(fontStyle: FontStyle.italic),
+            ),
+          ));
           break;
         case 'u':
-          spans.add(TextSpan(text: innerText, style: const TextStyle(decoration: TextDecoration.underline)));
+          spans.add(TextSpan(
+            children: _parseInlineSpans(
+              innerText,
+              currentStyle.copyWith(
+                decoration: currentStyle.decoration != null
+                    ? TextDecoration.combine([currentStyle.decoration!, TextDecoration.underline])
+                    : TextDecoration.underline,
+                decorationColor: currentStyle.color,
+              ),
+            ),
+          ));
+          break;
+        case 's':
+        case 'strike':
+        case 'del':
+          spans.add(TextSpan(
+            children: _parseInlineSpans(
+              innerText,
+              currentStyle.copyWith(
+                decoration: currentStyle.decoration != null
+                    ? TextDecoration.combine([currentStyle.decoration!, TextDecoration.lineThrough])
+                    : TextDecoration.lineThrough,
+                decorationColor: currentStyle.color,
+              ),
+            ),
+          ));
           break;
         case 'mark':
           final colorMatch = RegExp(r'color="([^"]+)"').firstMatch(attrs);
           final markColor = colorMatch != null ? _parseColor(colorMatch.group(1)!) : const Color(0xFFFEF08A);
           spans.add(TextSpan(
-            text: innerText,
-            style: TextStyle(backgroundColor: markColor, color: const Color(0xFF854D0E)),
+            children: _parseInlineSpans(
+              innerText,
+              currentStyle.copyWith(
+                backgroundColor: markColor,
+                color: const Color(0xFF854D0E),
+              ),
+            ),
           ));
           break;
         case 'font':
           final colorMatch = RegExp(r'color="([^"]+)"').firstMatch(attrs);
           final faceMatch = RegExp(r'face="([^"]+)"').firstMatch(attrs);
           final fontColor = colorMatch != null ? _parseColor(colorMatch.group(1)!) : null;
+          final fontFace = faceMatch?.group(1);
+          var nextStyle = currentStyle;
+          if (fontColor != null) nextStyle = nextStyle.copyWith(color: fontColor);
+          if (fontFace != null && fontFace.isNotEmpty) nextStyle = nextStyle.copyWith(fontFamily: fontFace);
+          spans.add(TextSpan(
+            children: _parseInlineSpans(
+              innerText,
+              nextStyle,
+            ),
+          ));
+          break;
+        case 'code':
           spans.add(TextSpan(
             text: innerText,
-            style: TextStyle(color: fontColor, fontFamily: faceMatch?.group(1)),
+            style: currentStyle.copyWith(
+              fontFamily: 'monospace',
+              backgroundColor: const Color(0xFFF1F5F9),
+              color: const Color(0xFF0284C7),
+            ),
           ));
           break;
         case 'sub':
@@ -1678,37 +1823,18 @@ class GroupNoteRenderer extends StatelessWidget {
             ),
           ));
           break;
-        case 'code':
-          spans.add(TextSpan(
-            text: innerText,
-            style: const TextStyle(
-              fontFamily: 'monospace',
-              backgroundColor: Color(0xFFF1F5F9),
-              color: Color(0xFF0284C7),
-            ),
-          ));
-          break;
         default:
-          spans.add(TextSpan(text: innerText));
+          spans.addAll(_parsePlainSpans(innerText, currentStyle));
       }
       lastIndex = match.end;
     }
 
     if (lastIndex < text.length) {
-      spans.add(TextSpan(text: text.substring(lastIndex)));
+      final remaining = text.substring(lastIndex);
+      spans.addAll(_parsePlainSpans(remaining, currentStyle));
     }
 
-    return Text.rich(
-      TextSpan(
-        style: TextStyle(
-          fontSize: 14,
-          color: const Color(0xFF334155),
-          height: lineSpacing,
-        ),
-        children: spans,
-      ),
-      textAlign: align ?? TextAlign.left,
-    );
+    return spans;
   }
 
   static String _toSubscriptUnicode(String s) {
@@ -2140,6 +2266,32 @@ class GroupNoteRenderer extends StatelessWidget {
     while (i < lines.length) {
       var line = lines[i].trim();
 
+      // Alignment detection on line: [align=left|center|right|justify] or <div align="...">
+      TextAlign? lineAlign;
+      final alignMatch = RegExp(r'\[align=(left|center|right|justify)\]', caseSensitive: false).firstMatch(line);
+      if (alignMatch != null) {
+        final val = alignMatch.group(1)!.toLowerCase();
+        lineAlign = switch (val) {
+          'center' => TextAlign.center,
+          'right' => TextAlign.right,
+          'justify' => TextAlign.justify,
+          _ => TextAlign.left,
+        };
+        line = line.replaceAll(RegExp(r'\[align=(?:left|center|right|justify)\]\s*', caseSensitive: false), '').trim();
+      } else {
+        final divAlignMatch = RegExp(r'<div\s+align="(left|center|right|justify)">', caseSensitive: false).firstMatch(line);
+        if (divAlignMatch != null) {
+          final val = divAlignMatch.group(1)!.toLowerCase();
+          lineAlign = switch (val) {
+            'center' => TextAlign.center,
+            'right' => TextAlign.right,
+            'justify' => TextAlign.justify,
+            _ => TextAlign.left,
+          };
+        }
+      }
+      line = line.replaceAll(RegExp(r'<\/?div(?:\s+align="[^"]*")?>\s*', caseSensitive: false), '').trim();
+
       if (line.startsWith('<!-- macro:')) {
         currentMacroName = line.replaceAll('<!-- macro:', '').replaceAll('-->', '').trim();
         i++;
@@ -2360,6 +2512,7 @@ class GroupNoteRenderer extends StatelessWidget {
           type: _BlockType.heading,
           text: headingText,
           headingLevel: hashes.length,
+          alignment: lineAlign,
         ));
         i++;
         continue;
@@ -2374,6 +2527,7 @@ class GroupNoteRenderer extends StatelessWidget {
           type: _BlockType.heading,
           text: htmlHMatch.group(2)!.trim(),
           headingLevel: level,
+          alignment: lineAlign,
         ));
         i++;
         continue;
@@ -2389,7 +2543,7 @@ class GroupNoteRenderer extends StatelessWidget {
       // Blockquote
       if (line.startsWith('> ') || (line.startsWith('<blockquote>') && line.endsWith('</blockquote>'))) {
         final text = line.startsWith('> ') ? line.substring(2) : line.substring(12, line.length - 13);
-        blocks.add(_ContentBlock(type: _BlockType.blockquote, text: text));
+        blocks.add(_ContentBlock(type: _BlockType.blockquote, text: text, alignment: lineAlign));
         i++;
         continue;
       }
@@ -2401,6 +2555,7 @@ class GroupNoteRenderer extends StatelessWidget {
           type: _BlockType.checkboxList,
           text: line.substring(4).trim(),
           isChecked: isChecked,
+          alignment: lineAlign,
         ));
         i++;
         continue;
@@ -2413,6 +2568,7 @@ class GroupNoteRenderer extends StatelessWidget {
           type: _BlockType.numberedList,
           text: numListMatch.group(2)!.trim(),
           listPrefix: numListMatch.group(1),
+          alignment: lineAlign,
         ));
         i++;
         continue;
@@ -2421,29 +2577,16 @@ class GroupNoteRenderer extends StatelessWidget {
       // Bullet list item
       if (line.startsWith('- ') || line.startsWith('* ') || (line.startsWith('<li>') && line.endsWith('</li>'))) {
         final text = (line.startsWith('- ') || line.startsWith('* ')) ? line.substring(2) : line.substring(4, line.length - 5);
-        blocks.add(_ContentBlock(type: _BlockType.bulletList, text: text));
+        blocks.add(_ContentBlock(type: _BlockType.bulletList, text: text, alignment: lineAlign));
         i++;
         continue;
       }
 
       // Code block
       if (line.startsWith('<code>') && line.endsWith('</code>')) {
-        blocks.add(_ContentBlock(type: _BlockType.code, text: line.substring(6, line.length - 7)));
+        blocks.add(_ContentBlock(type: _BlockType.code, text: line.substring(6, line.length - 7), alignment: lineAlign));
         i++;
         continue;
-      }
-
-      // Check alignment tags <div align="center"> or [align=center]
-      TextAlign? align;
-      if (line.contains('[align=center]') || line.contains('align="center"')) {
-        align = TextAlign.center;
-        line = line.replaceAll('[align=center]', '').replaceAll(RegExp(r'<div\s+align="center">|<\/div>'), '');
-      } else if (line.contains('[align=right]') || line.contains('align="right"')) {
-        align = TextAlign.right;
-        line = line.replaceAll('[align=right]', '').replaceAll(RegExp(r'<div\s+align="right">|<\/div>'), '');
-      } else if (line.contains('[align=justify]') || line.contains('align="justify"')) {
-        align = TextAlign.justify;
-        line = line.replaceAll('[align=justify]', '').replaceAll(RegExp(r'<div\s+align="justify">|<\/div>'), '');
       }
 
       // Default paragraph
@@ -2453,7 +2596,7 @@ class GroupNoteRenderer extends StatelessWidget {
           .replaceAll(RegExp(r'<\/?ol>', caseSensitive: false), '');
 
       if (clean.isNotEmpty) {
-        blocks.add(_ContentBlock(type: _BlockType.paragraph, text: clean, alignment: align));
+        blocks.add(_ContentBlock(type: _BlockType.paragraph, text: clean, alignment: lineAlign));
       }
       i++;
     }

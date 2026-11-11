@@ -407,6 +407,16 @@ class WordRichTextController extends TextEditingController {
     notifyListeners();
   }
 
+  String? getAlignmentAtCursor() {
+    final sel = selection;
+    final cursor = sel.isValid ? sel.start : 0;
+    final rawText = text;
+    int lineStart = rawText.lastIndexOf('\n', cursor > 0 ? cursor - 1 : 0);
+    lineStart = lineStart == -1 ? 0 : lineStart + 1;
+    final lineIndex = '\n'.allMatches(rawText.substring(0, lineStart)).length;
+    return _lineAlignments[lineIndex];
+  }
+
   void toggleBulletListForSelection() {
     final sel = selection;
     final cursor = sel.isValid ? sel.start : 0;

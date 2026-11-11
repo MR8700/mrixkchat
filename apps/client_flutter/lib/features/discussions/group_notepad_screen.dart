@@ -81,6 +81,9 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
   // Immediate variable verification warning (e.g. Maths.?inconnue)
   String? _immediateVariableWarning;
 
+  // Active paragraph alignment at cursor for Word editor
+  TextAlign _currentWordAlign = TextAlign.left;
+
   @override
   void initState() {
     super.initState();
@@ -115,6 +118,20 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
     _onTextChanged();
     final text = _textController.text;
     final sel = _textController.selection;
+
+    // Synchronize cursor alignment for WYSIWYG Word editing
+    final cursorAlignStr = _textController.getAlignmentAtCursor();
+    final newAlign = switch (cursorAlignStr) {
+      'center' => TextAlign.center,
+      'right' => TextAlign.right,
+      'justify' => TextAlign.justify,
+      _ => TextAlign.left,
+    };
+    if (newAlign != _currentWordAlign) {
+      setState(() {
+        _currentWordAlign = newAlign;
+      });
+    }
 
     // Detect if cursor is near {{ or { for Excel-like formula autocompletion
     if (sel.baseOffset >= 0 && sel.baseOffset <= text.length) {
@@ -453,6 +470,14 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
   void _applyParagraphAlignment(String align) {
     if (!_canEdit()) return;
     _textController.setAlignmentForSelection(align);
+    setState(() {
+      _currentWordAlign = switch (align) {
+        'center' => TextAlign.center,
+        'right' => TextAlign.right,
+        'justify' => TextAlign.justify,
+        _ => TextAlign.left,
+      };
+    });
   }
 
   void _toggleBulletList() {
@@ -2383,17 +2408,29 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
 
             // Alignments
             IconButton(
-              icon: const Icon(Icons.format_align_left_rounded, size: 18),
+              icon: Icon(
+                Icons.format_align_left_rounded,
+                size: 18,
+                color: _currentWordAlign == TextAlign.left ? AppTheme.primary : const Color(0xFF475569),
+              ),
               tooltip: 'Aligner à gauche',
               onPressed: () => _applyParagraphAlignment('left'),
             ),
             IconButton(
-              icon: const Icon(Icons.format_align_center_rounded, size: 18),
+              icon: Icon(
+                Icons.format_align_center_rounded,
+                size: 18,
+                color: _currentWordAlign == TextAlign.center ? AppTheme.primary : const Color(0xFF475569),
+              ),
               tooltip: 'Centrer',
               onPressed: () => _applyParagraphAlignment('center'),
             ),
             IconButton(
-              icon: const Icon(Icons.format_align_right_rounded, size: 18),
+              icon: Icon(
+                Icons.format_align_right_rounded,
+                size: 18,
+                color: _currentWordAlign == TextAlign.right ? AppTheme.primary : const Color(0xFF475569),
+              ),
               tooltip: 'Aligner à droite',
               onPressed: () => _applyParagraphAlignment('right'),
             ),
@@ -2513,35 +2550,38 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
           color: const Color(0xFFF8FAFC),
-          child: Row(
-            children: [
-              const Icon(Icons.auto_awesome_rounded, size: 15, color: AppTheme.primary),
-              const SizedBox(width: 8),
-              const Text(
-                'Édition visuelle Word • Styles rendus en direct',
-                style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: Color(0xFF475569)),
-              ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFEF3C7),
-                  borderRadius: BorderRadius.circular(5),
-                  border: Border.all(color: const Color(0xFFFDE68A)),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                const Icon(Icons.auto_awesome_rounded, size: 15, color: AppTheme.primary),
+                const SizedBox(width: 8),
+                const Text(
+                  'Édition visuelle Word • Styles rendus en direct',
+                  style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: Color(0xFF475569)),
                 ),
-                child: const Text('{variables}', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF92400E), fontFamily: 'monospace')),
-              ),
-              const SizedBox(width: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEEF2FF),
-                  borderRadius: BorderRadius.circular(5),
-                  border: Border.all(color: const Color(0xFFC7D2FE)),
+                const SizedBox(width: 16),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEF3C7),
+                    borderRadius: BorderRadius.circular(5),
+                    border: Border.all(color: const Color(0xFFFDE68A)),
+                  ),
+                  child: const Text('{variables}', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF92400E), fontFamily: 'monospace')),
                 ),
-                child: const Text('{{calculs & maths}}', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF3730A3), fontFamily: 'monospace')),
-              ),
-            ],
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEEF2FF),
+                    borderRadius: BorderRadius.circular(5),
+                    border: Border.all(color: const Color(0xFFC7D2FE)),
+                  ),
+                  child: const Text('{{calculs & maths}}', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF3730A3), fontFamily: 'monospace')),
+                ),
+              ],
+            ),
           ),
         ),
         const Divider(height: 1, color: Color(0xFFE2E8F0)),
@@ -2553,6 +2593,7 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
             child: TextField(
               controller: _textController,
               enabled: canEdit,
+              textAlign: _currentWordAlign,
               maxLines: null,
               expands: true,
               keyboardType: TextInputType.multiline,
