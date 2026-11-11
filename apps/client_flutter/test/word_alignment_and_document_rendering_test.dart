@@ -250,5 +250,58 @@ Calcul : {{prix * 1.2}}
       textField = tester.widget<TextField>(find.byType(TextField).last);
       expect(textField.textAlign, TextAlign.left);
     });
+
+    testWidgets('Code mode contains EXACTLY what user wrote without phantom test components or banners', (tester) async {
+      final conv = Conversation(
+        id: 'group-clean-code-test',
+        title: 'Groupe Test Propre',
+        peerAvatar: '',
+        lastMessage: '',
+        lastMessageTime: 'Maintenant',
+        unreadCount: 0,
+        isOnline: false,
+        isGroup: true,
+        groupMembersCount: 3,
+      );
+
+      await tester.pumpWidget(
+        buildTestApp(
+          GroupNotepadScreen(conversation: conv),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Switch to Éditer compartment
+      await tester.tap(find.text('Éditer'));
+      await tester.pumpAndSettle();
+
+      // Enter Word text
+      final wordInput = find.byType(TextField).last;
+      await tester.enterText(wordInput, 'bonjour nnnnnnnnnnnnnn');
+      await tester.pumpAndSettle();
+
+      // Switch to Code mode
+      await tester.tap(find.text('Code'));
+      await tester.pumpAndSettle();
+
+      // Verify the text in Code mode
+      final codeInput = tester.widget<TextField>(find.byType(TextField).last);
+      final codeText = codeInput.controller!.text;
+
+      // Must be EXACTLY what the user wrote
+      expect(codeText, equals('bonjour nnnnnnnnnnnnnn'));
+
+      // MUST NOT contain legacy banners or dummy components
+      expect(codeText.contains('// === Document MRixk'), isFalse);
+      expect(codeText.contains('// === Définitions des Composants'), isFalse);
+      expect(codeText.contains('tableau1'), isFalse);
+      expect(codeText.contains('formule1'), isFalse);
+      expect(codeText.contains('integrale1'), isFalse);
+      expect(codeText.contains('somme1'), isFalse);
+      expect(codeText.contains('diagramme1'), isFalse);
+      expect(codeText.contains('graphe1'), isFalse);
+      expect(codeText.contains('tableau_indicateurs'), isFalse);
+      expect(codeText.contains('resultats_calculs'), isFalse);
+    });
   });
 }

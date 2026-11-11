@@ -102,10 +102,12 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
       documentId: widget.documentId,
       groupTitle: widget.conversation.title,
     );
-    _textController = WordRichTextController(text: _currentNote.content);
-    _codeController = TextEditingController(text: _buildCombinedCodeSource(_currentNote.content, _currentNote.components));
-    _titleController = TextEditingController(text: _currentNote.title);
     _components = Map<String, String>.from(_currentNote.components);
+    // Remove phantom unreferenced test components
+    _components.removeWhere((k, _) => !_currentNote.content.contains('{{$k}}') && !_currentNote.content.contains('<!-- macro:$k -->'));
+    _textController = WordRichTextController(text: _currentNote.content);
+    _codeController = TextEditingController(text: _buildCombinedCodeSource(_currentNote.content, _components));
+    _titleController = TextEditingController(text: _currentNote.title);
     _lineSpacing = _currentNote.lineSpacing;
     _paragraphSpacing = _currentNote.paragraphSpacing;
 
@@ -166,9 +168,6 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
       setState(() => _immediateVariableWarning = warning);
     }
 
-    // Auto-detect newly typed {Titre du tableau} variables and seed in components
-    _syncVariablesFromWordToComponents(text);
-
     // Live Instant Real-time Sync to repository (debounced)
     _scheduleLiveInstantSync();
   }
@@ -211,50 +210,28 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
     _currentNote = updated;
   }
 
-  void _syncVariablesFromWordToComponents(String text) {
-    final singleBraceMatches = RegExp(r'\{([a-zA-Z0-9_\s\-]+)\}').allMatches(text);
-    bool changed = false;
-    for (final m in singleBraceMatches) {
-      final varName = m.group(1)?.trim();
-      if (varName != null &&
-          varName.isNotEmpty &&
-          !varName.startsWith('int ') &&
-          !varName.startsWith('float ') &&
-          !varName.contains('=') &&
-          !varName.startsWith('id=') &&
-          !_components.containsKey(varName)) {
-        // Automatically scaffold component code in Code compartment
-        _components[varName] = '''
-<table border="1">
-  <thead>
-    <tr><th>Paramètre</th><th>Valeur</th><th>Statut</th></tr>
-  </thead>
-  <tbody>
-    <tr><td>Donnée 1</td><td>100</td><td>Validé ✅</td></tr>
-    <tr><td>Donnée 2</td><td>200</td><td>Conforme 🚀</td></tr>
-  </tbody>
-</table>''';
-        changed = true;
+  String _buildCombinedCodeSource(String content, Map<String, String> comps) {
+    final cleanContent = content.trim();
+    // Only include components that are actually referenced in the document
+    final activeComps = <String, String>{};
+    for (final entry in comps.entries) {
+      if (cleanContent.contains('{{${entry.key}}}') || cleanContent.contains('<!-- macro:${entry.key} -->')) {
+        activeComps[entry.key] = entry.value;
       }
     }
-    if (changed) {
-      _codeController.text = _buildCombinedCodeSource(_textController.toMarkdown(), _components);
+    if (activeComps.isEmpty) {
+      return cleanContent;
     }
-  }
-
-  String _buildCombinedCodeSource(String content, Map<String, String> comps) {
     final buf = StringBuffer();
-    buf.writeln('// === Document MRixk - Mode Code ===');
-    buf.writeln(content);
+    buf.writeln(cleanContent);
     buf.writeln();
-    buf.writeln('// === Définitions des Composants & Variables ===');
-    comps.forEach((name, code) {
+    activeComps.forEach((name, code) {
       buf.writeln('{{id="$name";');
       buf.writeln(code.trim());
       buf.writeln('}}');
       buf.writeln();
     });
-    return buf.toString();
+    return buf.toString().trim();
   }
 
   void _syncFromCodeToWord(String rawCode) {
@@ -267,10 +244,11 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
         extractedComps[id] = payload.trim();
       }
     }
-    // Remove component blocks to get pure document text
+    // Remove component blocks and any legacy banner comments to get pure document text
     var cleanDoc = rawCode.replaceAll(compRegex, '');
-    cleanDoc = cleanDoc.replaceAll(RegExp(r'\/\/ ===.*?==='), '').trim();
+    cleanDoc = cleanDoc.replaceAll(RegExp(r'\/\/ ===.*?===\n?'), '').trim();
 
+    _components.clear();
     _components.addAll(extractedComps);
     _textController.loadMarkdown(cleanDoc);
   }
@@ -2247,6 +2225,7 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
                       onSelected: (_) {
                         setState(() {
                           _editSubMode = 'word';
+                          _syncFromCodeToWord(_codeController.text);
                         });
                       },
                     ),
@@ -2627,16 +2606,18 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           color: const Color(0xFF0F172A),
-          child: Row(
-            children: [
-              const Icon(Icons.code_rounded, size: 16, color: Color(0xFF38BDF8)),
-              const SizedBox(width: 8),
-              const Text(
-                'Source du Document & Définitions {{id="Nom"; ...}} (CODE AST)',
-                style: TextStyle(fontFamily: 'monospace', fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF38BDF8)),
-              ),
-              const Spacer(),
-              Container(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                const Icon(Icons.code_rounded, size: 16, color: Color(0xFF38BDF8)),
+                const SizedBox(width: 8),
+                const Text(
+                  'Source du Document & Définitions {{id="Nom"; ...}} (CODE AST)',
+                  style: TextStyle(fontFamily: 'monospace', fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF38BDF8)),
+                ),
+                const SizedBox(width: 16),
+                Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
                   color: hasErr ? const Color(0xFF7F1D1D) : const Color(0xFF064E3B),
@@ -2668,6 +2649,7 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
             ],
           ),
         ),
+      ),
 
         // Quick AST Snippets Toolbar for Programmer / Advanced Author
         if (canEdit)

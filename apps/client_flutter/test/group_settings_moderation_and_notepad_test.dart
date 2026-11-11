@@ -49,17 +49,14 @@ void main() {
       await profileRepo.updateProfile(myProfile);
     });
 
-    test('GroupNoteRepository seeds and manages collaborative note and macro components', () async {
+    test('GroupNoteRepository creates clean collaborative note without test data', () async {
       const convId = 'conv_group_test';
       final note = noteRepo.getNote(convId, groupTitle: 'Équipe Alpha');
 
       expect(note.conversationId, equals(convId));
       expect(note.title, contains('Équipe Alpha'));
-      expect(note.content, contains('{{tableau1}}'));
-      expect(note.content, contains('{{formule1}}'));
-      expect(note.components.containsKey('tableau1'), isTrue);
-      expect(note.components['tableau1'], contains('<table'));
-      expect(note.components['formule1'], contains('<math>'));
+      expect(note.content, isEmpty);
+      expect(note.components, isEmpty);
       expect(note.isLocked, isFalse);
 
       // Lock note
