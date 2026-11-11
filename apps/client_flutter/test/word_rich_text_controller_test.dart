@@ -5,8 +5,8 @@ import 'package:mrixk_client/features/discussions/controllers/word_rich_text_con
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  group('WordRichTextController — Spécification MRixk DWS Word', () {
-    testWidgets('Texte utilisateur de démonstration : tout est rendu sauf {} et {{}}', (tester) async {
+  group('WordRichTextController — Espace Intégré Spécialisé Word (Clean-Buffer & Spans)', () {
+    testWidgets('Texte utilisateur de démonstration : tout est rendu avec styles purs, sans astérisques résiduels', (tester) async {
       const rawInput = '''**texte**
 *texte* <u>texte</u> <font face="Inter">texte</font> <font color="#059669">texte</font> [align=left] texte 
 -  texte texte
@@ -35,7 +35,7 @@ texte''';
         ),
       );
 
-      // Verify character length parity
+      // Verify character length parity with controller's clean text (1:1 visual to buffer)
       final span = controller.buildTextSpan(
         context: tester.element(find.byType(Scaffold)),
         withComposing: false,
@@ -49,25 +49,20 @@ texte''';
         return true;
       });
 
-      expect(totalSpanLength, equals(rawInput.length),
-          reason: 'La longueur totale des spans doit être strictement égale à la longueur du texte brut.');
+      expect(totalSpanLength, equals(controller.text.length),
+          reason: 'La longueur totale des spans doit être strictement égale à la longueur du texte propre.');
 
       // Check bold rendering
       bool foundBold = false;
-      bool foundHiddenDoubleStar = false;
       span.visitChildren((child) {
         if (child is TextSpan && child.text != null) {
           if (child.text == 'texte' && child.style?.fontWeight == FontWeight.bold) {
             foundBold = true;
           }
-          if (child.text == '**' && child.style?.color == Colors.transparent) {
-            foundHiddenDoubleStar = true;
-          }
         }
         return true;
       });
       expect(foundBold, isTrue, reason: 'Le mot "texte" doit être affiché avec fontWeight: bold.');
-      expect(foundHiddenDoubleStar, isTrue, reason: 'Les balises "**" doivent être masquées.');
 
       // Check underline rendering
       bool foundUnderline = false;
@@ -99,15 +94,9 @@ texte''';
       });
       expect(foundInterFont, isTrue, reason: 'Le mot sous <font face="Inter"> doit appliquer la police Inter.');
 
-      // Check [align=left] hidden
-      bool foundHiddenAlign = false;
-      span.visitChildren((child) {
-        if (child is TextSpan && child.text == '[align=left]' && child.style?.color == Colors.transparent) {
-          foundHiddenAlign = true;
-        }
-        return true;
-      });
-      expect(foundHiddenAlign, isTrue, reason: 'La balise [align=left] doit être masquée.');
+      // In the specialized clean-buffer space: NO asterisks exist in the editing buffer
+      expect(controller.text.contains('**'), isFalse,
+          reason: 'Aucun astérisque de balisage ne doit polluer le tampon d\'édition.');
     });
 
     testWidgets('Les déclarations {...} et formules {{...}} restent brutes avec fond de mise en valeur', (tester) async {
@@ -138,7 +127,6 @@ texte''';
       span.visitChildren((child) {
         if (child is TextSpan && child.text != null) {
           if (child.text == '{{=a*b}}') {
-            // Must remain raw visible and have soft indigo background
             if (child.style?.backgroundColor == const Color(0xFFEEF2FF) &&
                 child.style?.color == const Color(0xFF3730A3) &&
                 child.style?.fontFamily == 'monospace') {
@@ -146,7 +134,6 @@ texte''';
             }
           }
           if (child.text == '{int a = 5}') {
-            // Must remain raw visible and have warm amber background
             if (child.style?.backgroundColor == const Color(0xFFFEF3C7) &&
                 child.style?.color == const Color(0xFF92400E) &&
                 child.style?.fontFamily == 'monospace') {
@@ -161,6 +148,45 @@ texte''';
           reason: '{{=a*b}} doit rester brut avec un fond indigo qui le met en valeur.');
       expect(foundSingleBraceHighlighted, isTrue,
           reason: '{int a = 5} doit rester brut avec un fond ambre qui le met en valeur.');
+    });
+
+    test('Sélection et mise en forme : Aucune lettre ne disparaît et aucun astérisque n\'apparaît lors de l\'effacement', () {
+      final controller = WordRichTextController();
+      controller.text = 'Mon texte magnifique pour le rapport';
+
+      // Select "magnifique" (indices 10 to 20)
+      controller.selection = const TextSelection(baseOffset: 10, extentOffset: 20);
+
+      // Apply Bold
+      controller.toggleBoldSelection();
+
+      // Text buffer must remain completely intact (1:1 parity, length unchanged)
+      expect(controller.text, equals('Mon texte magnifique pour le rapport'));
+      expect(controller.text.length, equals(36));
+      expect(controller.selection.baseOffset, equals(10));
+      expect(controller.selection.extentOffset, equals(20));
+
+      // Check characters 'm' to 'e' are bold
+      for (int i = 10; i < 20; i++) {
+        expect(controller.charStyles[i].isBold, isTrue,
+            reason: 'Toutes les lettres de "magnifique" doivent être en gras, y compris la dernière.');
+      }
+
+      // Check toMarkdown() serializes properly
+      final markdown = controller.toMarkdown();
+      expect(markdown, contains('**magnifique**'));
+
+      // Now backspace the last letter 'e' from "magnifique" (simulate backspace at index 20)
+      // Delete 1 character at index 19 ('e')
+      controller.value = const TextEditingValue(
+        text: 'Mon texte magnifiqu pour le rapport',
+        selection: TextSelection.collapsed(offset: 19),
+      );
+
+      // Verify NO asterisks appear in the text
+      expect(controller.text.contains('*'), isFalse,
+          reason: 'L\'effacement d\'une lettre ne doit JAMAIS faire apparaître d\'astérisque.');
+      expect(controller.toMarkdown(), contains('**magnifiqu**'));
     });
   });
 }

@@ -162,7 +162,7 @@ void main() {
   });
 
   group('Word Engine — Typographie sans écrasement de texte & Rendu Microsoft Word', () {
-    testWidgets('WordRichTextController applique letterSpacing: 0 sur les balises pour interdire tout écrasement', (tester) async {
+    testWidgets('WordRichTextController opère sur tampon propre sans aucune balise masquée ou écrasement', (tester) async {
       const text = '<font color="#059669">texte</font> [align=left] **gras** <u>souligné</u>';
       final controller = WordRichTextController(text: text);
 
@@ -184,14 +184,21 @@ void main() {
         withComposing: false,
       );
 
-      // All spans corresponding to hidden tags must have letterSpacing == 0 (NEVER negative)
+      // Verify there are ZERO transparent or 0.001 size tags in the rendered spans
+      bool hasInvisibleSpans = false;
       span.visitChildren((child) {
         if (child is TextSpan && child.style?.color == Colors.transparent) {
-          expect(child.style?.letterSpacing, equals(0.0),
-              reason: 'Les balises masquées ne doivent JAMAIS avoir un letterSpacing négatif qui écrase le texte.');
+          hasInvisibleSpans = true;
         }
         return true;
       });
+      expect(hasInvisibleSpans, isFalse,
+          reason: 'L\'espace spécialisé Word opère sur du texte propre : aucune balise masquée ne pollue l\'éditeur.');
+
+      // Check clean text and rendered formatting
+      expect(controller.text, equals('texte gras souligné'));
+      expect(controller.toMarkdown(), contains('**gras**'));
+      expect(controller.toMarkdown(), contains('<u>souligné</u>'));
     });
   });
 }

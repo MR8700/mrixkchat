@@ -1,18 +1,440 @@
 import 'package:flutter/material.dart';
 
-/// Specialized Rich Text Controller for MRixk DWS (Word Workspace).
+/// Clean-Buffer & Span-Attribution Engine for MRixk DWS (Specialized Integrated Word Space).
 ///
-/// In Word mode:
-/// - Typography and styles are rendered visually directly (bold, italic, underline,
-///   strikethrough, font face, font color, font highlight background, headings, lists).
-/// - Markup tags (like `**`, `*`, `<u>`, `<font>`, `[align=...]`, `#`) are visually suppressed.
-/// - In accordance with MRixk specifications, declarations `{...}` and evaluations `{{...}}`
-///   REMAIN RAW (visible characters) with a distinctive highlighted background pill,
-///   making them immediately identifiable while editing.
-/// - Character length parity is strictly preserved across all TextSpans so cursor
-///   position and text selection stay 100% accurate.
+/// Design Guarantees:
+/// 1. True WYSIWYG Editing: The text buffer contains ONLY clean, visible characters.
+///    Zero markup tags (`**`, `*`, `<u>`, `<font>`, `[align=...]`) exist in the text string while editing.
+/// 2. 1:1 Character Parity: 1 visual glyph on screen equals exactly 1 character in the text buffer.
+///    - Selection drag and double-click NEVER miss or truncate the last letters of a word.
+///    - Backspacing NEVER exposes raw asterisks or broken HTML tags.
+/// 3. Declarations `{...}` and Evaluations `{{...}}` remain natively raw in the text,
+///    rendered with their respective distinctive warm amber and soft indigo badges.
+/// 4. Bi-directional Serialization:
+///    - `loadMarkdown(markdown)` parses standard Markdown / HTML into clean text and style spans.
+///    - `toMarkdown()` serializes clean text and style spans back to standard Markdown / HTML for Code mode & storage.
 class WordRichTextController extends TextEditingController {
-  WordRichTextController({super.text});
+  final List<WordCharStyle> _charStyles = [];
+  final Map<int, String> _lineAlignments = {}; // line index -> alignment ('center', 'right', 'justify', 'left')
+  final Map<int, int> _lineHeadings = {}; // line index -> heading level (1 to 8)
+  WordCharStyle? _pendingStyle;
+
+  WordRichTextController({String? text}) {
+    if (text != null && text.isNotEmpty) {
+      loadMarkdown(text);
+    }
+  }
+
+  WordRichTextController.fromMarkdown(String markdown) {
+    loadMarkdown(markdown);
+  }
+
+  List<WordCharStyle> get charStyles => List.unmodifiable(_charStyles);
+
+  /// Loads Markdown content into clean text and extracts all formatting spans.
+  void loadMarkdown(String markdown) {
+    _charStyles.clear();
+    _lineAlignments.clear();
+    _lineHeadings.clear();
+    _pendingStyle = null;
+
+    if (markdown.isEmpty) {
+      super.value = TextEditingValue.empty;
+      return;
+    }
+
+    final rawLines = markdown.split('\n');
+    final cleanLines = <String>[];
+
+    for (int lineIdx = 0; lineIdx < rawLines.length; lineIdx++) {
+      var line = rawLines[lineIdx];
+
+      // 1. Heading (#, ##, ...)
+      final headingMatch = RegExp(r'^(#{1,8})\s+(.*)$').firstMatch(line);
+      int headingLevel = 0;
+      if (headingMatch != null) {
+        headingLevel = headingMatch.group(1)!.length;
+        line = headingMatch.group(2)!;
+        _lineHeadings[lineIdx] = headingLevel;
+      }
+
+      // 2. Alignment [align=...]
+      final alignMatch = RegExp(r'\[align=(left|center|right|justify)\]\s*', caseSensitive: false).firstMatch(line);
+      if (alignMatch != null) {
+        _lineAlignments[lineIdx] = alignMatch.group(1)!.toLowerCase();
+        line = line.replaceFirst(alignMatch.group(0)!, '');
+      }
+
+      // 3. Parse inline formatting into clean text + styles
+      final parsed = _parseInlineMarkdown(line, headingLevel: headingLevel);
+      cleanLines.add(parsed.cleanText);
+      _charStyles.addAll(parsed.styles);
+
+      // Append newline style if not last line
+      if (lineIdx < rawLines.length - 1) {
+        _charStyles.add(WordCharStyle());
+      }
+    }
+
+    final fullCleanText = cleanLines.join('\n');
+    super.value = TextEditingValue(
+      text: fullCleanText,
+      selection: TextSelection.collapsed(offset: fullCleanText.length),
+    );
+  }
+
+  /// Serializes the clean text, style spans, headings, and alignments to standard Markdown.
+  String toMarkdown() {
+    final cleanText = text;
+    if (cleanText.isEmpty) return '';
+
+    final lines = cleanText.split('\n');
+    final outLines = <String>[];
+    int charOffset = 0;
+
+    for (int lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+      final line = lines[lineIdx];
+      final lineLen = line.length;
+
+      // 1. Heading prefix
+      final headingLevel = _lineHeadings[lineIdx] ?? 0;
+      final headingPrefix = headingLevel > 0 ? '${"#" * headingLevel} ' : '';
+
+      // 2. Alignment prefix
+      final align = _lineAlignments[lineIdx];
+      final alignPrefix = (align != null && align != 'left') ? '[align=$align] ' : '';
+
+      // 3. Serialize line characters
+      final lineStyles = <WordCharStyle>[];
+      for (int i = 0; i < lineLen; i++) {
+        final idx = charOffset + i;
+        if (idx < _charStyles.length) {
+          lineStyles.add(_charStyles[idx]);
+        } else {
+          lineStyles.add(WordCharStyle());
+        }
+      }
+
+      final lineMarkdown = _serializeLineToMarkdown(line, lineStyles, isHeading: headingLevel > 0);
+      outLines.add('$alignPrefix$headingPrefix$lineMarkdown');
+
+      charOffset += lineLen + 1; // account for '\n'
+    }
+
+    return outLines.join('\n');
+  }
+
+  @override
+  set value(TextEditingValue newValue) {
+    final oldText = text;
+    final newText = newValue.text;
+
+    if (oldText != newText) {
+      _synchronizeCharStylesOnTextDelta(oldText, newText);
+    }
+
+    super.value = newValue;
+  }
+
+  void _synchronizeCharStylesOnTextDelta(String oldText, String newText) {
+    if (newText.isEmpty) {
+      _charStyles.clear();
+      _lineHeadings.clear();
+      _lineAlignments.clear();
+      return;
+    }
+
+    // 1. Common prefix
+    int prefixLen = 0;
+    final minLen = oldText.length < newText.length ? oldText.length : newText.length;
+    while (prefixLen < minLen && oldText.codeUnitAt(prefixLen) == newText.codeUnitAt(prefixLen)) {
+      prefixLen++;
+    }
+
+    // 2. Common suffix
+    int suffixLen = 0;
+    while (suffixLen < (minLen - prefixLen) &&
+        oldText.codeUnitAt(oldText.length - 1 - suffixLen) ==
+            newText.codeUnitAt(newText.length - 1 - suffixLen)) {
+      suffixLen++;
+    }
+
+    final oldDelStart = prefixLen;
+    final oldDelEnd = oldText.length - suffixLen;
+    final newInsStart = prefixLen;
+    final newInsEnd = newText.length - suffixLen;
+
+    // Remove deleted styles
+    if (oldDelEnd > oldDelStart && oldDelStart < _charStyles.length) {
+      final safeEnd = oldDelEnd.clamp(0, _charStyles.length);
+      _charStyles.removeRange(oldDelStart, safeEnd);
+    }
+
+    // Inherit style for newly inserted characters
+    WordCharStyle inherited;
+    if (_pendingStyle != null) {
+      inherited = _pendingStyle!.clone();
+      _pendingStyle = null;
+    } else if (prefixLen > 0 && prefixLen <= _charStyles.length) {
+      inherited = _charStyles[prefixLen - 1].clone();
+    } else if (_charStyles.isNotEmpty) {
+      inherited = _charStyles[0].clone();
+    } else {
+      inherited = WordCharStyle();
+    }
+
+    // Insert new styles
+    final addedCount = newInsEnd - newInsStart;
+    if (addedCount > 0) {
+      final safeInsertPos = newInsStart.clamp(0, _charStyles.length);
+      for (int i = 0; i < addedCount; i++) {
+        _charStyles.insert(safeInsertPos + i, inherited.clone());
+      }
+    }
+
+    // Guarantee exact length parity at all times
+    while (_charStyles.length < newText.length) {
+      _charStyles.add(WordCharStyle());
+    }
+    if (_charStyles.length > newText.length) {
+      _charStyles.removeRange(newText.length, _charStyles.length);
+    }
+  }
+
+  // --- Specialized Toolbar Actions ---
+
+  void toggleBoldSelection() {
+    final sel = selection;
+    if (!sel.isValid) return;
+
+    if (sel.isCollapsed) {
+      _pendingStyle = (_pendingStyle ?? (_charStyles.isNotEmpty && sel.start > 0 ? _charStyles[sel.start - 1].clone() : WordCharStyle()));
+      _pendingStyle!.isBold = !_pendingStyle!.isBold;
+      notifyListeners();
+      return;
+    }
+
+    final start = sel.start.clamp(0, _charStyles.length);
+    final end = sel.end.clamp(0, _charStyles.length);
+    if (start >= end) return;
+
+    bool allBold = true;
+    for (int i = start; i < end; i++) {
+      if (!_charStyles[i].isBold) {
+        allBold = false;
+        break;
+      }
+    }
+
+    final newBold = !allBold;
+    for (int i = start; i < end; i++) {
+      _charStyles[i].isBold = newBold;
+    }
+    notifyListeners();
+  }
+
+  void toggleItalicSelection() {
+    final sel = selection;
+    if (!sel.isValid) return;
+
+    if (sel.isCollapsed) {
+      _pendingStyle = (_pendingStyle ?? (_charStyles.isNotEmpty && sel.start > 0 ? _charStyles[sel.start - 1].clone() : WordCharStyle()));
+      _pendingStyle!.isItalic = !_pendingStyle!.isItalic;
+      notifyListeners();
+      return;
+    }
+
+    final start = sel.start.clamp(0, _charStyles.length);
+    final end = sel.end.clamp(0, _charStyles.length);
+    if (start >= end) return;
+
+    bool allItalic = true;
+    for (int i = start; i < end; i++) {
+      if (!_charStyles[i].isItalic) {
+        allItalic = false;
+        break;
+      }
+    }
+
+    final newItalic = !allItalic;
+    for (int i = start; i < end; i++) {
+      _charStyles[i].isItalic = newItalic;
+    }
+    notifyListeners();
+  }
+
+  void toggleUnderlineSelection() {
+    final sel = selection;
+    if (!sel.isValid) return;
+
+    if (sel.isCollapsed) {
+      _pendingStyle = (_pendingStyle ?? (_charStyles.isNotEmpty && sel.start > 0 ? _charStyles[sel.start - 1].clone() : WordCharStyle()));
+      _pendingStyle!.isUnderline = !_pendingStyle!.isUnderline;
+      notifyListeners();
+      return;
+    }
+
+    final start = sel.start.clamp(0, _charStyles.length);
+    final end = sel.end.clamp(0, _charStyles.length);
+    if (start >= end) return;
+
+    bool allUnderline = true;
+    for (int i = start; i < end; i++) {
+      if (!_charStyles[i].isUnderline) {
+        allUnderline = false;
+        break;
+      }
+    }
+
+    final newUnderline = !allUnderline;
+    for (int i = start; i < end; i++) {
+      _charStyles[i].isUnderline = newUnderline;
+    }
+    notifyListeners();
+  }
+
+  void setFontColorSelection(Color color) {
+    final sel = selection;
+    if (!sel.isValid) return;
+
+    if (sel.isCollapsed) {
+      _pendingStyle = (_pendingStyle ?? (_charStyles.isNotEmpty && sel.start > 0 ? _charStyles[sel.start - 1].clone() : WordCharStyle()));
+      _pendingStyle!.fontColor = color;
+      notifyListeners();
+      return;
+    }
+
+    final start = sel.start.clamp(0, _charStyles.length);
+    final end = sel.end.clamp(0, _charStyles.length);
+    for (int i = start; i < end; i++) {
+      _charStyles[i].fontColor = color;
+    }
+    notifyListeners();
+  }
+
+  void setFontFamilySelection(String fontFamily) {
+    final sel = selection;
+    if (!sel.isValid) return;
+
+    if (sel.isCollapsed) {
+      _pendingStyle = (_pendingStyle ?? (_charStyles.isNotEmpty && sel.start > 0 ? _charStyles[sel.start - 1].clone() : WordCharStyle()));
+      _pendingStyle!.fontFamily = fontFamily;
+      notifyListeners();
+      return;
+    }
+
+    final start = sel.start.clamp(0, _charStyles.length);
+    final end = sel.end.clamp(0, _charStyles.length);
+    for (int i = start; i < end; i++) {
+      _charStyles[i].fontFamily = fontFamily;
+    }
+    notifyListeners();
+  }
+
+  void setHighlightSelection(Color color) {
+    final sel = selection;
+    if (!sel.isValid) return;
+
+    if (sel.isCollapsed) {
+      _pendingStyle = (_pendingStyle ?? (_charStyles.isNotEmpty && sel.start > 0 ? _charStyles[sel.start - 1].clone() : WordCharStyle()));
+      _pendingStyle!.bgColor = color;
+      notifyListeners();
+      return;
+    }
+
+    final start = sel.start.clamp(0, _charStyles.length);
+    final end = sel.end.clamp(0, _charStyles.length);
+    for (int i = start; i < end; i++) {
+      _charStyles[i].bgColor = color;
+    }
+    notifyListeners();
+  }
+
+  void setHeadingLevelForSelection(int level) {
+    final sel = selection;
+    final cursor = sel.isValid ? sel.start : 0;
+    final rawText = text;
+
+    int lineStart = rawText.lastIndexOf('\n', cursor > 0 ? cursor - 1 : 0);
+    lineStart = lineStart == -1 ? 0 : lineStart + 1;
+
+    int lineEnd = rawText.indexOf('\n', cursor);
+    lineEnd = lineEnd == -1 ? rawText.length : lineEnd;
+
+    // Find line index
+    final lineIndex = '\n'.allMatches(rawText.substring(0, lineStart)).length;
+
+    if (level == 0) {
+      _lineHeadings.remove(lineIndex);
+    } else {
+      _lineHeadings[lineIndex] = level;
+    }
+
+    final double? fontSize = switch (level) {
+      1 => 22.0,
+      2 => 19.0,
+      3 => 17.5,
+      4 => 16.0,
+      > 4 => 15.0,
+      _ => null,
+    };
+    final bool isBold = level > 0;
+
+    for (int i = lineStart; i < lineEnd; i++) {
+      if (i < _charStyles.length) {
+        _charStyles[i].fontSize = fontSize;
+        _charStyles[i].isBold = isBold;
+      }
+    }
+    notifyListeners();
+  }
+
+  void setAlignmentForSelection(String align) {
+    final sel = selection;
+    final cursor = sel.isValid ? sel.start : 0;
+    final rawText = text;
+
+    int lineStart = rawText.lastIndexOf('\n', cursor > 0 ? cursor - 1 : 0);
+    lineStart = lineStart == -1 ? 0 : lineStart + 1;
+
+    final lineIndex = '\n'.allMatches(rawText.substring(0, lineStart)).length;
+
+    if (align == 'left') {
+      _lineAlignments.remove(lineIndex);
+    } else {
+      _lineAlignments[lineIndex] = align;
+    }
+    notifyListeners();
+  }
+
+  void toggleBulletListForSelection() {
+    final sel = selection;
+    final cursor = sel.isValid ? sel.start : 0;
+    final rawText = text;
+
+    int lineStart = rawText.lastIndexOf('\n', cursor > 0 ? cursor - 1 : 0);
+    lineStart = lineStart == -1 ? 0 : lineStart + 1;
+
+    int lineEnd = rawText.indexOf('\n', cursor);
+    lineEnd = lineEnd == -1 ? rawText.length : lineEnd;
+
+    final currentLine = rawText.substring(lineStart, lineEnd);
+    if (currentLine.startsWith('- ')) {
+      final newText = rawText.replaceRange(lineStart, lineStart + 2, '');
+      value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(offset: (cursor - 2).clamp(0, newText.length)),
+      );
+    } else {
+      final newText = rawText.replaceRange(lineStart, lineStart, '- ');
+      value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(offset: (cursor + 2).clamp(0, newText.length)),
+      );
+    }
+  }
+
+  // --- Rendering TextSpans with 100% Visual Alignment ---
 
   @override
   TextSpan buildTextSpan({
@@ -33,200 +455,245 @@ class WordRichTextController extends TextEditingController {
         );
 
     final n = rawText.length;
-    final charStyles = List.generate(n, (_) => _CharStyle());
 
-    // 1. Double Braces {{...}} (Calculations, formulas, math expressions, components)
-    // Remain raw with soft indigo highlight
-    final doubleBracesReg = RegExp(r'\{\{[\s\S]*?\}\}');
-    for (final match in doubleBracesReg.allMatches(rawText)) {
+    // Detect braces ranges for high-priority badge highlights
+    final isDoubleBrace = List.filled(n, false);
+    for (final match in RegExp(r'\{\{[\s\S]*?\}\}').allMatches(rawText)) {
       for (int i = match.start; i < match.end; i++) {
-        charStyles[i].isDoubleBrace = true;
+        isDoubleBrace[i] = true;
       }
     }
 
-    // 2. Single Braces {...} (C declarations, variable assignments)
-    // Remain raw with soft amber highlight (only if not inside double braces)
-    final singleBracesReg = RegExp(r'\{[^{}\n]+?\}');
-    for (final match in singleBracesReg.allMatches(rawText)) {
-      bool isInsideDouble = false;
+    final isSingleBrace = List.filled(n, false);
+    for (final match in RegExp(r'\{[^{}\n]+?\}').allMatches(rawText)) {
+      bool insideDouble = false;
       for (int i = match.start; i < match.end; i++) {
-        if (charStyles[i].isDoubleBrace) {
-          isInsideDouble = true;
+        if (isDoubleBrace[i]) {
+          insideDouble = true;
           break;
         }
       }
-      if (!isInsideDouble) {
+      if (!insideDouble) {
         for (int i = match.start; i < match.end; i++) {
-          charStyles[i].isSingleBrace = true;
+          isSingleBrace[i] = true;
         }
       }
     }
 
-    // 3. Alignment tags [align=(left|center|right|justify)]
-    final alignReg = RegExp(r'\[align=(?:left|center|right|justify)\]', caseSensitive: false);
-    for (final match in alignReg.allMatches(rawText)) {
-      _applyTagHiding(charStyles, match.start, match.end);
-    }
-
-    // 4. Headings # Titre, ## Titre ... (multiline)
-    final headingReg = RegExp(r'^(#{1,6})\s+(.*)$', multiLine: true);
-    for (final match in headingReg.allMatches(rawText)) {
-      final hashes = match.group(1)!;
-      final level = hashes.length;
-      final hashEnd = match.start + level + 1; // hashes plus space
-      _applyTagHiding(charStyles, match.start, hashEnd);
-
-      final contentStart = hashEnd;
-      final contentEnd = match.end;
-      final double fontSize = switch (level) {
-        1 => 22.0,
-        2 => 19.0,
-        3 => 17.5,
-        4 => 16.0,
-        _ => 15.0,
-      };
-      for (int i = contentStart; i < contentEnd; i++) {
-        if (!charStyles[i].isDoubleBrace && !charStyles[i].isSingleBrace) {
-          charStyles[i].isBold = true;
-          charStyles[i].fontSize = fontSize;
-        }
-      }
-    }
-
-    // 5. Underline <u>...</u>
-    final underlineReg = RegExp(r'<u>([\s\S]*?)</u>', caseSensitive: false);
-    for (final match in underlineReg.allMatches(rawText)) {
-      _applyTagHiding(charStyles, match.start, match.start + 3); // <u>
-      _applyFormatting(charStyles, match.start + 3, match.end - 4, (s) => s.isUnderline = true);
-      _applyTagHiding(charStyles, match.end - 4, match.end); // </u>
-    }
-
-    // 6. Strikethrough <s>...</s> and ~~...~~
-    final sTagReg = RegExp(r'<s>([\s\S]*?)</s>', caseSensitive: false);
-    for (final match in sTagReg.allMatches(rawText)) {
-      _applyTagHiding(charStyles, match.start, match.start + 3);
-      _applyFormatting(charStyles, match.start + 3, match.end - 4, (s) => s.isStrikethrough = true);
-      _applyTagHiding(charStyles, match.end - 4, match.end);
-    }
-    final strikeTildeReg = RegExp(r'~~([\s\S]*?)~~');
-    for (final match in strikeTildeReg.allMatches(rawText)) {
-      _applyTagHiding(charStyles, match.start, match.start + 2);
-      _applyFormatting(charStyles, match.start + 2, match.end - 2, (s) => s.isStrikethrough = true);
-      _applyTagHiding(charStyles, match.end - 2, match.end);
-    }
-
-    // 7. Font tags <font face="..." color="..." bg="...">...</font>
-    final fontReg = RegExp(r'<font\s+([^>]*?)>([\s\S]*?)</font>', caseSensitive: false);
-    for (final match in fontReg.allMatches(rawText)) {
-      final attrs = match.group(1) ?? '';
-      final openTagEnd = match.start + 6 + attrs.length + 1; // <font ...>
-      final closeTagStart = match.end - 7; // </font>
-
-      _applyTagHiding(charStyles, match.start, openTagEnd);
-
-      Color? fontColor;
-      Color? bgColor;
-      String? fontFamily;
-
-      final colorMatch = RegExp(r'color=["\x27]([^"\x27]+)["\x27]', caseSensitive: false).firstMatch(attrs);
-      if (colorMatch != null) fontColor = _parseColor(colorMatch.group(1));
-
-      final bgMatch = RegExp(r'bg=["\x27]([^"\x27]+)["\x27]', caseSensitive: false).firstMatch(attrs);
-      if (bgMatch != null) bgColor = _parseColor(bgMatch.group(1));
-
-      final faceMatch = RegExp(r'face=["\x27]([^"\x27]+)["\x27]', caseSensitive: false).firstMatch(attrs);
-      if (faceMatch != null) fontFamily = faceMatch.group(1);
-
-      _applyFormatting(charStyles, openTagEnd, closeTagStart, (s) {
-        if (fontColor != null) s.fontColor = fontColor;
-        if (bgColor != null) s.bgColor = bgColor;
-        if (fontFamily != null) s.fontFamily = fontFamily;
-      });
-
-      _applyTagHiding(charStyles, closeTagStart, match.end);
-    }
-
-    // 8. Mark highlight tags <mark(?: color="...")?>...</mark>
-    final markReg = RegExp(r'<mark(?:\s+color=["\x27]([^"\x27]+)["\x27"])?>([\s\S]*?)</mark>', caseSensitive: false);
-    for (final match in markReg.allMatches(rawText)) {
-      final colorStr = match.group(1);
-      final highlightColor = _parseColor(colorStr) ?? const Color(0xFFFEF08A);
-      final fullMatchStr = match.group(0)!;
-      final openTagLen = fullMatchStr.indexOf('>') + 1;
-      final openTagEnd = match.start + openTagLen;
-      final closeTagStart = match.end - 7;
-
-      _applyTagHiding(charStyles, match.start, openTagEnd);
-      _applyFormatting(charStyles, openTagEnd, closeTagStart, (s) => s.bgColor = highlightColor);
-      _applyTagHiding(charStyles, closeTagStart, match.end);
-    }
-
-    // 9. Bold **...**
-    final boldReg = RegExp(r'\*\*(.+?)\*\*');
-    for (final match in boldReg.allMatches(rawText)) {
-      _applyTagHiding(charStyles, match.start, match.start + 2); // **
-      _applyFormatting(charStyles, match.start + 2, match.end - 2, (s) => s.isBold = true);
-      _applyTagHiding(charStyles, match.end - 2, match.end); // **
-    }
-
-    // 10. Italic *...* (avoiding ** collisions)
-    final italicReg = RegExp(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)');
-    for (final match in italicReg.allMatches(rawText)) {
-      _applyTagHiding(charStyles, match.start, match.start + 1); // *
-      _applyFormatting(charStyles, match.start + 1, match.end - 1, (s) => s.isItalic = true);
-      _applyTagHiding(charStyles, match.end - 1, match.end); // *
-    }
-
-    // 11. Inline code `...`
-    final codeReg = RegExp(r'`([^`\n]+)`');
-    for (final match in codeReg.allMatches(rawText)) {
-      _applyTagHiding(charStyles, match.start, match.start + 1);
-      _applyFormatting(charStyles, match.start + 1, match.end - 1, (s) => s.isCode = true);
-      _applyTagHiding(charStyles, match.end - 1, match.end);
-    }
-
-    // 12. Bullet list markers at beginning of lines (- , * , + )
-    final bulletReg = RegExp(r'^(\s*[-*+]\s+)', multiLine: true);
-    for (final match in bulletReg.allMatches(rawText)) {
-      for (int i = match.start; i < match.end; i++) {
-        if (!charStyles[i].isHidden && !charStyles[i].isDoubleBrace && !charStyles[i].isSingleBrace) {
-          charStyles[i].isBullet = true;
-        }
-      }
-    }
-
-    // 13. Build final contiguous TextSpans guaranteeing exact character length parity
     final spans = <TextSpan>[];
     int runStart = 0;
+
     while (runStart < n) {
       int runEnd = runStart + 1;
-      final currentStyle = charStyles[runStart];
-      while (runEnd < n && charStyles[runEnd].isSameAs(currentStyle)) {
+
+      final startInDouble = isDoubleBrace[runStart];
+      final startInSingle = isSingleBrace[runStart];
+      final startStyle = (runStart < _charStyles.length) ? _charStyles[runStart] : WordCharStyle();
+
+      while (runEnd < n) {
+        if (isDoubleBrace[runEnd] != startInDouble || isSingleBrace[runEnd] != startInSingle) {
+          break;
+        }
+        final curStyle = (runEnd < _charStyles.length) ? _charStyles[runEnd] : WordCharStyle();
+        if (!curStyle.isSameAs(startStyle)) {
+          break;
+        }
         runEnd++;
       }
+
       final chunk = rawText.substring(runStart, runEnd);
-      spans.add(TextSpan(text: chunk, style: currentStyle.toTextStyle(baseStyle)));
+
+      TextStyle spanStyle;
+      if (startInDouble) {
+        // Double braces {{...}} remain raw with distinctive soft indigo background
+        spanStyle = baseStyle.copyWith(
+          backgroundColor: const Color(0xFFEEF2FF),
+          color: const Color(0xFF3730A3),
+          fontFamily: 'monospace',
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.3,
+        );
+      } else if (startInSingle) {
+        // Single braces {...} remain raw with distinctive warm amber background
+        spanStyle = baseStyle.copyWith(
+          backgroundColor: const Color(0xFFFEF3C7),
+          color: const Color(0xFF92400E),
+          fontFamily: 'monospace',
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.3,
+        );
+      } else {
+        spanStyle = startStyle.toTextStyle(baseStyle);
+      }
+
+      spans.add(TextSpan(text: chunk, style: spanStyle));
       runStart = runEnd;
     }
 
     return TextSpan(children: spans, style: baseStyle);
   }
 
-  void _applyTagHiding(List<_CharStyle> charStyles, int start, int end) {
-    for (int i = start; i < end; i++) {
-      // Do not hide braces
-      if (!charStyles[i].isDoubleBrace && !charStyles[i].isSingleBrace) {
-        charStyles[i].isHidden = true;
+  // --- Parser & Serializer Helpers ---
+
+  static ({String cleanText, List<WordCharStyle> styles}) _parseInlineMarkdown(String raw, {int headingLevel = 0}) {
+    final double? defaultFontSize = switch (headingLevel) {
+      1 => 22.0,
+      2 => 19.0,
+      3 => 17.5,
+      4 => 16.0,
+      > 4 => 15.0,
+      _ => null,
+    };
+    final bool defaultBold = headingLevel > 0;
+
+    final sb = StringBuffer();
+    final styles = <WordCharStyle>[];
+
+    final tagRegex = RegExp(
+      r'(\{\{[\s\S]*?\}\}|\{[^{}\n]+?\}|' // 1: braces preserved verbatim
+      r'\*\*\*|\*\*|\*|' // 2: bold / italic markers
+      r'</?(?:u|s|mark|font|b|i)[^>]*>|' // 3: HTML tags
+      r'~~|`' // 4: strike / code
+      r')',
+      caseSensitive: false,
+    );
+
+    bool isBold = defaultBold;
+    bool isItalic = false;
+    bool isUnderline = false;
+    bool isStrikethrough = false;
+    Color? fontColor;
+    Color? bgColor;
+    String? fontFamily;
+
+    int lastIndex = 0;
+
+    void addPlainText(String plain) {
+      for (int i = 0; i < plain.length; i++) {
+        sb.write(plain[i]);
+        styles.add(WordCharStyle(
+          isBold: isBold,
+          isItalic: isItalic,
+          isUnderline: isUnderline,
+          isStrikethrough: isStrikethrough,
+          fontColor: fontColor,
+          bgColor: bgColor,
+          fontFamily: fontFamily,
+          fontSize: defaultFontSize,
+        ));
       }
     }
+
+    for (final match in tagRegex.allMatches(raw)) {
+      if (match.start > lastIndex) {
+        addPlainText(raw.substring(lastIndex, match.start));
+      }
+
+      final token = match.group(0)!;
+      lastIndex = match.end;
+
+      if (token.startsWith('{') && token.endsWith('}')) {
+        addPlainText(token);
+        continue;
+      }
+
+      if (token == '***') {
+        isBold = !isBold;
+        isItalic = !isItalic;
+      } else if (token == '**') {
+        isBold = !isBold;
+      } else if (token == '*') {
+        isItalic = !isItalic;
+      } else if (token.toLowerCase() == '<u>') {
+        isUnderline = true;
+      } else if (token.toLowerCase() == '</u>') {
+        isUnderline = false;
+      } else if (token.toLowerCase() == '<s>' || token == '~~') {
+        isStrikethrough = true;
+      } else if (token.toLowerCase() == '</s>') {
+        isStrikethrough = false;
+      } else if (token.toLowerCase().startsWith('<mark')) {
+        final colMatch = RegExp(r'color=["\x27]([^"\x27]+)["\x27]').firstMatch(token);
+        bgColor = _parseColor(colMatch?.group(1)) ?? const Color(0xFFFEF08A);
+      } else if (token.toLowerCase() == '</mark>') {
+        bgColor = null;
+      } else if (token.toLowerCase().startsWith('<font')) {
+        final colMatch = RegExp(r'color=["\x27]([^"\x27]+)["\x27]').firstMatch(token);
+        if (colMatch != null) fontColor = _parseColor(colMatch.group(1));
+        final faceMatch = RegExp(r'face=["\x27]([^"\x27]+)["\x27]').firstMatch(token);
+        if (faceMatch != null) fontFamily = faceMatch.group(1);
+      } else if (token.toLowerCase() == '</font>') {
+        fontColor = null;
+        fontFamily = null;
+      } else {
+        addPlainText(token);
+      }
+    }
+
+    if (lastIndex < raw.length) {
+      addPlainText(raw.substring(lastIndex));
+    }
+
+    return (cleanText: sb.toString(), styles: styles);
   }
 
-  void _applyFormatting(List<_CharStyle> charStyles, int start, int end, void Function(_CharStyle) format) {
-    for (int i = start; i < end; i++) {
-      if (!charStyles[i].isHidden && !charStyles[i].isDoubleBrace && !charStyles[i].isSingleBrace) {
-        format(charStyles[i]);
+  static String _serializeLineToMarkdown(String text, List<WordCharStyle> styles, {bool isHeading = false}) {
+    if (text.isEmpty) return '';
+
+    final sb = StringBuffer();
+    final n = text.length;
+    int runStart = 0;
+
+    while (runStart < n) {
+      int runEnd = runStart + 1;
+      final startStyle = (runStart < styles.length) ? styles[runStart] : WordCharStyle();
+
+      while (runEnd < n) {
+        final curStyle = (runEnd < styles.length) ? styles[runEnd] : WordCharStyle();
+        if (!curStyle.isSameAs(startStyle)) break;
+        runEnd++;
       }
+
+      var chunk = text.substring(runStart, runEnd);
+
+      // Apply formatting if chunk is not purely white spaces
+      if (chunk.trim().isNotEmpty) {
+        if (startStyle.isBold && startStyle.isItalic && !isHeading) {
+          chunk = '***$chunk***';
+        } else if (startStyle.isBold && !isHeading) {
+          chunk = '**$chunk**';
+        } else if (startStyle.isItalic) {
+          chunk = '*$chunk*';
+        }
+
+        if (startStyle.isUnderline) {
+          chunk = '<u>$chunk</u>';
+        }
+
+        if (startStyle.isStrikethrough) {
+          chunk = '~~$chunk~~';
+        }
+
+        if (startStyle.bgColor != null) {
+          final hex = '#${startStyle.bgColor!.value.toRadixString(16).padLeft(8, '0').substring(2)}';
+          chunk = '<mark color="$hex">$chunk</mark>';
+        }
+
+        if (startStyle.fontColor != null || startStyle.fontFamily != null) {
+          final colorAttr = startStyle.fontColor != null
+              ? 'color="#${startStyle.fontColor!.value.toRadixString(16).padLeft(8, '0').substring(2)}"'
+              : '';
+          final faceAttr = startStyle.fontFamily != null ? 'face="${startStyle.fontFamily}"' : '';
+          final attrs = '$colorAttr $faceAttr'.trim();
+          chunk = '<font $attrs>$chunk</font>';
+        }
+      }
+
+      sb.write(chunk);
+      runStart = runEnd;
     }
+
+    return sb.toString();
   }
 
   static Color? _parseColor(String? colorStr) {
@@ -256,31 +723,46 @@ class WordRichTextController extends TextEditingController {
   }
 }
 
-class _CharStyle {
-  bool isHidden = false;
-  bool isBold = false;
-  bool isItalic = false;
-  bool isUnderline = false;
-  bool isStrikethrough = false;
-  bool isDoubleBrace = false;
-  bool isSingleBrace = false;
-  bool isBullet = false;
-  bool isCode = false;
+/// Style attributes of a single character in the clean WYSIWYG text.
+class WordCharStyle {
+  bool isBold;
+  bool isItalic;
+  bool isUnderline;
+  bool isStrikethrough;
   Color? fontColor;
   Color? bgColor;
   String? fontFamily;
   double? fontSize;
 
-  bool isSameAs(_CharStyle o) {
-    return isHidden == o.isHidden &&
-        isBold == o.isBold &&
+  WordCharStyle({
+    this.isBold = false,
+    this.isItalic = false,
+    this.isUnderline = false,
+    this.isStrikethrough = false,
+    this.fontColor,
+    this.bgColor,
+    this.fontFamily,
+    this.fontSize,
+  });
+
+  WordCharStyle clone() {
+    return WordCharStyle(
+      isBold: isBold,
+      isItalic: isItalic,
+      isUnderline: isUnderline,
+      isStrikethrough: isStrikethrough,
+      fontColor: fontColor,
+      bgColor: bgColor,
+      fontFamily: fontFamily,
+      fontSize: fontSize,
+    );
+  }
+
+  bool isSameAs(WordCharStyle o) {
+    return isBold == o.isBold &&
         isItalic == o.isItalic &&
         isUnderline == o.isUnderline &&
         isStrikethrough == o.isStrikethrough &&
-        isDoubleBrace == o.isDoubleBrace &&
-        isSingleBrace == o.isSingleBrace &&
-        isBullet == o.isBullet &&
-        isCode == o.isCode &&
         fontColor == o.fontColor &&
         bgColor == o.bgColor &&
         fontFamily == o.fontFamily &&
@@ -288,53 +770,6 @@ class _CharStyle {
   }
 
   TextStyle toTextStyle(TextStyle base) {
-    if (isHidden) {
-      // Zero visual presence for markup tags without crushing or overlapping subsequent glyphs
-      return const TextStyle(
-        fontSize: 0.001,
-        color: Colors.transparent,
-        letterSpacing: 0.0,
-        height: 0.001,
-      );
-    }
-
-    if (isDoubleBrace) {
-      // {{...}} remains raw with distinctive soft indigo background badge
-      return base.copyWith(
-        backgroundColor: const Color(0xFFEEF2FF), // soft indigo
-        color: const Color(0xFF3730A3), // deep indigo
-        fontFamily: 'monospace',
-        fontWeight: FontWeight.w600,
-        letterSpacing: 0.3,
-      );
-    }
-
-    if (isSingleBrace) {
-      // {...} remains raw with distinctive warm amber background badge
-      return base.copyWith(
-        backgroundColor: const Color(0xFFFEF3C7), // soft amber
-        color: const Color(0xFF92400E), // deep amber
-        fontFamily: 'monospace',
-        fontWeight: FontWeight.w600,
-        letterSpacing: 0.3,
-      );
-    }
-
-    if (isBullet) {
-      return base.copyWith(
-        color: const Color(0xFF0284C7),
-        fontWeight: FontWeight.bold,
-      );
-    }
-
-    if (isCode) {
-      return base.copyWith(
-        fontFamily: 'monospace',
-        backgroundColor: const Color(0xFFF1F5F9),
-        color: const Color(0xFF0F172A),
-      );
-    }
-
     TextStyle s = base;
     if (fontColor != null) s = s.copyWith(color: fontColor);
     if (bgColor != null) s = s.copyWith(backgroundColor: bgColor);

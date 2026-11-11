@@ -58,7 +58,7 @@ class GroupNotepadScreen extends StatefulWidget {
 class _GroupNotepadScreenState extends State<GroupNotepadScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  late TextEditingController _textController;
+  late WordRichTextController _textController;
   late TextEditingController _codeController;
   late TextEditingController _titleController;
   late GroupNote _currentNote;
@@ -183,7 +183,7 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
       title: _titleController.text.trim().isNotEmpty
           ? _titleController.text.trim()
           : 'Bloc-Note : ${widget.conversation.title}',
-      content: _textController.text,
+      content: _textController.toMarkdown(),
       components: _components,
       lineSpacing: _lineSpacing,
       paragraphSpacing: _paragraphSpacing,
@@ -221,7 +221,7 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
       }
     }
     if (changed) {
-      _codeController.text = _buildCombinedCodeSource(_textController.text, _components);
+      _codeController.text = _buildCombinedCodeSource(_textController.toMarkdown(), _components);
     }
   }
 
@@ -255,9 +255,7 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
     cleanDoc = cleanDoc.replaceAll(RegExp(r'\/\/ ===.*?==='), '').trim();
 
     _components.addAll(extractedComps);
-    if (_textController.text != cleanDoc) {
-      _textController.text = cleanDoc;
-    }
+    _textController.loadMarkdown(cleanDoc);
   }
 
   @override
@@ -351,7 +349,7 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
       title: _titleController.text.trim().isNotEmpty
           ? _titleController.text.trim()
           : 'Bloc-Note : ${widget.conversation.title}',
-      content: _textController.text,
+      content: _textController.toMarkdown(),
       components: _components,
       lineSpacing: _lineSpacing,
       paragraphSpacing: _paragraphSpacing,
@@ -424,220 +422,42 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
 
   void _toggleWordBold() {
     if (!_canEdit()) return;
-    _toggleWordWrapper('**', '**');
+    _textController.toggleBoldSelection();
   }
 
   void _toggleWordItalic() {
     if (!_canEdit()) return;
-    _toggleWordWrapper('*', '*');
+    _textController.toggleItalicSelection();
   }
 
   void _toggleWordUnderline() {
     if (!_canEdit()) return;
-    _toggleWordWrapper('<u>', '</u>');
+    _textController.toggleUnderlineSelection();
   }
 
-  void _toggleWordWrapper(String openTag, String closeTag) {
-    final text = _textController.text;
-    final sel = _textController.selection;
-    if (sel.start < 0 || sel.end < 0) return;
-
-    if (sel.start == sel.end) {
-      final placeholder = '$openTag' 'texte' '$closeTag';
-      final newText = text.replaceRange(sel.start, sel.end, placeholder);
-      _textController.value = TextEditingValue(
-        text: newText,
-        selection: TextSelection(
-          baseOffset: sel.start + openTag.length,
-          extentOffset: sel.start + openTag.length + 5,
-        ),
-      );
-      return;
-    }
-
-    final sStart = sel.start;
-    final sEnd = sel.end;
-    final selectedText = text.substring(sStart, sEnd);
-
-    // Case 1: The selection itself is wrapped in openTag & closeTag
-    if (selectedText.startsWith(openTag) &&
-        selectedText.endsWith(closeTag) &&
-        selectedText.length >= openTag.length + closeTag.length) {
-      final unwrapped = selectedText.substring(openTag.length, selectedText.length - closeTag.length);
-      final newText = text.replaceRange(sStart, sEnd, unwrapped);
-      _textController.value = TextEditingValue(
-        text: newText,
-        selection: TextSelection(baseOffset: sStart, extentOffset: sStart + unwrapped.length),
-      );
-      return;
-    }
-
-    // Case 2: The tags are immediately outside the selection
-    if (sStart >= openTag.length && sEnd + closeTag.length <= text.length) {
-      final before = text.substring(sStart - openTag.length, sStart);
-      final after = text.substring(sEnd, sEnd + closeTag.length);
-      if (before == openTag && after == closeTag) {
-        final newText = text.replaceRange(sStart - openTag.length, sEnd + closeTag.length, selectedText);
-        _textController.value = TextEditingValue(
-          text: newText,
-          selection: TextSelection(
-            baseOffset: sStart - openTag.length,
-            extentOffset: sStart - openTag.length + selectedText.length,
-          ),
-        );
-        return;
-      }
-    }
-
-    // Otherwise wrap selection cleanly
-    final formatted = '$openTag$selectedText$closeTag';
-    final newText = text.replaceRange(sStart, sEnd, formatted);
-    _textController.value = TextEditingValue(
-      text: newText,
-      selection: TextSelection(baseOffset: sStart, extentOffset: sStart + formatted.length),
-    );
-  }
-
-  void _applyWordFontColor(String hex) {
+  void _applyWordFontColor(Color color) {
     if (!_canEdit()) return;
-    _applyFontAttribute(attrName: 'color', attrValue: hex);
+    _textController.setFontColorSelection(color);
   }
 
   void _applyWordFontFamily(String font) {
     if (!_canEdit()) return;
-    _applyFontAttribute(attrName: 'face', attrValue: font);
+    _textController.setFontFamilySelection(font);
   }
 
-  void _applyFontAttribute({required String attrName, required String attrValue}) {
-    final text = _textController.text;
-    final sel = _textController.selection;
-    if (sel.start < 0 || sel.end < 0) return;
-
-    if (sel.start == sel.end) {
-      final placeholder = '<font $attrName="$attrValue">texte</font>';
-      final newText = text.replaceRange(sel.start, sel.end, placeholder);
-      final tagOffset = '<font $attrName="$attrValue">'.length;
-      _textController.value = TextEditingValue(
-        text: newText,
-        selection: TextSelection(
-          baseOffset: sel.start + tagOffset,
-          extentOffset: sel.start + tagOffset + 5,
-        ),
-      );
-      return;
-    }
-
-    var selectedText = text.substring(sel.start, sel.end);
-    final fontMatch = RegExp(r'^<font\s+([^>]*?)>([\s\S]*?)</font>$', caseSensitive: false).firstMatch(selectedText);
-    if (fontMatch != null) {
-      var innerAttrs = fontMatch.group(1) ?? '';
-      final innerContent = fontMatch.group(2) ?? '';
-      innerAttrs = innerAttrs.replaceAll(RegExp('$attrName=["\x27][^"\x27]+["\x27]', caseSensitive: false), '').trim();
-      final newAttrs = ('$innerAttrs $attrName="$attrValue"').trim();
-      final formatted = '<font $newAttrs>$innerContent</font>';
-      final newText = text.replaceRange(sel.start, sel.end, formatted);
-      _textController.value = TextEditingValue(
-        text: newText,
-        selection: TextSelection(baseOffset: sel.start, extentOffset: sel.start + formatted.length),
-      );
-      return;
-    }
-
-    final formatted = '<font $attrName="$attrValue">$selectedText</font>';
-    final newText = text.replaceRange(sel.start, sel.end, formatted);
-    _textController.value = TextEditingValue(
-      text: newText,
-      selection: TextSelection(baseOffset: sel.start, extentOffset: sel.start + formatted.length),
-    );
-  }
-
-  void _applyWordHighlightColor(String hex) {
+  void _applyWordHighlightColor(Color color) {
     if (!_canEdit()) return;
-    final text = _textController.text;
-    final sel = _textController.selection;
-    if (sel.start < 0 || sel.end < 0) return;
-
-    if (sel.start == sel.end) {
-      final placeholder = '<mark color="$hex">texte</mark>';
-      final newText = text.replaceRange(sel.start, sel.end, placeholder);
-      final tagOffset = '<mark color="$hex">'.length;
-      _textController.value = TextEditingValue(
-        text: newText,
-        selection: TextSelection(
-          baseOffset: sel.start + tagOffset,
-          extentOffset: sel.start + tagOffset + 5,
-        ),
-      );
-      return;
-    }
-
-    var selectedText = text.substring(sel.start, sel.end);
-    selectedText = selectedText.replaceAll(RegExp(r'</?mark[^>]*>', caseSensitive: false), '');
-    final formatted = '<mark color="$hex">$selectedText</mark>';
-    final newText = text.replaceRange(sel.start, sel.end, formatted);
-    _textController.value = TextEditingValue(
-      text: newText,
-      selection: TextSelection(baseOffset: sel.start, extentOffset: sel.start + formatted.length),
-    );
+    _textController.setHighlightSelection(color);
   }
 
   void _applyParagraphAlignment(String align) {
     if (!_canEdit()) return;
-    final text = _textController.text;
-    final sel = _textController.selection;
-    final cursor = (sel.start >= 0) ? sel.start : 0;
-
-    int lineStart = text.lastIndexOf('\n', cursor > 0 ? cursor - 1 : 0);
-    lineStart = lineStart == -1 ? 0 : lineStart + 1;
-
-    int lineEnd = text.indexOf('\n', cursor);
-    lineEnd = lineEnd == -1 ? text.length : lineEnd;
-
-    var currentLine = text.substring(lineStart, lineEnd);
-    currentLine = currentLine.replaceAll(RegExp(r'\[align=(?:left|center|right|justify)\]\s*', caseSensitive: false), '').trim();
-
-    final newLine = align == 'left'
-        ? '[align=left] $currentLine'
-        : align == 'center'
-            ? '[align=center] $currentLine'
-            : align == 'right'
-                ? '[align=right] $currentLine'
-                : '[align=justify] $currentLine';
-
-    final newText = text.replaceRange(lineStart, lineEnd, newLine);
-    _textController.value = TextEditingValue(
-      text: newText,
-      selection: TextSelection.collapsed(offset: lineStart + newLine.length),
-    );
+    _textController.setAlignmentForSelection(align);
   }
 
   void _toggleBulletList() {
     if (!_canEdit()) return;
-    final text = _textController.text;
-    final sel = _textController.selection;
-    final cursor = (sel.start >= 0) ? sel.start : 0;
-
-    int lineStart = text.lastIndexOf('\n', cursor > 0 ? cursor - 1 : 0);
-    lineStart = lineStart == -1 ? 0 : lineStart + 1;
-
-    int lineEnd = text.indexOf('\n', cursor);
-    lineEnd = lineEnd == -1 ? text.length : lineEnd;
-
-    final currentLine = text.substring(lineStart, lineEnd);
-    String newLine;
-    if (currentLine.startsWith('- ')) {
-      newLine = currentLine.substring(2);
-    } else if (currentLine.startsWith('* ')) {
-      newLine = currentLine.substring(2);
-    } else {
-      newLine = '- $currentLine';
-    }
-
-    final newText = text.replaceRange(lineStart, lineEnd, newLine);
-    _textController.value = TextEditingValue(
-      text: newText,
-      selection: TextSelection.collapsed(offset: lineStart + newLine.length),
-    );
+    _textController.toggleBulletListForSelection();
   }
 
   void _applyInlineFormat(String openTag, String closeTag) {
@@ -767,15 +587,15 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     ),
                     onPressed: () {
-                      final hashes = '#' * selectedLevel;
                       final prefix = isNumbered ? '1. ' : '';
-                      final alignTag = selectedAlign == TextAlign.center
-                          ? ' [align=center]'
-                          : selectedAlign == TextAlign.right
-                              ? ' [align=right]'
-                              : '';
-                      final hex = '#${selectedColor.value.toRadixString(16).substring(2)}';
-                      _insertTextAtCursor('\n$hashes $prefix<font color="$hex">Titre Niveau $selectedLevel</font>$alignTag\n');
+                      final defaultTitle = 'Titre Niveau $selectedLevel';
+                      if (_textController.text.trim().isEmpty) {
+                        _textController.text = '$prefix$defaultTitle';
+                      }
+                      _textController.setHeadingLevelForSelection(selectedLevel);
+                      if (selectedColor != const Color(0xFF0F172A)) {
+                        _textController.setFontColorSelection(selectedColor);
+                      }
                       Navigator.of(ctx).pop();
                     },
                     child: const Text('Appliquer le Titre'),
@@ -833,9 +653,9 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
                   onTap: () {
                     Navigator.of(ctx).pop();
                     if (isBackground) {
-                      _applyWordHighlightColor(hex);
+                      _applyWordHighlightColor(c);
                     } else {
-                      _applyWordFontColor(hex);
+                      _applyWordFontColor(c);
                     }
                   },
                   child: Container(
@@ -2346,7 +2166,7 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
                 mediaRegistry = mediaRepo.getAllGroupMediaRegistry(widget.conversation.id);
               } catch (_) {}
               return GroupNoteRenderer(
-                content: _textController.text,
+                content: _textController.toMarkdown(),
                 components: _components,
                 lineSpacing: _lineSpacing,
                 paragraphSpacing: _paragraphSpacing,
@@ -2422,7 +2242,7 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
                       onSelected: (_) {
                         setState(() {
                           _editSubMode = 'code';
-                          _codeController.text = _buildCombinedCodeSource(_textController.text, _components);
+                          _codeController.text = _buildCombinedCodeSource(_textController.toMarkdown(), _components);
                         });
                       },
                     ),
