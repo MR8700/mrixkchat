@@ -13,6 +13,7 @@ import '../viewers/document_viewer_screen.dart';
 import '../viewers/image_viewer_screen.dart';
 import '../viewers/video_player_screen.dart';
 import 'conversation_info_screen.dart';
+import 'group_notepad_screen.dart';
 import 'widgets/audio_player_widget.dart';
 import 'widgets/call_dialog.dart';
 import 'widgets/whatsapp_voice_recorder.dart';
@@ -1260,6 +1261,8 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
       );
     }
 
+    final currentConv = context.watch<ConversationRepository>().getConversationById(widget.conversation.id) ?? widget.conversation;
+
     return AppBar(
       backgroundColor: Colors.white.withOpacity(0.95),
       elevation: 0.5,
@@ -1279,18 +1282,18 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
         onTap: () {
           Navigator.of(context).push(
             MaterialPageRoute(
-              builder: (ctx) => ConversationInfoScreen(conversation: widget.conversation),
+              builder: (ctx) => ConversationInfoScreen(conversation: currentConv),
             ),
           );
         },
         child: Row(
           children: [
             AppAvatar(
-              name: widget.conversation.title,
-              avatarUrl: widget.conversation.peerAvatar,
+              name: currentConv.title,
+              avatarUrl: currentConv.peerAvatar,
               radius: 19,
-              isOnline: widget.conversation.isOnline,
-              isVerified: widget.conversation.isVerified,
+              isOnline: currentConv.isOnline,
+              isVerified: currentConv.isVerified,
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -1302,7 +1305,7 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                     children: [
                       Flexible(
                         child: Text(
-                          widget.conversation.title,
+                          currentConv.title,
                           style: const TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.bold,
@@ -1311,7 +1314,7 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      if (widget.conversation.isVerified) ...[
+                      if (currentConv.isVerified) ...[
                         const SizedBox(width: 4),
                         const Icon(Icons.verified, size: 15, color: AppTheme.secondary),
                       ],
@@ -1323,7 +1326,7 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                         width: 6,
                         height: 6,
                         decoration: BoxDecoration(
-                          color: widget.conversation.isOnline
+                          color: currentConv.isOnline
                               ? AppTheme.statusGreen
                               : const Color(0xFF94A3B8),
                           shape: BoxShape.circle,
@@ -1331,14 +1334,14 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                       ),
                       const SizedBox(width: 4),
                       Text(
-                        widget.conversation.isGroup
-                            ? '${widget.conversation.groupMembersCount ?? 3} membres • Chiffré'
-                            : (widget.conversation.isOnline
+                        currentConv.isGroup
+                            ? '${currentConv.groupMembers.isNotEmpty ? currentConv.groupMembers.length : (currentConv.groupMembersCount)} membres • Chiffré'
+                            : (currentConv.isOnline
                                 ? 'En ligne'
                                 : 'Vu récemment'),
                         style: TextStyle(
                           fontSize: 11,
-                          color: widget.conversation.isOnline
+                          color: currentConv.isOnline
                               ? AppTheme.statusGreen
                               : const Color(0xFF64748B),
                           fontWeight: FontWeight.w500,
@@ -1353,6 +1356,27 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
         ),
       ),
       actions: [
+        if (currentConv.isGroup)
+          IconButton(
+            icon: Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: const Color(0xFFEFF6FF),
+                shape: BoxShape.circle,
+                border: Border.all(color: const Color(0xFFBFDBFE)),
+              ),
+              child: const Icon(Icons.edit_note_rounded, size: 20, color: AppTheme.primary),
+            ),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (ctx) => GroupNotepadScreen(conversation: currentConv),
+                ),
+              );
+            },
+            tooltip: 'Bloc-Note & Formules du Groupe',
+          ),
         IconButton(
           icon: Container(
             width: 36,
@@ -2673,7 +2697,74 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
   }
 
   Widget _buildComposer() {
-    if (widget.conversation.isBlocked) return _buildBlockedComposer();
+    final currentConv = context.watch<ConversationRepository>().getConversationById(widget.conversation.id) ?? widget.conversation;
+    final myProfile = context.watch<ProfileRepository>().getProfile();
+    final isGroupAdmin = currentConv.isUserAdmin(myProfile.id);
+
+    if (currentConv.isBlocked) return _buildBlockedComposer();
+
+    if (currentConv.isGroup) {
+      final currentMember = currentConv.groupMembers.firstWhere(
+        (m) => m.id == myProfile.id,
+        orElse: () => const GroupMember(id: '', name: '', role: 'member'),
+      );
+      if (currentMember.isMuted) {
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          decoration: const BoxDecoration(
+            color: Color(0xFFFFF1F2),
+            border: Border(top: BorderSide(color: Color(0xFFFECDD3))),
+          ),
+          child: SafeArea(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: const [
+                Icon(Icons.volume_off_rounded, size: 18, color: Color(0xFFE11D48)),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Vous avez été mis en sourdine par un administrateur du groupe.',
+                    style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: Color(0xFFBE123C)),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+
+      if (currentConv.onlyAdminsCanSendMessages && !isGroupAdmin) {
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          decoration: const BoxDecoration(
+            color: Color(0xFFF8FAFC),
+            border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+          ),
+          child: SafeArea(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: const [
+                Icon(Icons.lock_rounded, size: 18, color: Color(0xFF64748B)),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Seuls les administrateurs peuvent envoyer des messages dans ce groupe.',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF475569),
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+    }
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(

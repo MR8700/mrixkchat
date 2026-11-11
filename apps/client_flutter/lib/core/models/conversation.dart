@@ -1,3 +1,60 @@
+class GroupMember {
+  final String id;
+  final String name;
+  final String handle;
+  final String avatarUrl;
+  final String role; // 'creator', 'admin', 'member'
+  final bool isMuted;
+
+  const GroupMember({
+    required this.id,
+    required this.name,
+    this.handle = '',
+    this.avatarUrl = '',
+    this.role = 'member',
+    this.isMuted = false,
+  });
+
+  bool get isCreator => role == 'creator';
+  bool get isAdmin => role == 'admin' || role == 'creator';
+
+  GroupMember copyWith({
+    String? id,
+    String? name,
+    String? handle,
+    String? avatarUrl,
+    String? role,
+    bool? isMuted,
+  }) {
+    return GroupMember(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      handle: handle ?? this.handle,
+      avatarUrl: avatarUrl ?? this.avatarUrl,
+      role: role ?? this.role,
+      isMuted: isMuted ?? this.isMuted,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'handle': handle,
+    'avatarUrl': avatarUrl,
+    'role': role,
+    'isMuted': isMuted,
+  };
+
+  factory GroupMember.fromJson(Map<String, dynamic> json) => GroupMember(
+    id: json['id'] as String,
+    name: json['name'] as String,
+    handle: json['handle'] as String? ?? '',
+    avatarUrl: json['avatarUrl'] as String? ?? '',
+    role: json['role'] as String? ?? 'member',
+    isMuted: json['isMuted'] as bool? ?? false,
+  );
+}
+
 class Conversation {
   final String id;
   final String title;
@@ -19,6 +76,14 @@ class Conversation {
   final bool isBlocked;
   final String? blockedMessage;
 
+  // Group parameters & permissions
+  final String? description;
+  final bool onlyAdminsCanSendMessages;
+  final bool onlyAdminsCanEditGroupInfo;
+  final bool onlyAdminsCanAddMembers;
+  final bool onlyAdminsCanEditNotes;
+  final List<GroupMember> groupMembers;
+
   Conversation({
     required this.id,
     required this.title,
@@ -39,7 +104,27 @@ class Conversation {
     this.isArchived = false,
     this.isBlocked = false,
     this.blockedMessage,
+    this.description,
+    this.onlyAdminsCanSendMessages = false,
+    this.onlyAdminsCanEditGroupInfo = false,
+    this.onlyAdminsCanAddMembers = false,
+    this.onlyAdminsCanEditNotes = false,
+    this.groupMembers = const [],
   });
+
+  bool isUserAdmin(String userId) {
+    if (!isGroup) return false;
+    final member = groupMembers.firstWhere(
+      (m) => m.id == userId,
+      orElse: () => const GroupMember(id: '', name: '', role: 'member'),
+    );
+    if (member.id.isNotEmpty) {
+      return member.isAdmin;
+    }
+    // Default fallback: if current user is richard, treat as admin
+    if (userId == 'user_richard' || userId.isEmpty) return true;
+    return false;
+  }
 
   Conversation copyWith({
     String? id,
@@ -61,6 +146,12 @@ class Conversation {
     bool? isArchived,
     bool? isBlocked,
     String? blockedMessage,
+    String? description,
+    bool? onlyAdminsCanSendMessages,
+    bool? onlyAdminsCanEditGroupInfo,
+    bool? onlyAdminsCanAddMembers,
+    bool? onlyAdminsCanEditNotes,
+    List<GroupMember>? groupMembers,
   }) {
     return Conversation(
       id: id ?? this.id,
@@ -82,6 +173,12 @@ class Conversation {
       isArchived: isArchived ?? this.isArchived,
       isBlocked: isBlocked ?? this.isBlocked,
       blockedMessage: blockedMessage ?? this.blockedMessage,
+      description: description ?? this.description,
+      onlyAdminsCanSendMessages: onlyAdminsCanSendMessages ?? this.onlyAdminsCanSendMessages,
+      onlyAdminsCanEditGroupInfo: onlyAdminsCanEditGroupInfo ?? this.onlyAdminsCanEditGroupInfo,
+      onlyAdminsCanAddMembers: onlyAdminsCanAddMembers ?? this.onlyAdminsCanAddMembers,
+      onlyAdminsCanEditNotes: onlyAdminsCanEditNotes ?? this.onlyAdminsCanEditNotes,
+      groupMembers: groupMembers ?? this.groupMembers,
     );
   }
 
@@ -105,6 +202,12 @@ class Conversation {
     'isArchived': isArchived,
     'isBlocked': isBlocked,
     'blockedMessage': blockedMessage,
+    'description': description,
+    'onlyAdminsCanSendMessages': onlyAdminsCanSendMessages,
+    'onlyAdminsCanEditGroupInfo': onlyAdminsCanEditGroupInfo,
+    'onlyAdminsCanAddMembers': onlyAdminsCanAddMembers,
+    'onlyAdminsCanEditNotes': onlyAdminsCanEditNotes,
+    'groupMembers': groupMembers.map((m) => m.toJson()).toList(),
   };
 
   factory Conversation.fromJson(Map<String, dynamic> json) => Conversation(
@@ -127,5 +230,14 @@ class Conversation {
     isArchived: json['isArchived'] as bool? ?? false,
     isBlocked: json['isBlocked'] as bool? ?? false,
     blockedMessage: json['blockedMessage'] as String?,
+    description: json['description'] as String?,
+    onlyAdminsCanSendMessages: json['onlyAdminsCanSendMessages'] as bool? ?? false,
+    onlyAdminsCanEditGroupInfo: json['onlyAdminsCanEditGroupInfo'] as bool? ?? false,
+    onlyAdminsCanAddMembers: json['onlyAdminsCanAddMembers'] as bool? ?? false,
+    onlyAdminsCanEditNotes: json['onlyAdminsCanEditNotes'] as bool? ?? false,
+    groupMembers: (json['groupMembers'] as List<dynamic>?)
+            ?.map((m) => GroupMember.fromJson(m as Map<String, dynamic>))
+            .toList() ??
+        const [],
   );
 }
