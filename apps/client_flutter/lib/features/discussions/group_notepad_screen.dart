@@ -18,14 +18,20 @@ import 'widgets/group_note_renderer.dart';
 
 class GroupNotepadScreen extends StatefulWidget {
   final Conversation conversation;
+  final String? documentId;
 
   const GroupNotepadScreen({
     super.key,
     required this.conversation,
+    this.documentId,
   });
 
   /// Opens the notepad directly inside the conversation as an interactive in-place modal sheet
-  static Future<void> showInConversation(BuildContext context, Conversation conversation) {
+  static Future<void> showInConversation(
+    BuildContext context,
+    Conversation conversation, {
+    String? documentId,
+  }) {
     return showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -35,7 +41,10 @@ class GroupNotepadScreen extends StatefulWidget {
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         child: SizedBox(
           height: MediaQuery.of(context).size.height * 0.94,
-          child: GroupNotepadScreen(conversation: conversation),
+          child: GroupNotepadScreen(
+            conversation: conversation,
+            documentId: documentId,
+          ),
         ),
       ),
     );
@@ -86,6 +95,7 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
     final repo = context.read<GroupNoteRepository>();
     _currentNote = repo.getNote(
       widget.conversation.id,
+      documentId: widget.documentId,
       groupTitle: widget.conversation.title,
     );
     _textController = TextEditingController(text: _currentNote.content);

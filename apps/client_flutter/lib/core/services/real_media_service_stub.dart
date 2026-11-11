@@ -83,6 +83,24 @@ class RealMediaService {
     return '/imagetest.png';
   }
 
+  /// Captures a real video using the device camera
+  Future<String?> captureCameraVideo() async {
+    return null;
+  }
+
+  /// Starts live video recording
+  Future<bool> startVideoRecording() async {
+    return true;
+  }
+
+  /// Stops live video recording
+  Future<String?> stopVideoRecording() async {
+    return null;
+  }
+
+  /// Plays a real video in modal
+  void playVideoInModal(String videoUrl) {}
+
   /// Picks a document file from device
   Future<RealDocumentFile?> pickDocumentFile() async {
     return RealDocumentFile(

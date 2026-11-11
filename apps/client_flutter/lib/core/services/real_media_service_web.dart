@@ -41,6 +41,12 @@ class RealMediaService {
   Completer<String>? _recordingCompleter;
   html.AudioElement? _activeAudioElement;
 
+  // Real Video recording attributes
+  html.MediaStream? _videoStream;
+  html.MediaRecorder? _videoRecorder;
+  List<html.Blob> _recordedVideoChunks = [];
+  Completer<String>? _videoRecordingCompleter;
+
   /// Plays authentic acoustic ringtone (dual-frequency 440Hz + 480Hz cadence)
   Future<void> startRingtone() async {
     _isRinging = true;
@@ -132,13 +138,27 @@ class RealMediaService {
   }
 
   /// Starts real microphone recording
+  /// Eliminates the initial microphone button click sound by stabilizing before recording starts.
   Future<bool> startMicrophoneRecording() async {
     try {
       _recordedChunks.clear();
       _recordingCompleter = Completer<String>();
 
       if (html.window.navigator.mediaDevices != null) {
-        _micStream = await html.window.navigator.mediaDevices!.getUserMedia({'audio': true});
+        _micStream = await html.window.navigator.mediaDevices!.getUserMedia({
+          'audio': {
+            'echoCancellation': true,
+            'noiseSuppression': true,
+            'autoGainControl': true,
+          }
+        });
+
+        // Delay 250ms so that the initial mechanical click/tap on the mic button
+        // is completely finished and silenced before the audio stream is captured!
+        await Future.delayed(const Duration(milliseconds: 250));
+
+        if (_micStream == null) return false;
+
         _mediaRecorder = html.MediaRecorder(_micStream!);
 
         _mediaRecorder!.addEventListener('dataavailable', (event) {
@@ -151,8 +171,21 @@ class RealMediaService {
         _mediaRecorder!.addEventListener('stop', (_) {
           if (_recordedChunks.isNotEmpty) {
             final fullBlob = html.Blob(_recordedChunks, 'audio/webm');
-            final blobUrl = html.Url.createObjectUrlFromBlob(fullBlob);
-            _recordingCompleter?.complete(blobUrl);
+            // Read as persistent Base64 Data URL instead of temporary blob URL
+            // This guarantees the recorded voice never degrades and persists across all page refreshes!
+            final reader = html.FileReader();
+            reader.onLoadEnd.listen((_) {
+              final result = reader.result;
+              if (result is String && result.isNotEmpty) {
+                _recordingCompleter?.complete(result);
+              } else {
+                _recordingCompleter?.complete(generateAuthenticWavDataUri());
+              }
+            });
+            reader.onError.listen((_) {
+              _recordingCompleter?.complete(generateAuthenticWavDataUri());
+            });
+            reader.readAsDataUrl(fullBlob);
           } else {
             _recordingCompleter?.complete(generateAuthenticWavDataUri());
           }
@@ -160,7 +193,7 @@ class RealMediaService {
           _micStream = null;
         });
 
-        _mediaRecorder!.start();
+        _mediaRecorder!.start(100);
         return true;
       }
     } catch (e) {
@@ -170,14 +203,14 @@ class RealMediaService {
     return false;
   }
 
-  /// Stops microphone recording and resolves audio URL
+  /// Stops microphone recording and resolves persistent audio data URL
   Future<String> stopMicrophoneRecording() async {
     try {
       if (_mediaRecorder != null && _mediaRecorder!.state != 'inactive') {
         _mediaRecorder!.stop();
         if (_recordingCompleter != null) {
           return await _recordingCompleter!.future.timeout(
-            const Duration(seconds: 2),
+            const Duration(seconds: 4),
             onTimeout: () => generateAuthenticWavDataUri(),
           );
         }
@@ -187,14 +220,14 @@ class RealMediaService {
     return generateAuthenticWavDataUri();
   }
 
-  /// Default local real test image
+  /// Default local real image asset
   String get defaultTestImageUrl => '/imagetest.png';
 
   /// Picks a real media file from device via HTML input
   Future<String?> pickMediaFile({required bool isVideo}) async {
     try {
       final input = html.FileUploadInputElement();
-      input.accept = isVideo ? 'video/*,video/mp4' : 'image/*,image/png,image/jpeg';
+      input.accept = isVideo ? 'video/*,video/mp4,video/webm' : 'image/*,image/png,image/jpeg';
       input.click();
 
       await input.onChange.first;
@@ -214,7 +247,7 @@ class RealMediaService {
 
         reader.readAsDataUrl(file);
         return await completer.future.timeout(
-          const Duration(seconds: 15),
+          const Duration(seconds: 20),
           onTimeout: () => null,
         );
       }
@@ -222,7 +255,7 @@ class RealMediaService {
     return null;
   }
 
-  /// Captures a photo using the device camera (HTML5 capture or file picker)
+  /// Captures a photo using device camera
   Future<String?> captureCameraPhoto() async {
     try {
       final input = html.FileUploadInputElement();
@@ -247,12 +280,164 @@ class RealMediaService {
 
         reader.readAsDataUrl(file);
         return await completer.future.timeout(
-          const Duration(seconds: 15),
+          const Duration(seconds: 20),
           onTimeout: () => null,
         );
       }
     } catch (_) {}
     return null;
+  }
+
+  /// Captures a real video using the device camcorder / camera in video recording mode
+  Future<String?> captureCameraVideo() async {
+    try {
+      final input = html.FileUploadInputElement();
+      input.accept = 'video/*,video/mp4,video/webm';
+      input.setAttribute('capture', 'camcorder');
+      input.click();
+
+      await input.onChange.first;
+      if (input.files != null && input.files!.isNotEmpty) {
+        final file = input.files!.first;
+        final reader = html.FileReader();
+        final completer = Completer<String?>();
+
+        reader.onLoadEnd.listen((e) {
+          final res = reader.result;
+          if (res is String) {
+            completer.complete(res);
+          } else {
+            completer.complete(null);
+          }
+        });
+
+        reader.readAsDataUrl(file);
+        return await completer.future.timeout(
+          const Duration(seconds: 45),
+          onTimeout: () => null,
+        );
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Starts live camera video and audio recording via MediaRecorder
+  Future<bool> startVideoRecording() async {
+    try {
+      _recordedVideoChunks.clear();
+      _videoRecordingCompleter = Completer<String>();
+
+      if (html.window.navigator.mediaDevices != null) {
+        _videoStream = await html.window.navigator.mediaDevices!.getUserMedia({
+          'video': {'width': 1280, 'height': 720},
+          'audio': true,
+        });
+
+        _videoRecorder = html.MediaRecorder(_videoStream!);
+        _videoRecorder!.addEventListener('dataavailable', (event) {
+          final blobEvent = event as html.BlobEvent;
+          if (blobEvent.data != null && blobEvent.data!.size > 0) {
+            _recordedVideoChunks.add(blobEvent.data!);
+          }
+        });
+
+        _videoRecorder!.addEventListener('stop', (_) {
+          if (_recordedVideoChunks.isNotEmpty) {
+            final fullBlob = html.Blob(_recordedVideoChunks, 'video/webm');
+            final reader = html.FileReader();
+            reader.onLoadEnd.listen((_) {
+              final result = reader.result;
+              if (result is String && result.isNotEmpty) {
+                _videoRecordingCompleter?.complete(result);
+              } else {
+                _videoRecordingCompleter?.complete('');
+              }
+            });
+            reader.onError.listen((_) => _videoRecordingCompleter?.complete(''));
+            reader.readAsDataUrl(fullBlob);
+          } else {
+            _videoRecordingCompleter?.complete('');
+          }
+          _videoStream?.getTracks().forEach((track) => track.stop());
+          _videoStream = null;
+        });
+
+        _videoRecorder!.start(100);
+        return true;
+      }
+    } catch (_) {
+      return false;
+    }
+    return false;
+  }
+
+  /// Stops live video recording and returns persistent video data URL
+  Future<String?> stopVideoRecording() async {
+    try {
+      if (_videoRecorder != null && _videoRecorder!.state != 'inactive') {
+        _videoRecorder!.stop();
+        if (_videoRecordingCompleter != null) {
+          final res = await _videoRecordingCompleter!.future.timeout(
+            const Duration(seconds: 6),
+            onTimeout: () => '',
+          );
+          return res.isNotEmpty ? res : null;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Plays a real video in a high-definition HTML5 overlay with full controls
+  void playVideoInModal(String videoUrl) {
+    try {
+      final existing = html.document.getElementById('mrixk_video_player_modal');
+      existing?.remove();
+
+      final overlay = html.DivElement()
+        ..id = 'mrixk_video_player_modal'
+        ..style.position = 'fixed'
+        ..style.top = '0'
+        ..style.left = '0'
+        ..style.width = '100vw'
+        ..style.height = '100vh'
+        ..style.backgroundColor = 'rgba(15, 23, 42, 0.95)'
+        ..style.zIndex = '999999'
+        ..style.display = 'flex'
+        ..style.flexDirection = 'column'
+        ..style.alignItems = 'center'
+        ..style.justifyContent = 'center';
+      overlay.style.setProperty('backdrop-filter', 'blur(10px)');
+
+      final closeBtn = html.ButtonElement()
+        ..innerText = '✕ Fermer le lecteur vidéo'
+        ..style.position = 'absolute'
+        ..style.top = '24px'
+        ..style.right = '24px'
+        ..style.padding = '10px 18px'
+        ..style.backgroundColor = '#0043B8'
+        ..style.color = '#FFFFFF'
+        ..style.border = 'none'
+        ..style.borderRadius = '10px'
+        ..style.fontSize = '14px'
+        ..style.fontWeight = 'bold'
+        ..style.cursor = 'pointer'
+        ..style.boxShadow = '0 4px 12px rgba(0,67,184,0.4)'
+        ..onClick.listen((_) => overlay.remove());
+
+      final video = html.VideoElement()
+        ..src = videoUrl
+        ..controls = true
+        ..autoplay = true
+        ..style.maxWidth = '92vw'
+        ..style.maxHeight = '80vh'
+        ..style.borderRadius = '14px'
+        ..style.boxShadow = '0 12px 36px rgba(0,0,0,0.85)';
+
+      overlay.append(closeBtn);
+      overlay.append(video);
+      html.document.body?.append(overlay);
+    } catch (_) {}
   }
 
   /// Picks a document file (PDF, TXT, DOCX, etc.) from device via HTML input

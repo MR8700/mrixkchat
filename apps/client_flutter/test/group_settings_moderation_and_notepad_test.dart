@@ -225,7 +225,7 @@ x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}
       expect(find.textContaining('Source du Document & Définitions'), findsOneWidget);
     });
 
-    testWidgets('ConversationDetailScreen renders in-chat Group Notepad banner for groups', (tester) async {
+    testWidgets('ConversationDetailScreen adds Group Notepad manually via note add icons and banner is removed', (tester) async {
       tester.view.physicalSize = const Size(1200, 2400);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -264,10 +264,19 @@ x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}
 
       await tester.pumpAndSettle();
 
-      // Check that the in-chat banner appears directly inside the conversation
-      expect(find.text('Bloc-Note Collaboratif du Groupe'), findsOneWidget);
-      expect(find.text('Word léger • Formules & Tableaux sans balises'), findsOneWidget);
-      expect(find.text('Ouvrir'), findsOneWidget);
+      // Verify that the banner is completely removed as requested
+      expect(find.text('Bloc-Note Collaboratif du Groupe'), findsNothing);
+      expect(find.text('Word léger • Formules & Tableaux sans balises'), findsNothing);
+
+      // Verify that the manual add note icon is available at the top
+      expect(find.byTooltip('Ajouter un nouveau Bloc-Note'), findsOneWidget);
+
+      // Tap on the top add note icon to add a new bloc note
+      await tester.tap(find.byTooltip('Ajouter un nouveau Bloc-Note'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Nouveau Bloc-Note'), findsOneWidget);
+      expect(find.text('Nom du bloc-note'), findsOneWidget);
     });
 
     testWidgets('ConversationInfoScreen renders Group info, Bloc-Note Hero Card and Admin Permissions', (tester) async {

@@ -6,6 +6,7 @@ import '../models/memory_item.dart';
 import '../models/message.dart';
 import '../models/moment.dart';
 import '../models/user_profile.dart';
+import '../services/real_media_service.dart';
 import 'local_database.dart';
 
 /// Seeds clean production database: all test users, conversations & moments purged.
@@ -197,7 +198,7 @@ Future<void> seedInitialDatabase(LocalDatabase db) async {
       isGroup: true,
       groupMembersCount: 5,
       description: 'Groupe de coordination souverain pour le projet MRixk. Débats techniques, formules mathématiques et architecture E2EE.',
-      lastMessage: 'Marc : Les premiers tests sont concluants 🎉',
+      lastMessage: 'Marc : Les protocoles de validation sont validés 🎉',
       lastMessageTime: '09:15',
       unreadCount: 0,
       tagText: 'Projet équipe',
@@ -306,7 +307,7 @@ Future<void> seedInitialDatabase(LocalDatabase db) async {
       senderAvatar: userProfile.avatarUrl,
       type: MessageType.text,
       content:
-          'Excellente nouvelle ! As-tu eu le temps de tester la recherche instantanée et la sauvegarde directe sur le téléphone ?',
+          'Excellente nouvelle ! As-tu eu le temps de vérifier la recherche instantanée et la sauvegarde directe sur le téléphone ?',
       time: '10:39',
       isOutgoing: true,
       isVerifiedSignature: true,
@@ -324,6 +325,7 @@ Future<void> seedInitialDatabase(LocalDatabase db) async {
       isOutgoing: false,
       isVerifiedSignature: true,
       voiceDuration: '1:15',
+      voiceUri: RealMediaService.generateAuthenticWavDataUri(durationSeconds: 3, frequency: 160.0),
       voiceTranscription:
           '« Les validations sont terminées, tout est prêt pour le lancement. »',
       waveform: [

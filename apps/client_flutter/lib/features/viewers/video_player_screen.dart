@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../core/services/real_media_service.dart';
 import '../../core/theme/app_theme.dart';
 
 class VideoPlayerScreen extends StatefulWidget {
@@ -38,6 +39,9 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   }
 
   void _togglePlayPause() {
+    if (widget.videoUrl != null && widget.videoUrl!.isNotEmpty) {
+      RealMediaService.instance.playVideoInModal(widget.videoUrl!);
+    }
     setState(() {
       _isPlaying = !_isPlaying;
     });

@@ -854,10 +854,11 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
     );
   }
 
-  // --- Live Camera Simulation Dialog ---
+  // --- Live Camera & Real Video Capture Dialog ---
   void _openCameraSimulator() {
     bool isFrontCamera = false;
     bool isFlashOn = false;
+    bool isVideoMode = false;
 
     showDialog(
       context: context,
@@ -880,14 +881,22 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(
-                            isFrontCamera ? Icons.face : Icons.photo_camera_back,
+                            isVideoMode
+                                ? Icons.videocam_rounded
+                                : (isFrontCamera ? Icons.face : Icons.photo_camera_back),
                             size: 100,
-                            color: Colors.white12,
+                            color: isVideoMode ? const Color(0x33EF4444) : Colors.white12,
                           ),
                           const SizedBox(height: 12),
                           Text(
-                            isFrontCamera ? 'Objectif Avant (Selfie HD)' : 'Objectif Principal HD (Capteur 50 Mpx)',
-                            style: const TextStyle(color: Colors.white54, fontSize: 12),
+                            isVideoMode
+                                ? 'Enregistrement Vidéo HD Réel (Caméra & Microphone)'
+                                : (isFrontCamera ? 'Objectif Avant (Selfie HD)' : 'Objectif Principal HD (Capteur 50 Mpx)'),
+                            style: TextStyle(
+                              color: isVideoMode ? const Color(0xFFFCA5A5) : Colors.white54,
+                              fontSize: 12,
+                              fontWeight: isVideoMode ? FontWeight.bold : FontWeight.normal,
+                            ),
                           ),
                         ],
                       ),
@@ -899,7 +908,10 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                     width: 260,
                     height: 260,
                     decoration: BoxDecoration(
-                      border: Border.all(color: Colors.white24, width: 1),
+                      border: Border.all(
+                        color: isVideoMode ? const Color(0xFFEF4444) : Colors.white24,
+                        width: isVideoMode ? 2 : 1,
+                      ),
                       borderRadius: BorderRadius.circular(16),
                     ),
                   ),
@@ -917,12 +929,12 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                           decoration: BoxDecoration(
-                            color: Colors.white12,
+                            color: isVideoMode ? const Color(0xFF991B1B) : Colors.white12,
                             borderRadius: BorderRadius.circular(12),
                           ),
-                          child: const Text(
-                            'QUALITÉ HD • PROTÉGÉ',
-                            style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                          child: Text(
+                            isVideoMode ? '🔴 ENREGISTREMENT VIDÉO HD' : 'QUALITÉ HD • PROTÉGÉ',
+                            style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
                           ),
                         ),
                         IconButton(
@@ -941,54 +953,126 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                   right: 0,
                   bottom: 30,
                   child: SafeArea(
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        IconButton(
-                          icon: const Icon(Icons.flip_camera_ios, color: Colors.white, size: 28),
-                          onPressed: () => setCameraState(() => isFrontCamera = !isFrontCamera),
+                        // Mode selector: Photo / Vidéo
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.black45,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: Colors.white24),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              GestureDetector(
+                                onTap: () => setCameraState(() => isVideoMode = false),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: !isVideoMode ? Colors.white : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  child: Text(
+                                    'PHOTO',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: !isVideoMode ? Colors.black : Colors.white70,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              GestureDetector(
+                                onTap: () => setCameraState(() => isVideoMode = true),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: isVideoMode ? const Color(0xFFEF4444) : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  child: Text(
+                                    'VIDÉO',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: isVideoMode ? Colors.white : Colors.white70,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                        GestureDetector(
-                          onTap: () async {
-                            Navigator.of(ctx).pop();
-                            final photo = await RealMediaService.instance.captureCameraPhoto();
-                            if (photo != null) {
-                              _sendMessage(
-                                textOverride: 'Photo capturée en direct 📷 (Haute Définition)',
-                                type: MessageType.image,
-                                imageUri: photo,
-                              );
-                            }
-                          },
-                          child: Container(
-                            width: 76,
-                            height: 76,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              border: Border.all(color: Colors.white, width: 4),
+                        const SizedBox(height: 20),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.flip_camera_ios, color: Colors.white, size: 28),
+                              onPressed: () => setCameraState(() => isFrontCamera = !isFrontCamera),
                             ),
-                            child: Center(
+                            GestureDetector(
+                              onTap: () async {
+                                Navigator.of(ctx).pop();
+                                if (isVideoMode) {
+                                  final video = await RealMediaService.instance.captureCameraVideo();
+                                  if (video != null && video.isNotEmpty) {
+                                    _sendVideo(video);
+                                  }
+                                } else {
+                                  final photo = await RealMediaService.instance.captureCameraPhoto();
+                                  if (photo != null) {
+                                    _sendMessage(
+                                      textOverride: 'Photo capturée en direct 📷 (Haute Définition)',
+                                      type: MessageType.image,
+                                      imageUri: photo,
+                                    );
+                                  }
+                                }
+                              },
                               child: Container(
-                                width: 60,
-                                height: 60,
-                                decoration: const BoxDecoration(
-                                  color: Colors.white,
+                                width: 76,
+                                height: 76,
+                                decoration: BoxDecoration(
                                   shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: isVideoMode ? const Color(0xFFEF4444) : Colors.white,
+                                    width: 4,
+                                  ),
+                                ),
+                                child: Center(
+                                  child: Container(
+                                    width: 60,
+                                    height: 60,
+                                    decoration: BoxDecoration(
+                                      color: isVideoMode ? const Color(0xFFEF4444) : Colors.white,
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: isVideoMode
+                                        ? const Center(
+                                            child: Icon(Icons.videocam, color: Colors.white, size: 28),
+                                          )
+                                        : null,
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                        ),
-                        IconButton(
-                          icon: Icon(
-                            Icons.looks_one,
-                            color: _isViewOnceMode ? Colors.amber : Colors.white,
-                            size: 28,
-                          ),
-                          onPressed: () {
-                            setState(() => _isViewOnceMode = !_isViewOnceMode);
-                            setCameraState(() {});
-                          },
+                            IconButton(
+                              icon: Icon(
+                                Icons.looks_one,
+                                color: _isViewOnceMode ? Colors.amber : Colors.white,
+                                size: 28,
+                              ),
+                              onPressed: () {
+                                setState(() => _isViewOnceMode = !_isViewOnceMode);
+                                setCameraState(() {});
+                              },
+                            ),
+                          ],
                         ),
                       ],
                     ),
@@ -1175,7 +1259,6 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
           Column(
             children: [
               _buildSecurityBanner(),
-              if (currentConv.isGroup) _buildGroupNotepadInChatBanner(currentConv),
               _buildDateDivider(),
               Expanded(
                 child: ListView.builder(
@@ -1369,12 +1452,12 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                 shape: BoxShape.circle,
                 border: Border.all(color: const Color(0xFFBFDBFE)),
               ),
-              child: const Icon(Icons.edit_note_rounded, size: 20, color: AppTheme.primary),
+              child: const Icon(Icons.note_add_rounded, size: 20, color: AppTheme.primary),
             ),
             onPressed: () {
-              GroupNotepadScreen.showInConversation(context, currentConv);
+              _showCreateNoteDialog(currentConv);
             },
-            tooltip: 'Bloc-Note Collaboratif & Formules',
+            tooltip: 'Ajouter un nouveau Bloc-Note',
           ),
         IconButton(
           icon: Container(
@@ -1594,79 +1677,32 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
     );
   }
 
-  Widget _buildGroupNotepadInChatBanner(Conversation conv) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFDFE4ED)),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x06000000),
-            blurRadius: 4,
-            offset: Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(7),
-            decoration: BoxDecoration(
-              color: AppTheme.primarySoft,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: const Icon(Icons.edit_note_rounded, size: 20, color: AppTheme.primary),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
-                Text(
-                  'Bloc-Note Collaboratif du Groupe',
-                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                ),
-                Text(
-                  'Word léger • Formules & Tableaux sans balises',
-                  style: TextStyle(fontSize: 10.5, color: Color(0xFF64748B)),
-                ),
-              ],
-            ),
-          ),
-          ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppTheme.primary,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              elevation: 0,
-            ),
-            onPressed: () => GroupNotepadScreen.showInConversation(context, conv),
-            icon: const Icon(Icons.open_in_full_rounded, size: 13),
-            label: const Text('Ouvrir', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildGroupNoteInChatMessage(Message msg, Conversation conv) {
     final myProfile = context.read<ProfileRepository>().getProfile();
     final isAdmin = conv.isUserAdmin(myProfile.id);
-    final note = context.watch<GroupNoteRepository>().getNote(conv.id, groupTitle: conv.title);
 
-    // Extract title if present in quotes or fallback to note title
-    var noteTitle = note.title;
-    final quoteMatch = RegExp(r'"([^"]+)"').firstMatch(msg.content);
-    if (quoteMatch != null && quoteMatch.group(1)!.trim().isNotEmpty) {
-      noteTitle = quoteMatch.group(1)!.trim();
+    // Extract document ID if encoded in format [Bloc-Note du Groupe: doc_123]
+    String? explicitDocId;
+    final idMatch = RegExp(r'\[Bloc-Note du Groupe:\s*([a-zA-Z0-9_\-]+)\]').firstMatch(msg.content);
+    if (idMatch != null) {
+      explicitDocId = idMatch.group(1);
     }
 
+    // Extract title if present in quotes
+    String? customTitle;
+    final quoteMatch = RegExp(r'"([^"]+)"').firstMatch(msg.content);
+    if (quoteMatch != null && quoteMatch.group(1)!.trim().isNotEmpty) {
+      customTitle = quoteMatch.group(1)!.trim();
+    }
+
+    final note = context.watch<GroupNoteRepository>().getNote(
+      conv.id,
+      documentId: explicitDocId,
+      documentSlug: customTitle,
+      groupTitle: conv.title,
+    );
+
+    final noteTitle = customTitle ?? note.title;
     final createdInfo = note.createdAt.isNotEmpty ? note.createdAt : msg.time;
     final modifiedInfo = note.lastModified.isNotEmpty ? note.lastModified : msg.time;
 
@@ -1835,7 +1871,7 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     padding: const EdgeInsets.symmetric(vertical: 8),
                   ),
-                  onPressed: () => GroupNotepadScreen.showInConversation(context, conv),
+                  onPressed: () => GroupNotepadScreen.showInConversation(context, conv, documentId: note.id),
                   icon: const Icon(Icons.auto_stories_rounded, size: 16),
                   label: const Text(
                     'Ouvrir',
@@ -1942,13 +1978,25 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
-            onPressed: () {
+            onPressed: () async {
               final title = titleCtrl.text.trim().isNotEmpty ? titleCtrl.text.trim() : 'Bloc-Note Collaboratif';
               Navigator.of(ctx).pop();
+
+              final myProfile = context.read<ProfileRepository>().getProfile();
+              final newNote = await context.read<GroupNoteRepository>().createDocument(
+                conv.id,
+                title: title,
+                createdBy: myProfile.displayName.isNotEmpty ? '${myProfile.displayName} (Membre)' : 'Richard MARE (Membre)',
+              );
+
               _sendMessage(
-                textOverride: '📝 [Bloc-Note du Groupe] "$title"\nEspace de travail collaboratif, variables et formules mathématiques.',
+                textOverride: '📝 [Bloc-Note du Groupe: ${newNote.id}] "$title"\nEspace de travail collaboratif, variables et formules mathématiques.',
                 type: MessageType.document,
               );
+
+              if (mounted) {
+                GroupNotepadScreen.showInConversation(context, conv, documentId: newNote.id);
+              }
             },
             child: const Text('Ajouter'),
           ),
@@ -2948,12 +2996,59 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
               icon: Icons.videocam,
               label: 'Vidéo HD',
               color: Colors.purple,
-              onTap: () async {
+              onTap: () {
                 setState(() => _showAttachments = false);
-                final video = await RealMediaService.instance.pickMediaFile(isVideo: true);
-                if (video != null) {
-                  _sendVideo(video);
-                }
+                showModalBottomSheet(
+                  context: context,
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                  ),
+                  builder: (ctx) => SafeArea(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text(
+                            'Vidéo Haute Définition',
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 12),
+                          ListTile(
+                            leading: const CircleAvatar(
+                              backgroundColor: Color(0xFFEFF6FF),
+                              child: Icon(Icons.videocam_rounded, color: AppTheme.primary),
+                            ),
+                            title: const Text('Enregistrer avec la caméra', style: TextStyle(fontWeight: FontWeight.w600)),
+                            subtitle: const Text('Capture vidéo HD réelle en direct avec microphone', style: TextStyle(fontSize: 12)),
+                            onTap: () async {
+                              Navigator.of(ctx).pop();
+                              final video = await RealMediaService.instance.captureCameraVideo();
+                              if (video != null && video.isNotEmpty) {
+                                _sendVideo(video);
+                              }
+                            },
+                          ),
+                          ListTile(
+                            leading: const CircleAvatar(
+                              backgroundColor: Color(0xFFF3E8FF),
+                              child: Icon(Icons.video_library_rounded, color: Colors.purple),
+                            ),
+                            title: const Text('Choisir une vidéo existante', style: TextStyle(fontWeight: FontWeight.w600)),
+                            subtitle: const Text('Fichiers MP4, WebM ou MOV', style: TextStyle(fontSize: 12)),
+                            onTap: () async {
+                              Navigator.of(ctx).pop();
+                              final video = await RealMediaService.instance.pickMediaFile(isVideo: true);
+                              if (video != null && video.isNotEmpty) {
+                                _sendVideo(video);
+                              }
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
               },
             ),
             const SizedBox(width: 14),
