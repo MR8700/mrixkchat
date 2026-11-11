@@ -6,9 +6,7 @@ import '../../../core/repositories/moment_repository.dart';
 import '../../../core/repositories/profile_repository.dart';
 import '../../../core/services/real_media_service.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../shared/widgets/app_avatar.dart';
 import '../../../shared/widgets/app_media_image.dart';
-import '../../discussions/widgets/whatsapp_voice_recorder.dart';
 
 class AddMomentDialog extends StatefulWidget {
   const AddMomentDialog({super.key});

@@ -30,7 +30,6 @@ class PlatformStorageImpl implements PlatformStorage {
   @override
   Future<bool> save(String content) async {
     try {
-      final file = File(_dbPath);
       final tmp = File('$_dbPath.tmp');
       await tmp.writeAsString(content, flush: true);
       await tmp.rename(_dbPath);

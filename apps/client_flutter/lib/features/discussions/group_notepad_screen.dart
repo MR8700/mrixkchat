@@ -6,7 +6,6 @@ import '../../core/models/dws_ast.dart';
 import '../../core/models/dws_media.dart';
 import '../../core/models/group_note.dart';
 import '../../core/models/message.dart';
-import '../../core/models/title_config.dart';
 import '../../core/repositories/conversation_repository.dart';
 import '../../core/repositories/dws_media_repository.dart';
 import '../../core/repositories/group_note_repository.dart';
@@ -15,7 +14,6 @@ import '../../core/repositories/profile_repository.dart';
 import '../../core/services/formula_engine.dart';
 import '../../core/services/real_media_service.dart';
 import '../../core/theme/app_theme.dart';
-import '../../shared/widgets/app_media_image.dart';
 import 'widgets/group_note_renderer.dart';
 
 class GroupNotepadScreen extends StatefulWidget {
@@ -70,9 +68,6 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
   String _formulaFilter = '';
   bool _showFormulaGuide = false;
 
-  // Text selection tracking for contextual floating toolbar
-  TextSelection _currentSelection = const TextSelection.collapsed(offset: -1);
-
   // Immediate variable verification warning (e.g. Maths.?inconnue)
   String? _immediateVariableWarning;
 
@@ -109,7 +104,6 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
     _onTextChanged();
     final text = _textController.text;
     final sel = _textController.selection;
-    _currentSelection = sel;
 
     // Detect if cursor is near {{ or { for Excel-like formula autocompletion
     if (sel.baseOffset >= 0 && sel.baseOffset <= text.length) {
@@ -447,7 +441,6 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
         builder: (ctx, setModalState) {
           int selectedLevel = 1;
           Color selectedColor = const Color(0xFF0F172A);
-          String selectedFont = 'Inter';
           TextAlign selectedAlign = TextAlign.left;
           bool isNumbered = false;
 

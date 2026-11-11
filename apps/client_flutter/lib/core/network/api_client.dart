@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:http/http.dart' as http;
 
 /// Production-ready, offline-first API Client for the MRixk Go Backend.

@@ -2921,16 +2921,9 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
               icon: Icons.camera_alt,
               label: 'Caméra',
               color: Colors.deepOrange,
-              onTap: () async {
+              onTap: () {
                 setState(() => _showAttachments = false);
-                final photo = await RealMediaService.instance.captureCameraPhoto();
-                if (photo != null) {
-                  _sendMessage(
-                    textOverride: 'Photo capturée 📷',
-                    type: MessageType.image,
-                    imageUri: photo,
-                  );
-                }
+                _openCameraSimulator();
               },
             ),
             const SizedBox(width: 14),

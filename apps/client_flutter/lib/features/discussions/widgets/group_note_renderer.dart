@@ -787,7 +787,6 @@ class GroupNoteRenderer extends StatelessWidget {
         break;
 
       case _BlockType.paragraph:
-      default:
         if (block.text.trim().isEmpty) return SizedBox(height: paragraphSpacing / 2);
         child = _buildRichParagraph(block.text, align: block.alignment);
         break;
@@ -856,7 +855,7 @@ class GroupNoteRenderer extends StatelessWidget {
         fontSize: fontSize,
         fontWeight: weight,
         color: block.textColor ?? color,
-        fontFamily: block.fontFamily ?? 'Inter',
+        fontFamily: 'Inter',
         letterSpacing: level <= 2 ? -0.4 : 0.0,
       ),
     );
@@ -2567,7 +2566,6 @@ class _ContentBlock {
   final int? headingLevel;
   final TextAlign? alignment;
   final Color? textColor;
-  final String? fontFamily;
   final String? listPrefix;
   final bool? isChecked;
   final _TableData? tableData;
@@ -2583,7 +2581,6 @@ class _ContentBlock {
     this.headingLevel,
     this.alignment,
     this.textColor,
-    this.fontFamily,
     this.listPrefix,
     this.isChecked,
     this.tableData,

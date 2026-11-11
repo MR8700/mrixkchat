@@ -5,7 +5,6 @@ import 'package:provider/provider.dart';
 import 'package:mrixk_client/core/database/local_database.dart';
 import 'package:mrixk_client/core/models/conversation.dart';
 import 'package:mrixk_client/core/models/dws_ast.dart';
-import 'package:mrixk_client/core/models/dws_media.dart';
 import 'package:mrixk_client/core/repositories/call_history_repository.dart';
 import 'package:mrixk_client/core/repositories/contact_repository.dart';
 import 'package:mrixk_client/core/repositories/conversation_repository.dart';

@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mrixk_client/core/database/database_seed.dart';
 import 'package:mrixk_client/core/database/local_database.dart';
-import 'package:mrixk_client/core/models/conversation.dart';
 import 'package:mrixk_client/core/models/message.dart';
 import 'package:mrixk_client/core/repositories/conversation_repository.dart';
 import 'package:mrixk_client/core/repositories/message_repository.dart';

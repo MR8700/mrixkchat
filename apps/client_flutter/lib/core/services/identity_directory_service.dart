@@ -1,5 +1,3 @@
-import 'dart:async';
-
 /// Directory of verified sovereign users on the MRixk network.
 /// Only genuinely registered identities can be added as contacts or new conversations.
 class SovereignUser {
