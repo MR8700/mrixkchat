@@ -66,7 +66,7 @@ class FormulaEngine {
 
         // Strip C types and export keyword: export, int, float, double, var, let, const
         stmt = stmt.replaceAll(
-          RegExp(r'^(export\s+)?(int|float|double|var|let|const|long)\s+', caseSensitive: false),
+          RegExp(r'^(global\s+)?(export\s+)?(int|float|double|var|let|const|long)\s+', caseSensitive: false),
           '',
         ).trim();
 
@@ -107,6 +107,57 @@ class FormulaEngine {
           if (val != null) {
             vars[varName] = val;
           }
+        }
+      }
+    }
+
+    // Scan unbracketed C variable declarations (e.g. float delta = b*b - 4*a*c; or global float pi = 3.14159...)
+    final lines = documentText.split('\n');
+    for (var line in lines) {
+      line = line.trim();
+      if (line.isEmpty || line.startsWith('//') || line.startsWith('#') || line.startsWith('{')) continue;
+
+      // Array definition: float notes[] = [12,14,15,16,18];
+      final arrayMatch = RegExp(r'^(?:global\s+)?(?:float|int|double)\s+([a-zA-Z_0-9]+)\[\]\s*=\s*\[([^\]]+)\];?$', caseSensitive: false).firstMatch(line);
+      if (arrayMatch != null) {
+        final arrName = arrayMatch.group(1)!;
+        final rawItems = arrayMatch.group(2)!.split(',').map((s) => double.tryParse(s.trim())).whereType<double>().toList();
+        if (rawItems.isNotEmpty) {
+          final m = rawItems.reduce((a, b) => a + b) / rawItems.length;
+          final v = rawItems.map((x) => math.pow(x - m, 2)).reduce((a, b) => a + b) / rawItems.length;
+          vars[arrName] = m;
+          vars['${arrName}_mean'] = m;
+          vars['${arrName}_variance'] = v;
+        }
+        continue;
+      }
+
+      // Variable definition: global float c_lumiere = 299792458;
+      final varMatch = RegExp(r'^(?:global\s+)?(?:export\s+)?(?:int|float|double|number|var|let|const|long)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*([^;]+);?$', caseSensitive: false).firstMatch(line);
+      if (varMatch != null) {
+        final varName = varMatch.group(1)!;
+        var expr = varMatch.group(2)!.trim();
+        if (expr.contains('mean(')) {
+          final target = RegExp(r'mean\(([a-zA-Z_0-9]+)\)').firstMatch(expr)?.group(1);
+          if (target != null && vars.containsKey('${target}_mean')) {
+            expr = expr.replaceAll('mean($target)', vars['${target}_mean']!.toString());
+          }
+        }
+        if (expr.contains('population_variance(')) {
+          final target = RegExp(r'population_variance\(([a-zA-Z_0-9]+)\)').firstMatch(expr)?.group(1);
+          if (target != null && vars.containsKey('${target}_variance')) {
+            expr = expr.replaceAll('population_variance($target)', vars['${target}_variance']!.toString());
+          }
+        }
+        final val = evaluateExpression(
+          expr,
+          vars,
+          externalDocs: externalDocumentsVariables,
+          currentDoc: currentDocumentId,
+          graph: dependencyGraph,
+        );
+        if (val != null) {
+          vars[varName] = val;
         }
       }
     }
@@ -254,13 +305,17 @@ class FormulaEngine {
         i++;
         continue;
       }
-      if ('+-*/%^()'.contains(ch)) {
+      if ('+-*/%^()[],'.contains(ch)) {
         tokens.add(ch);
         i++;
-      } else if (RegExp(r'[0-9.]').hasMatch(ch)) {
+      } else if (RegExp(r'[0-9]').hasMatch(ch) || (ch == '.' && i + 1 < expr.length && RegExp(r'[0-9]').hasMatch(expr[i + 1]))) {
         final start = i;
-        while (i < expr.length && RegExp(r'[0-9.]').hasMatch(expr[i])) {
-          i++;
+        while (i < expr.length && RegExp(r'[0-9.eE]').hasMatch(expr[i])) {
+          if ((expr[i] == 'e' || expr[i] == 'E') && i + 1 < expr.length && (expr[i + 1] == '+' || expr[i + 1] == '-')) {
+            i += 2;
+          } else {
+            i++;
+          }
         }
         tokens.add(expr.substring(start, i));
       } else if (RegExp(r'[a-zA-Z_]').hasMatch(ch)) {
@@ -651,6 +706,30 @@ class _ExprParser {
             return math.exp(arg);
         }
       }
+    }
+
+    if (token.toLowerCase() == 'det') {
+      pos++;
+      while (pos < tokens.length && (tokens[pos] == '(' || tokens[pos] == '[')) {
+        pos++;
+      }
+      final a = parseExpression() ?? 0.0;
+      while (pos < tokens.length && (tokens[pos] == ',' || tokens[pos] == ']' || tokens[pos] == '[')) {
+        pos++;
+      }
+      final b = parseExpression() ?? 0.0;
+      while (pos < tokens.length && (tokens[pos] == ',' || tokens[pos] == ']' || tokens[pos] == '[')) {
+        pos++;
+      }
+      final c = parseExpression() ?? 0.0;
+      while (pos < tokens.length && (tokens[pos] == ',' || tokens[pos] == ']' || tokens[pos] == '[')) {
+        pos++;
+      }
+      final d = parseExpression() ?? 0.0;
+      while (pos < tokens.length && (tokens[pos] == ']' || tokens[pos] == ')')) {
+        pos++;
+      }
+      return a * d - b * c;
     }
 
     final numVal = double.tryParse(token);

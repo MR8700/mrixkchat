@@ -7,6 +7,7 @@ import '../../../shared/widgets/app_media_image.dart';
 import '../../viewers/document_viewer_screen.dart';
 import '../../viewers/image_viewer_screen.dart';
 import '../../viewers/video_player_screen.dart';
+import 'scientific_components_renderer.dart';
 
 /// Sanitizes untrusted HTML inputs to strictly prevent script injection or unsafe attributes.
 String sanitizeHtml(String input) {
@@ -75,6 +76,7 @@ class GroupNoteRenderer extends StatelessWidget {
     );
 
     // 2. Resolve component macros, inter-document variables, and calculator formulas
+    final scientificWidgets = <String, Widget>{};
     final resolvedContent = _resolveAllVariablesAndMacros(
       content,
       components,
@@ -83,13 +85,14 @@ class GroupNoteRenderer extends StatelessWidget {
       currentDoc: currentDocumentId,
       mediaReg: mediaRegistry,
       isFinalRender: isFinalRenderMode,
+      scientificWidgets: scientificWidgets,
     );
 
     // 3. Sanitize safely
     final safeContent = sanitizeHtml(resolvedContent);
 
     // 4. Parse into visual content blocks
-    final blocks = _parseBlocks(safeContent, computedVars);
+    final blocks = _parseBlocks(safeContent, computedVars, scientificWidgets);
 
     return ListView.builder(
       shrinkWrap: true,
@@ -169,6 +172,258 @@ class GroupNoteRenderer extends StatelessWidget {
     );
   }
 
+  /// Parses a scientific component payload into a dedicated Flutter Widget
+  static Widget? parseScientificWidget(String compId, String payload) {
+    final titleMatch = RegExp(r'title\s*=\s*"([^"]*)"').firstMatch(payload);
+    final title = titleMatch?.group(1) ?? compId;
+
+    // 1. Chart (line, spectrum, bar)
+    if (payload.contains('chart=') || payload.contains('transform="FFT"')) {
+      final chartTypeMatch = RegExp(r'chart\s*=\s*"([^"]*)"').firstMatch(payload);
+      final chartType = chartTypeMatch?.group(1) ?? (payload.contains('transform="FFT"') ? 'spectrum' : 'line');
+      final exprMatch = RegExp(r'expression\s*=\s*"([^"]*)"').firstMatch(payload);
+      final xLabelMatch = RegExp(r'x_label\s*=\s*"([^"]*)"').firstMatch(payload);
+      final yLabelMatch = RegExp(r'y_label\s*=\s*"([^"]*)"').firstMatch(payload);
+      final transformMatch = RegExp(r'transform\s*=\s*"([^"]*)"').firstMatch(payload);
+      final windowMatch = RegExp(r'window\s*=\s*"([^"]*)"').firstMatch(payload);
+
+      List<double>? domain;
+      final domainMatch = RegExp(r'domain\s*=\s*\[([^\]]+)\]').firstMatch(payload);
+      if (domainMatch != null) {
+        domain = domainMatch.group(1)!.split(',').map((s) => double.tryParse(s.trim())).whereType<double>().toList();
+      }
+
+      List<String>? series;
+      final seriesMatch = RegExp(r'series\s*=\s*\[(.*?)\]').firstMatch(payload);
+      if (seriesMatch != null) {
+        series = RegExp(r'["\x27](.*?)["\x27]').allMatches(seriesMatch.group(1)!).map((m) => m.group(1)!).toList();
+      }
+
+      List<Map<String, dynamic>>? rawData;
+      if (chartType == 'bar' && payload.contains('data=')) {
+        final dataMatches = RegExp(r'\{([^}]+)\}').allMatches(payload);
+        rawData = [];
+        for (final m in dataMatches) {
+          final block = m.group(1)!;
+          final nomMatch = RegExp(r'(?:nom|label|x)\s*=\s*["\x27]([^"\x27]*)["\x27]').firstMatch(block);
+          final phMatch = RegExp(r'(?:ph|val|valeur|y)\s*=\s*([0-9.]+)').firstMatch(block);
+          if (nomMatch != null && phMatch != null) {
+            rawData.add({'x': nomMatch.group(1)!, 'y': double.tryParse(phMatch.group(1)!) ?? 0.0});
+          }
+        }
+      }
+
+      return DwsScientificChart(
+        title: title,
+        chartType: chartType,
+        xLabel: xLabelMatch?.group(1),
+        yLabel: yLabelMatch?.group(1),
+        functionExpr: exprMatch?.group(1),
+        domain: domain,
+        series: series,
+        rawData: rawData,
+        transform: transformMatch?.group(1),
+        window: windowMatch?.group(1),
+      );
+    }
+
+    // 2. Circuit (components=[...] and connections=[...])
+    if (payload.contains('components=[') && (payload.contains('connections=') || payload.contains('source_tension') || payload.contains('V1'))) {
+      final compMatches = RegExp(r'\{([^}]+)\}').allMatches(payload);
+      final compsList = <Map<String, dynamic>>[];
+      for (final cm in compMatches) {
+        final inner = cm.group(1)!;
+        final id = RegExp(r'id\s*=\s*["\x27]([^"\x27]*)["\x27]').firstMatch(inner)?.group(1) ?? '';
+        final type = RegExp(r'type\s*=\s*["\x27]([^"\x27]*)["\x27]').firstMatch(inner)?.group(1) ?? '';
+        final val = RegExp(r'valeur\s*=\s*["\x27]([^"\x27]*)["\x27]').firstMatch(inner)?.group(1) ?? '';
+        if (id.isNotEmpty) compsList.add({'id': id, 'type': type, 'valeur': val});
+      }
+
+      final connMatch = RegExp(r'connections\s*=\s*\[(.*?)\]', dotAll: true).firstMatch(payload);
+      final conns = <String>[];
+      if (connMatch != null) {
+        conns.addAll(RegExp(r'["\x27](.*?)["\x27]').allMatches(connMatch.group(1)!).map((m) => m.group(1)!));
+      }
+
+      return DwsElectricCircuitWidget(
+        title: title,
+        components: compsList,
+        connections: conns,
+      );
+    }
+
+    // 3. Periodic Table (elements=[...])
+    if (payload.contains('elements=[')) {
+      final elemMatch = RegExp(r'elements\s*=\s*\[(.*?)\]', dotAll: true).firstMatch(payload);
+      final elems = <String>[];
+      if (elemMatch != null) {
+        elems.addAll(RegExp(r'["\x27]([A-Za-z]+)["\x27]').allMatches(elemMatch.group(1)!).map((m) => m.group(1)!));
+      }
+      return DwsPeriodicTableWidget(title: title, elements: elems);
+    }
+
+    // 4. UML Use Case (diagram="use_case")
+    if (payload.contains('use_case') || payload.contains('use_cases=[')) {
+      final actorsList = <Map<String, dynamic>>[];
+      final ucList = <Map<String, dynamic>>[];
+
+      final actorsMatch = RegExp(r'actors\s*=\s*\[(.*?)\]', dotAll: true).firstMatch(payload);
+      if (actorsMatch != null) {
+        for (final m in RegExp(r'\{([^}]+)\}').allMatches(actorsMatch.group(1)!)) {
+          final name = RegExp(r'name\s*=\s*["\x27]([^"\x27]*)["\x27]').firstMatch(m.group(1)!)?.group(1);
+          if (name != null) actorsList.add({'name': name});
+        }
+      }
+
+      final ucMatch = RegExp(r'use_cases\s*=\s*\[(.*?)\]', dotAll: true).firstMatch(payload);
+      if (ucMatch != null) {
+        for (final m in RegExp(r'\{([^}]+)\}').allMatches(ucMatch.group(1)!)) {
+          final name = RegExp(r'name\s*=\s*["\x27]([^"\x27]*)["\x27]').firstMatch(m.group(1)!)?.group(1);
+          if (name != null) ucList.add({'name': name});
+        }
+      }
+
+      return DwsUmlDiagramWidget(
+        title: title,
+        diagramType: 'use_case',
+        actors: actorsList,
+        useCases: ucList,
+      );
+    }
+
+    // 5. UML Sequence (diagram="sequence")
+    if (payload.contains('sequence') || payload.contains('participants=[')) {
+      final parts = <String>[];
+      final partMatch = RegExp(r'participants\s*=\s*\[(.*?)\]', dotAll: true).firstMatch(payload);
+      if (partMatch != null) {
+        parts.addAll(RegExp(r'["\x27](.*?)["\x27]').allMatches(partMatch.group(1)!).map((m) => m.group(1)!));
+      }
+
+      final msgs = <Map<String, dynamic>>[];
+      final msgMatch = RegExp(r'messages\s*=\s*\[(.*?)\]', dotAll: true).firstMatch(payload);
+      if (msgMatch != null) {
+        for (final m in RegExp(r'\{([^}]+)\}').allMatches(msgMatch.group(1)!)) {
+          final inner = m.group(1)!;
+          final from = RegExp(r'from\s*=\s*["\x27]([^"\x27]*)["\x27]').firstMatch(inner)?.group(1) ?? '';
+          final to = RegExp(r'to\s*=\s*["\x27]([^"\x27]*)["\x27]').firstMatch(inner)?.group(1) ?? '';
+          final label = RegExp(r'label\s*=\s*["\x27]([^"\x27]*)["\x27]').firstMatch(inner)?.group(1) ?? '';
+          if (label.isNotEmpty) msgs.add({'from': from, 'to': to, 'label': label});
+        }
+      }
+
+      return DwsUmlDiagramWidget(
+        title: title,
+        diagramType: 'sequence',
+        participants: parts,
+        messages: msgs,
+      );
+    }
+
+    // 6. Architecture (architecture=[...])
+    if (payload.contains('architecture=[')) {
+      final layers = <Map<String, dynamic>>[];
+      final archMatch = RegExp(r'architecture\s*=\s*\[(.*)\]', dotAll: true).firstMatch(payload);
+      if (archMatch != null) {
+        for (final m in RegExp(r'\{([^}]+)\}').allMatches(archMatch.group(1)!)) {
+          final inner = m.group(1)!;
+          final name = RegExp(r'name\s*=\s*["\x27]([^"\x27]*)["\x27]').firstMatch(inner)?.group(1) ?? '';
+          final compsStr = RegExp(r'components\s*=\s*\[(.*?)\]').firstMatch(inner)?.group(1) ?? '';
+          final comps = RegExp(r'["\x27](.*?)["\x27]').allMatches(compsStr).map((c) => c.group(1)!).toList();
+          layers.add({'name': name, 'components': comps});
+        }
+      }
+
+      return DwsArchitectureWidget(
+        title: title,
+        layers: layers,
+      );
+    }
+
+    // 7. OSI Layers (layers=[...])
+    if (payload.contains('layers=[')) {
+      final layers = <String>[];
+      final layersMatch = RegExp(r'layers\s*=\s*\[(.*?)\]', dotAll: true).firstMatch(payload);
+      if (layersMatch != null) {
+        layers.addAll(RegExp(r'["\x27](.*?)["\x27]').allMatches(layersMatch.group(1)!).map((m) => m.group(1)!));
+      }
+
+      return DwsLayerStackWidget(
+        title: title,
+        layers: layers,
+      );
+    }
+
+    // 8. Flowchart nodes (nodes=[...])
+    if (payload.contains('nodes=[')) {
+      final nodes = <String>[];
+      final nodesMatch = RegExp(r'nodes\s*=\s*\[(.*?)\]', dotAll: true).firstMatch(payload);
+      if (nodesMatch != null) {
+        nodes.addAll(RegExp(r'["\x27](.*?)["\x27]').allMatches(nodesMatch.group(1)!).map((m) => m.group(1)!));
+      }
+      return Container(
+        margin: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+          boxShadow: const [BoxShadow(color: Color(0x06000000), blurRadius: 6, offset: Offset(0, 2))],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.account_tree_rounded, size: 19, color: AppTheme.primary),
+                const SizedBox(width: 8),
+                Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+              ],
+            ),
+            const SizedBox(height: 14),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (int i = 0; i < nodes.length; i++) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: i == 0
+                              ? [const Color(0xFF3B82F6), const Color(0xFF2563EB)]
+                              : i == nodes.length - 1
+                                  ? [const Color(0xFF10B981), const Color(0xFF059669)]
+                                  : [const Color(0xFFF8FAFC), const Color(0xFFF1F5F9)],
+                        ),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFCBD5E1)),
+                      ),
+                      child: Text(
+                        nodes[i],
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: (i == 0 || i == nodes.length - 1) ? Colors.white : const Color(0xFF1E293B),
+                        ),
+                      ),
+                    ),
+                    if (i < nodes.length - 1)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 8),
+                        child: Icon(Icons.arrow_forward_ios_rounded, size: 12, color: Color(0xFF94A3B8)),
+                      ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return null;
+  }
+
   /// Resolves double-curly, single-curly references, inter-document variables,
   /// scientific symbols and calculator formulas.
   String _resolveAllVariablesAndMacros(
@@ -179,9 +434,21 @@ class GroupNoteRenderer extends StatelessWidget {
     String? currentDoc,
     Map<String, DwsMedia>? mediaReg,
     bool isFinalRender = false,
+    Map<String, Widget>? scientificWidgets,
   }) {
     var result = text;
     final comps = Map<String, String>.from(compsInput);
+
+    // Pre-parse any components passed in compsInput
+    for (final entry in comps.entries) {
+      if (scientificWidgets != null && !scientificWidgets.containsKey(entry.key)) {
+        final w = parseScientificWidget(entry.key, entry.value);
+        if (w != null) {
+          scientificWidgets[entry.key] = w;
+          comps[entry.key] = '<dws-scientific id="${entry.key}"/>';
+        }
+      }
+    }
 
     // 1. Resolve scientific symbols: {{delta}}, {{lambda}}, {{gradient}}, etc.
     FormulaEngine.scientificSymbols.forEach((sym, unicode) {
@@ -248,7 +515,13 @@ class GroupNoteRenderer extends StatelessWidget {
       final compId = match.group(1);
       final compPayload = match.group(2);
       if (compId != null && compPayload != null && !comps.containsKey(compId)) {
-        if (compPayload.contains('type="image"') ||
+        final scientific = parseScientificWidget(compId, compPayload);
+        if (scientific != null) {
+          if (scientificWidgets != null) {
+            scientificWidgets[compId] = scientific;
+          }
+          comps[compId] = '<dws-scientific id="$compId"/>';
+        } else if (compPayload.contains('type="image"') ||
             compPayload.contains('type="video"') ||
             compPayload.contains('type="audio"') ||
             compPayload.contains('type="pdf"')) {
@@ -276,8 +549,20 @@ class GroupNoteRenderer extends StatelessWidget {
         }
       }
     }
-    // Remove component declaration blocks from document body text
-    result = result.replaceAll(compDeclRegex, '');
+    // Remove component declaration blocks from document body text if referenced, or render in place if not
+    result = result.replaceAllMapped(compDeclRegex, (match) {
+      final compId = match.group(1)!;
+      final rest = text.replaceAll(match.group(0)!, '');
+      final hasRef = RegExp('\\{${RegExp.escape(compId)}\\}|\\{\\{${RegExp.escape(compId)}\\}\\}').hasMatch(rest);
+      if (hasRef) {
+        return '';
+      } else {
+        if (comps.containsKey(compId)) {
+          return '\n<!-- macro:$compId -->\n${comps[compId]}\n<!-- endmacro -->\n';
+        }
+        return '';
+      }
+    });
 
     // 6. Resolve double curly {{name}} from components map or media registry
     final macroRegex = RegExp(r'\{\{([a-zA-Z0-9_\-\s]+)\}\}');
@@ -469,6 +754,10 @@ class GroupNoteRenderer extends StatelessWidget {
 
       case _BlockType.mediaError:
         child = _buildMediaErrorCard(block.text);
+        break;
+
+      case _BlockType.customWidget:
+        child = block.customWidget ?? const SizedBox.shrink();
         break;
 
       case _BlockType.paragraph:
@@ -1815,7 +2104,7 @@ class GroupNoteRenderer extends StatelessWidget {
     );
   }
 
-  List<_ContentBlock> _parseBlocks(String input, Map<String, double> vars) {
+  List<_ContentBlock> _parseBlocks(String input, Map<String, double> vars, [Map<String, Widget>? scientificWidgets]) {
     final blocks = <_ContentBlock>[];
     final lines = input.split('\n');
 
@@ -1833,6 +2122,21 @@ class GroupNoteRenderer extends StatelessWidget {
       }
       if (line == '<!-- endmacro -->') {
         currentMacroName = null;
+        i++;
+        continue;
+      }
+
+      // Scientific component detection: <dws-scientific id="..."/>
+      if (line.startsWith('<dws-scientific')) {
+        final id = RegExp(r'id="([^"]+)"').firstMatch(line)?.group(1);
+        if (id != null && scientificWidgets != null && scientificWidgets.containsKey(id)) {
+          blocks.add(_ContentBlock(
+            type: _BlockType.customWidget,
+            text: '',
+            macroName: currentMacroName ?? id,
+            customWidget: scientificWidgets[id],
+          ));
+        }
         i++;
         continue;
       }
@@ -2226,6 +2530,7 @@ enum _BlockType {
   graph,
   mediaItem,
   mediaError,
+  customWidget,
 }
 
 class _ContentBlock {
@@ -2242,6 +2547,7 @@ class _ContentBlock {
   final _TableData? tableData;
   final List<MapEntry<String, double>>? graphData;
   final DwsMedia? mediaData;
+  final Widget? customWidget;
 
   _ContentBlock({
     required this.type,
@@ -2257,6 +2563,7 @@ class _ContentBlock {
     this.tableData,
     this.graphData,
     this.mediaData,
+    this.customWidget,
   });
 }
 
