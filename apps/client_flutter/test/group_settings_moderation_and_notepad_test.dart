@@ -205,26 +205,27 @@ x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}
 
       await tester.pumpAndSettle();
 
-      // Check AppBar and Tabs
+      // Check AppBar and Compartments: Document and Éditer
       expect(find.text('Bloc-Note Collaboratif'), findsOneWidget);
-      expect(find.text('Document Rendu'), findsOneWidget);
-      expect(find.text('Éditeur Word'), findsOneWidget);
-      expect(find.text('Composants HTML'), findsOneWidget);
+      expect(find.text('Document'), findsOneWidget);
+      expect(find.text('Éditer'), findsOneWidget);
 
-      // Switch to Word Editor tab
-      await tester.tap(find.text('Éditeur Word'));
+      // Switch to Éditer compartment
+      await tester.tap(find.text('Éditer'));
       await tester.pumpAndSettle();
 
-      // Check Word toolbar component insertion button and variables dropdown
-      expect(find.text('Insérer Composant (Tableau, Maths...)'), findsOneWidget);
-      expect(find.text('Mes Variables'), findsOneWidget);
+      // Check Word and Code toggle
+      expect(find.text('Word'), findsOneWidget);
+      expect(find.text('Code'), findsOneWidget);
 
-      // Switch to Composants HTML tab
-      await tester.tap(find.text('Composants HTML'));
+      // Check contextual Word toolbar formatting items
+      expect(find.text('Police'), findsOneWidget);
+      expect(find.text('Titre (H1-H8)'), findsOneWidget);
+
+      // Switch to Code mode
+      await tester.tap(find.text('Code'));
       await tester.pumpAndSettle();
-      expect(find.text('Variables & Composants HTML Sécurisés'), findsOneWidget);
-      expect(find.text('{{tableau1}}'), findsOneWidget);
-      expect(find.text('{{formule1}}'), findsOneWidget);
+      expect(find.textContaining('Source du Document & Définitions'), findsOneWidget);
     });
 
     testWidgets('ConversationDetailScreen renders in-chat Group Notepad banner for groups', (tester) async {

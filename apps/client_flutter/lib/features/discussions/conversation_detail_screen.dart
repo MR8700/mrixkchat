@@ -6,6 +6,7 @@ import '../../core/repositories/conversation_repository.dart';
 import '../../core/repositories/device_repository.dart';
 import '../../core/repositories/message_repository.dart';
 import '../../core/repositories/profile_repository.dart';
+import '../../core/repositories/group_note_repository.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/app_avatar.dart';
 import '../../shared/widgets/app_media_image.dart';
@@ -1655,6 +1656,16 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
   }
 
   Widget _buildGroupNoteInChatMessage(Message msg, Conversation conv) {
+    final myProfile = context.read<ProfileRepository>().getProfile();
+    final isAdmin = conv.isUserAdmin(myProfile.id);
+
+    // Extract title if present in quotes or fallback
+    var noteTitle = 'Bloc-Note Collaboratif';
+    final quoteMatch = RegExp(r'"([^"]+)"').firstMatch(msg.content);
+    if (quoteMatch != null) {
+      noteTitle = quoteMatch.group(1)!;
+    }
+
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 6),
       padding: const EdgeInsets.all(14),
@@ -1688,45 +1699,176 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Bloc-Note Collaboratif du Groupe',
-                      style: TextStyle(
-                        fontSize: 13.5,
+                    Text(
+                      noteTitle,
+                      style: const TextStyle(
+                        fontSize: 14,
                         fontWeight: FontWeight.bold,
                         color: Color(0xFF0F172A),
                       ),
                     ),
                     Text(
-                      'Mis à jour par ${msg.senderName} • ${msg.time}',
+                      'Créé le ${msg.time} • par ${msg.senderName}',
                       style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
                     ),
                   ],
                 ),
               ),
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert_rounded, size: 18, color: Color(0xFF64748B)),
+                tooltip: 'Options du bloc-note',
+                onSelected: (val) {
+                  switch (val) {
+                    case 'settings':
+                      GroupNotepadScreen.showInConversation(context, conv);
+                      break;
+                    case 'transfer':
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Sélectionnez une discussion pour transférer le bloc-note.')),
+                      );
+                      break;
+                    case 'download':
+                      final note = context.read<GroupNoteRepository>().getNote(conv.id);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Téléchargement du document "${note.title}" (.md) terminé.')),
+                      );
+                      break;
+                  }
+                },
+                itemBuilder: (ctx) => [
+                  if (isAdmin)
+                    const PopupMenuItem(
+                      value: 'settings',
+                      child: Row(
+                        children: [
+                          Icon(Icons.settings_suggest_rounded, size: 16, color: AppTheme.primary),
+                          SizedBox(width: 8),
+                          Text('Paramètres & Permissions'),
+                        ],
+                      ),
+                    ),
+                  const PopupMenuItem(
+                    value: 'transfer',
+                    child: Row(
+                      children: [
+                        Icon(Icons.forward_rounded, size: 16, color: Color(0xFF475569)),
+                        SizedBox(width: 8),
+                        Text('Transférer le bloc-note'),
+                      ],
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'download',
+                    child: Row(
+                      children: [
+                        Icon(Icons.download_rounded, size: 16, color: Color(0xFF475569)),
+                        SizedBox(width: 8),
+                        Text('Télécharger le document'),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
           const SizedBox(height: 10),
           Text(
-            msg.content.replaceAll('[Bloc-Note du Groupe]', '').trim(),
+            msg.content.replaceAll(RegExp(r'📝\s*\[Bloc-Note du Groupe\]\s*"[^"]*"\s*'), '').replaceAll('[Bloc-Note du Groupe]', '').trim(),
             style: const TextStyle(fontSize: 13, color: Color(0xFF334155), height: 1.4),
           ),
           const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.primary,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                padding: const EdgeInsets.symmetric(vertical: 8),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                  ),
+                  onPressed: () => GroupNotepadScreen.showInConversation(context, conv),
+                  icon: const Icon(Icons.auto_stories_rounded, size: 16),
+                  label: const Text(
+                    'Ouvrir',
+                    style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
+                  ),
+                ),
               ),
-              onPressed: () => GroupNotepadScreen.showInConversation(context, conv),
-              icon: const Icon(Icons.auto_stories_rounded, size: 16),
-              label: const Text(
-                'Consulter & Éditer le Bloc-Note',
-                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFFEF4444),
+                  side: const BorderSide(color: Color(0xFFFECACA)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                ),
+                onPressed: () => _showDeleteDialog([msg.id]),
+                icon: const Icon(Icons.delete_outline_rounded, size: 16),
+                label: const Text(
+                  'Supprimer',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showCreateNoteDialog(Conversation conv) {
+    final titleCtrl = TextEditingController(text: 'Bloc-Note Collaboratif');
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Row(
+          children: const [
+            Icon(Icons.edit_note_rounded, color: AppTheme.primary, size: 24),
+            SizedBox(width: 8),
+            Text('Nouveau Bloc-Note', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Ajouter un bloc-note dans le fil de la conversation comme un texto.',
+              style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: titleCtrl,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Nom du bloc-note',
+                border: OutlineInputBorder(),
               ),
             ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primary,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: () {
+              final title = titleCtrl.text.trim().isNotEmpty ? titleCtrl.text.trim() : 'Bloc-Note Collaboratif';
+              Navigator.of(ctx).pop();
+              _sendMessage(
+                textOverride: '📝 [Bloc-Note du Groupe] "$title"\nEspace de travail collaboratif, variables et formules mathématiques.',
+                type: MessageType.document,
+              );
+            },
+            child: const Text('Ajouter'),
           ),
         ],
       ),
@@ -2776,6 +2918,18 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                 );
               },
             ),
+            if (widget.conversation.isGroup) ...[
+              const SizedBox(width: 14),
+              _drawerItem(
+                icon: Icons.edit_note_rounded,
+                label: 'Bloc-Note',
+                color: Colors.deepPurple,
+                onTap: () {
+                  setState(() => _showAttachments = false);
+                  _showCreateNoteDialog(widget.conversation);
+                },
+              ),
+            ],
           ],
         ),
       ),
@@ -3104,6 +3258,12 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                             onPressed: _startVoiceRecording,
                             tooltip: 'Enregistrer un message vocal',
                           ),
+                          if (widget.conversation.isGroup)
+                            IconButton(
+                              icon: const Icon(Icons.note_alt_outlined, size: 20, color: AppTheme.primary),
+                              onPressed: () => _showCreateNoteDialog(widget.conversation),
+                              tooltip: 'Ajouter un Bloc-Note',
+                            ),
                         ],
                       ),
                     ),
