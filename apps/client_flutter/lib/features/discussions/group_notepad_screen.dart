@@ -18,6 +18,23 @@ class GroupNotepadScreen extends StatefulWidget {
     required this.conversation,
   });
 
+  /// Opens the notepad directly inside the conversation as an interactive in-place modal sheet
+  static Future<void> showInConversation(BuildContext context, Conversation conversation) {
+    return showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => ClipRRect(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        child: SizedBox(
+          height: MediaQuery.of(context).size.height * 0.94,
+          child: GroupNotepadScreen(conversation: conversation),
+        ),
+      ),
+    );
+  }
+
   @override
   State<GroupNotepadScreen> createState() => _GroupNotepadScreenState();
 }
@@ -28,7 +45,10 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
   late TextEditingController _textController;
   late TextEditingController _titleController;
   late GroupNote _currentNote;
-  bool _isSaving = false;
+  late Map<String, String> _components;
+  double _lineSpacing = 1.5;
+  double _paragraphSpacing = 14.0;
+  bool _hasUnsavedChanges = false;
 
   @override
   void initState() {
@@ -41,6 +61,18 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
     );
     _textController = TextEditingController(text: _currentNote.content);
     _titleController = TextEditingController(text: _currentNote.title);
+    _components = Map<String, String>.from(_currentNote.components);
+    _lineSpacing = _currentNote.lineSpacing;
+    _paragraphSpacing = _currentNote.paragraphSpacing;
+
+    _textController.addListener(_onTextChanged);
+    _titleController.addListener(_onTextChanged);
+  }
+
+  void _onTextChanged() {
+    if (!_hasUnsavedChanges) {
+      setState(() => _hasUnsavedChanges = true);
+    }
   }
 
   @override
@@ -55,10 +87,10 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
     final myProfile = context.read<ProfileRepository>().getProfile();
     final isAdmin = widget.conversation.isUserAdmin(myProfile.id);
 
-    // If locked by admin, only admins can unlock or edit
-    if (_currentNote.isLocked) return false;
+    // If frozen/locked by an admin, only admins can modify or unfreeze
+    if (_currentNote.isLocked && !isAdmin) return false;
 
-    // If group permissions restrict notes to admins only
+    // If group permissions reserve editing to admins only
     if (widget.conversation.onlyAdminsCanEditNotes && !isAdmin) {
       return false;
     }
@@ -66,8 +98,87 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
     return true;
   }
 
-  Future<void> _saveNote({bool showFeedback = true}) async {
-    setState(() => _isSaving = true);
+  /// Triggers the save workflow with publication options ("À la suite des textos" vs "Garder sur place")
+  Future<void> _handleSaveOrClose() async {
+    if (!_canEdit()) {
+      Navigator.of(context).pop();
+      return;
+    }
+
+    if (!_hasUnsavedChanges) {
+      Navigator.of(context).pop();
+      return;
+    }
+
+    // Prompt user: "Mettre à la suite des textos" or "Garder sur place"
+    await _showSaveChoiceDialog();
+  }
+
+  Future<void> _showSaveChoiceDialog() async {
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        title: Row(
+          children: const [
+            Icon(Icons.edit_note_rounded, color: AppTheme.primary, size: 26),
+            SizedBox(width: 10),
+            Text(
+              'Enregistrer les modifications',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            Text(
+              'Le bloc-note a été modifié. Comment souhaitez-vous appliquer cette mise à jour ?',
+              style: TextStyle(fontSize: 13.5, color: Color(0xFF334155), height: 1.4),
+            ),
+            SizedBox(height: 12),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop('cancel'),
+            child: const Text('Annuler', style: TextStyle(color: Color(0xFF64748B))),
+          ),
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: Color(0xFFDFE4ED)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: () => Navigator.of(ctx).pop('in_place'),
+            icon: const Icon(Icons.push_pin_outlined, size: 16, color: Color(0xFF0F172A)),
+            label: const Text('Garder sur place', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primary,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: () => Navigator.of(ctx).pop('post_in_chat'),
+            icon: const Icon(Icons.send_rounded, size: 16),
+            label: const Text('À la suite des textos', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (result == 'post_in_chat') {
+      await _executeSave(postInChat: true);
+      if (mounted) Navigator.of(context).pop();
+    } else if (result == 'in_place') {
+      await _executeSave(postInChat: false);
+      if (mounted) Navigator.of(context).pop();
+    }
+  }
+
+  Future<void> _executeSave({required bool postInChat}) async {
     final myProfile = context.read<ProfileRepository>().getProfile();
     final now = DateTime.now();
     final timeStr =
@@ -78,108 +189,154 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
           ? _titleController.text.trim()
           : 'Bloc-Note : ${widget.conversation.title}',
       content: _textController.text,
+      components: _components,
+      lineSpacing: _lineSpacing,
+      paragraphSpacing: _paragraphSpacing,
       lastModified: timeStr,
-      lastModifiedBy: myProfile.displayName.isNotEmpty
-          ? myProfile.displayName
-          : 'Richard MARE',
+      lastModifiedBy: myProfile.displayName.isNotEmpty ? myProfile.displayName : 'Richard MARE',
     );
 
     await context.read<GroupNoteRepository>().saveNote(updated);
+
+    if (postInChat) {
+      final hourMin =
+          '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+      final shareText =
+          '📝 [Bloc-Note du Groupe] "${updated.title}" mis à jour par ${updated.lastModifiedBy}.\nConsultez les formules et composants actualisés dans le bloc-note.';
+
+      final msg = Message(
+        id: 'msg_${DateTime.now().millisecondsSinceEpoch}',
+        conversationId: widget.conversation.id,
+        senderId: myProfile.id,
+        senderName: myProfile.displayName.isNotEmpty ? myProfile.displayName : 'Moi',
+        senderAvatar: myProfile.avatarUrl,
+        type: MessageType.text,
+        content: shareText,
+        time: hourMin,
+        isOutgoing: true,
+        isRead: true,
+      );
+
+      context.read<MessageRepository>().sendMessage(msg);
+      context.read<ConversationRepository>().updateLastMessage(
+            conversationId: widget.conversation.id,
+            message: '📝 Bloc-Note : mise à jour publiée',
+            time: hourMin,
+          );
+    }
+
     if (!mounted) return;
     setState(() {
       _currentNote = updated;
-      _isSaving = false;
+      _hasUnsavedChanges = false;
     });
 
-    if (showFeedback) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Document et formules enregistrés avec succès.'),
-          backgroundColor: AppTheme.secondary,
-          behavior: SnackBarBehavior.floating,
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          postInChat
+              ? 'Document mis à jour et publié à la suite des textos.'
+              : 'Document enregistré et conservé sur place.',
         ),
-      );
-    }
+        backgroundColor: AppTheme.secondary,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
-  void _insertFormatting(String prefix, String suffix, [String defaultText = '']) {
+  void _insertMacro(String macroName) {
     if (!_canEdit()) return;
     final text = _textController.text;
     final selection = _textController.selection;
     final start = selection.start >= 0 ? selection.start : text.length;
     final end = selection.end >= 0 ? selection.end : text.length;
 
-    final selectedText =
-        start < end ? text.substring(start, end) : defaultText;
-    final replacement = '$prefix$selectedText$suffix';
-
-    final newText = text.replaceRange(start, end, replacement);
+    final token = '\n{{$macroName}}\n';
+    final newText = text.replaceRange(start, end, token);
     _textController.value = TextEditingValue(
       text: newText,
-      selection: TextSelection.collapsed(offset: start + replacement.length),
+      selection: TextSelection.collapsed(offset: start + token.length),
     );
   }
 
-  void _showMathFormulaPicker() {
+  void _openComponentEditor(String name) {
     if (!_canEdit()) return;
+    final code = _components[name] ?? '';
+    final codeController = TextEditingController(text: code);
+
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (ctx) => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          top: 18,
+          bottom: MediaQuery.of(ctx).viewInsets.bottom + 18,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              children: const [
-                Icon(Icons.functions_rounded, color: AppTheme.primary, size: 22),
-                SizedBox(width: 8),
+              children: [
+                const Icon(Icons.code_rounded, color: AppTheme.primary),
+                const SizedBox(width: 8),
                 Text(
-                  'Insérer une Formule Mathématique',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  'Définition du Composant : {{$name}}',
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                 ),
               ],
             ),
+            const SizedBox(height: 8),
+            const Text(
+              'Définissez ici le code HTML sécurisé, tableau ou formule mathématique associé à cette variable.',
+              style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+            ),
             const SizedBox(height: 12),
-            ListTile(
-              leading: const Icon(Icons.calculate_outlined, color: AppTheme.secondary),
-              title: const Text('Équation quadratique'),
-              subtitle: const Text('x = (-b ± √(b² - 4ac)) / 2a'),
-              onTap: () {
-                _insertFormatting('\n<math>\nx = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}\n</math>\n', '');
-                Navigator.of(ctx).pop();
-              },
+            Container(
+              height: 180,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0F172A),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: TextField(
+                controller: codeController,
+                maxLines: null,
+                expands: true,
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 12.5, color: Color(0xFFE2E8F0)),
+                decoration: const InputDecoration(border: InputBorder.none),
+              ),
             ),
-            ListTile(
-              leading: const Icon(Icons.timeline_rounded, color: AppTheme.primary),
-              title: const Text('Intégrale de Gauss'),
-              subtitle: const Text('∫_{-∞}^{+∞} e^{-x²} dx = √π'),
-              onTap: () {
-                _insertFormatting('\n<math>\n\\int_{-\\infty}^{+\\infty} e^{-x^2} dx = \\sqrt{\\pi}\n</math>\n', '');
-                Navigator.of(ctx).pop();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.exposure_plus_1_rounded, color: Color(0xFF0D9488)),
-              title: const Text('Somme discrète (Série)'),
-              subtitle: const Text('∑_{k=1}^n k = n(n+1)/2'),
-              onTap: () {
-                _insertFormatting('\n<math>\n\\sum_{k=1}^{n} k = \\frac{n(n+1)}{2}\n</math>\n', '');
-                Navigator.of(ctx).pop();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.horizontal_rule_rounded, color: Color(0xFF8B5CF6)),
-              title: const Text('Fraction personnalisée'),
-              subtitle: const Text('\\frac{Numérateur}{Dénominateur}'),
-              onTap: () {
-                _insertFormatting('\n<math>\n\\frac{A}{B}\n</math>\n', '');
-                Navigator.of(ctx).pop();
-              },
+            const SizedBox(height: 14),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Annuler'),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  onPressed: () {
+                    setState(() {
+                      _components[name] = codeController.text;
+                      _hasUnsavedChanges = true;
+                    });
+                    Navigator.of(ctx).pop();
+                  },
+                  child: const Text('Enregistrer le composant'),
+                ),
+              ],
             ),
           ],
         ),
@@ -187,91 +344,198 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
     );
   }
 
-  void _insertTableTemplate() {
+  void _showNewComponentDialog() {
     if (!_canEdit()) return;
-    const template = '''
+    final nameController = TextEditingController();
+    String selectedType = 'tableau';
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) => AlertDialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(
+            children: const [
+              Icon(Icons.add_box_rounded, color: AppTheme.primary),
+              SizedBox(width: 8),
+              Text('Créer un Nouveau Composant', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: InputDecoration(
+                  labelText: 'Nom du composant (ex: tableau2, calcul_bilan)',
+                  hintText: 'mon_composant',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+              const SizedBox(height: 14),
+              const Text('Type de composant :', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 6),
+              DropdownButtonFormField<String>(
+                value: selectedType,
+                decoration: InputDecoration(
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'tableau', child: Text('Tableau structuré')),
+                  DropdownMenuItem(value: 'math', child: Text('Formule mathématique')),
+                  DropdownMenuItem(value: 'diagramme', child: Text('Diagramme de flux')),
+                  DropdownMenuItem(value: 'graphe', child: Text('Graphique en barres')),
+                ],
+                onChanged: (val) {
+                  if (val != null) setModalState(() => selectedType = val);
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Annuler'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primary,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              onPressed: () {
+                final rawName = nameController.text.trim();
+                if (rawName.isEmpty) return;
+                final cleanName = rawName.replaceAll(RegExp(r'[^a-zA-Z0-9_]'), '_');
+
+                String defaultCode = '';
+                switch (selectedType) {
+                  case 'tableau':
+                    defaultCode = '''
 <table border="1">
   <thead>
-    <tr>
-      <th>Composant</th>
-      <th>Détail</th>
-      <th>Validation</th>
-    </tr>
+    <tr><th>Paramètre</th><th>Valeur</th><th>Statut</th></tr>
   </thead>
   <tbody>
-    <tr>
-      <td>Sécurité E2EE</td>
-      <td>Clés souveraines</td>
-      <td>Vérifié 🛡️</td>
-    </tr>
-    <tr>
-      <td>Stockage Local</td>
-      <td>Chiffrement SQLite</td>
-      <td>Actif ✅</td>
-    </tr>
+    <tr><td>Donnée 1</td><td>100</td><td>OK ✅</td></tr>
   </tbody>
-</table>
-''';
-    _insertFormatting('\n$template\n', '');
-  }
+</table>''';
+                    break;
+                  case 'math':
+                    defaultCode = '<math>x = \\frac{A}{B}</math>';
+                    break;
+                  case 'diagramme':
+                    defaultCode = '<diagram type="flowchart">\n[Étape 1] -> [Étape 2] -> [Clôture]\n</diagram>';
+                    break;
+                  case 'graphe':
+                    defaultCode = '<graph type="bar" title="Indicateurs">\nPerformance: 95\nFiabilité: 98\n</graph>';
+                    break;
+                }
 
-  void _insertFlowchartTemplate() {
-    if (!_canEdit()) return;
-    const template = '''
-<diagram type="flowchart">
-[1. Étape Initiale] -> [2. Traitement Chiffré] -> [3. Validation Admin] -> [4. Clôture]
-</diagram>
-''';
-    _insertFormatting('\n$template\n', '');
-  }
-
-  void _insertGraphTemplate() {
-    if (!_canEdit()) return;
-    const template = '''
-<graph type="bar" title="Métriques du Projet (%)">
-Confidentialité E2EE: 100
-Vitesse de transfert: 92
-Stabilité Réseau: 95
-</graph>
-''';
-    _insertFormatting('\n$template\n', '');
-  }
-
-  void _shareNoteInGroup() {
-    final myProfile = context.read<ProfileRepository>().getProfile();
-    final now = DateTime.now();
-    final timeStr =
-        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
-
-    final shareText =
-        '📝 [Bloc-Note du Groupe] "${_titleController.text.trim()}" a été mis à jour par ${myProfile.displayName.isNotEmpty ? myProfile.displayName : 'Moi'}.\nOuvrez le bloc-note pour consulter les formules mathématiques et diagrammes.';
-
-    final msg = Message(
-      id: 'msg_${DateTime.now().millisecondsSinceEpoch}',
-      conversationId: widget.conversation.id,
-      senderId: myProfile.id,
-      senderName: myProfile.displayName.isNotEmpty ? myProfile.displayName : 'Moi',
-      senderAvatar: myProfile.avatarUrl,
-      type: MessageType.text,
-      content: shareText,
-      time: timeStr,
-      isOutgoing: true,
-      isRead: true,
-    );
-
-    context.read<MessageRepository>().sendMessage(msg);
-    context.read<ConversationRepository>().updateLastMessage(
-          conversationId: widget.conversation.id,
-          message: '📝 Bloc-Note partagé dans le groupe',
-          time: timeStr,
-        );
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Lien du Bloc-Note partagé dans la discussion du groupe.'),
-        backgroundColor: AppTheme.primary,
-        behavior: SnackBarBehavior.floating,
+                setState(() {
+                  _components[cleanName] = defaultCode;
+                  _insertMacro(cleanName);
+                  _hasUnsavedChanges = true;
+                });
+                Navigator.of(ctx).pop();
+              },
+              child: const Text('Insérer dans l\'Éditeur'),
+            ),
+          ],
+        ),
       ),
+    );
+  }
+
+  void _showSpacingDialog() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) => Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: const [
+                  Icon(Icons.format_line_spacing_rounded, color: AppTheme.primary),
+                  SizedBox(width: 8),
+                  Text('Gestion des Espacements', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              const SizedBox(height: 16),
+              const Text('Interligne (hauteur de ligne) :', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _spacingChoiceChip('Compact (1.2)', 1.2, _lineSpacing, (v) {
+                    setState(() => _lineSpacing = v);
+                    setModalState(() {});
+                  }),
+                  _spacingChoiceChip('Normal (1.5)', 1.5, _lineSpacing, (v) {
+                    setState(() => _lineSpacing = v);
+                    setModalState(() {});
+                  }),
+                  _spacingChoiceChip('Aéré (1.8)', 1.8, _lineSpacing, (v) {
+                    setState(() => _lineSpacing = v);
+                    setModalState(() {});
+                  }),
+                ],
+              ),
+              const SizedBox(height: 16),
+              const Text('Espacement entre paragraphes :', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _spacingChoiceChip('Serré (8px)', 8.0, _paragraphSpacing, (v) {
+                    setState(() => _paragraphSpacing = v);
+                    setModalState(() {});
+                  }),
+                  _spacingChoiceChip('Standard (14px)', 14.0, _paragraphSpacing, (v) {
+                    setState(() => _paragraphSpacing = v);
+                    setModalState(() {});
+                  }),
+                  _spacingChoiceChip('Confort (22px)', 22.0, _paragraphSpacing, (v) {
+                    setState(() => _paragraphSpacing = v);
+                    setModalState(() {});
+                  }),
+                ],
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Appliquer les espacements'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _spacingChoiceChip(String label, double val, double current, Function(double) onSelect) {
+    final isSelected = (current - val).abs() < 0.05;
+    return ChoiceChip(
+      label: Text(label, style: TextStyle(fontSize: 12, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
+      selected: isSelected,
+      selectedColor: AppTheme.primarySoft,
+      onSelected: (_) => onSelect(val),
     );
   }
 
@@ -280,9 +544,7 @@ Stabilité Réseau: 95
     final isAdmin = widget.conversation.isUserAdmin(myProfile.id);
     if (!isAdmin) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Seuls les administrateurs peuvent verrouiller ce document.'),
-        ),
+        const SnackBar(content: Text('Seuls les administrateurs peuvent figer ce bloc-note.')),
       );
       return;
     }
@@ -302,8 +564,8 @@ Stabilité Réseau: 95
       SnackBar(
         content: Text(
           newLock
-              ? 'Document verrouillé en lecture seule pour les membres.'
-              : 'Document déverrouillé : modifications autorisées.',
+              ? 'Bloc-note figé en lecture seule par l\'administrateur.'
+              : 'Bloc-note déverrouillé : modifications autorisées.',
         ),
         backgroundColor: newLock ? const Color(0xFFE11D48) : AppTheme.secondary,
       ),
@@ -322,22 +584,24 @@ Stabilité Réseau: 95
         backgroundColor: Colors.white,
         elevation: 0.5,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: AppTheme.onSurface),
-          onPressed: () {
-            _saveNote(showFeedback: false);
-            Navigator.of(context).pop();
-          },
+          icon: const Icon(Icons.close_rounded, color: AppTheme.onSurface),
+          onPressed: _handleSaveOrClose,
+          tooltip: 'Fermer',
         ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Bloc-Note de Groupe',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: AppTheme.onSurface,
-              ),
+            Row(
+              children: [
+                const Text(
+                  'Bloc-Note Collaboratif',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.onSurface),
+                ),
+                if (_currentNote.isLocked) ...[
+                  const SizedBox(width: 6),
+                  const Icon(Icons.lock_rounded, size: 15, color: Color(0xFFE11D48)),
+                ],
+              ],
             ),
             Text(
               '${widget.conversation.title} • Modifié ${_currentNote.lastModified}',
@@ -353,27 +617,19 @@ Stabilité Réseau: 95
                 _currentNote.isLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
                 color: _currentNote.isLocked ? const Color(0xFFE11D48) : AppTheme.secondary,
               ),
-              tooltip: _currentNote.isLocked
-                  ? 'Déverrouiller le bloc-note'
-                  : 'Verrouiller en lecture seule',
+              tooltip: _currentNote.isLocked ? 'Défiger le document' : 'Figer en lecture seule',
               onPressed: _toggleLock,
             ),
           IconButton(
-            icon: const Icon(Icons.share_outlined, color: AppTheme.primary),
-            tooltip: 'Partager dans la discussion',
-            onPressed: _shareNoteInGroup,
+            icon: const Icon(Icons.format_line_spacing_rounded, color: AppTheme.primary),
+            tooltip: 'Gérer les espacements',
+            onPressed: _showSpacingDialog,
           ),
           if (canEdit)
-            IconButton(
-              icon: _isSaving
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.check_circle_rounded, color: AppTheme.primary),
-              tooltip: 'Enregistrer',
-              onPressed: () => _saveNote(),
+            TextButton.icon(
+              onPressed: _handleSaveOrClose,
+              icon: const Icon(Icons.save_rounded, size: 18),
+              label: const Text('Enregistrer', style: TextStyle(fontWeight: FontWeight.bold)),
             ),
         ],
         bottom: TabBar(
@@ -384,33 +640,27 @@ Stabilité Réseau: 95
           indicatorWeight: 3,
           labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
           tabs: const [
-            Tab(icon: Icon(Icons.auto_stories_rounded, size: 18), text: 'Document'),
+            Tab(icon: Icon(Icons.auto_stories_rounded, size: 18), text: 'Document Rendu'),
             Tab(icon: Icon(Icons.edit_note_rounded, size: 18), text: 'Éditeur Word'),
-            Tab(icon: Icon(Icons.code_rounded, size: 18), text: 'Code HTML'),
+            Tab(icon: Icon(Icons.view_in_ar_rounded, size: 18), text: 'Composants HTML'),
           ],
         ),
       ),
       body: Column(
         children: [
-          // Moderation & Read-only Banner
-          if (!canEdit)
+          // Banner when frozen
+          if (_currentNote.isLocked)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               color: const Color(0xFFFEF3C7),
               child: Row(
                 children: [
-                  const Icon(Icons.lock_rounded, size: 18, color: Color(0xFFB45309)),
+                  const Icon(Icons.lock_clock_rounded, size: 18, color: Color(0xFFB45309)),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      _currentNote.isLocked
-                          ? 'Document verrouillé par un administrateur (${_currentNote.lastModifiedBy}). Lecture seule.'
-                          : 'Seuls les administrateurs sont autorisés à modifier ce bloc-note.',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF92400E),
-                      ),
+                      'Bloc-note figé par un administrateur (${_currentNote.lastModifiedBy}). Mode lecture seule.',
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF92400E)),
                     ),
                   ),
                 ],
@@ -421,14 +671,14 @@ Stabilité Réseau: 95
             child: TabBarView(
               controller: _tabController,
               children: [
-                // 1. Rendu Document Haute Fidélité
-                _buildPreviewTab(),
+                // 1. Vue Document Directement Rendue
+                _buildLiveDocumentTab(),
 
-                // 2. Éditeur Word léger
+                // 2. Éditeur Word sans balises avec macros directement exécutées
                 _buildWordEditorTab(canEdit),
 
-                // 3. Code HTML Sécurisé
-                _buildHtmlCodeTab(canEdit),
+                // 3. Gestionnaire des Composants HTML & Variables (tableau1={...})
+                _buildComponentsManagerTab(canEdit),
               ],
             ),
           ),
@@ -437,49 +687,44 @@ Stabilité Réseau: 95
     );
   }
 
-  Widget _buildPreviewTab() {
+  Widget _buildLiveDocumentTab() {
     return Column(
       children: [
-        // Document Header
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           decoration: const BoxDecoration(
             color: Color(0xFFF8FAFC),
             border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          child: Row(
             children: [
-              Text(
-                _titleController.text.isNotEmpty
-                    ? _titleController.text
-                    : 'Bloc-Note Collaboratif',
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF0F172A),
+              Expanded(
+                child: Text(
+                  _titleController.text.isNotEmpty ? _titleController.text : 'Bloc-Note Collaboratif',
+                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  const Icon(Icons.verified_user_outlined, size: 14, color: AppTheme.secondary),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: Text(
-                      'Dernière synchronisation par ${_currentNote.lastModifiedBy} • ${_currentNote.lastModified}',
-                      style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFECFDF5),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text('Rendu Actif ✅', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF047857))),
               ),
             ],
           ),
         ),
         Expanded(
-          child: GroupNoteRenderer(content: _textController.text),
+          child: GroupNoteRenderer(
+            content: _textController.text,
+            components: _components,
+            lineSpacing: _lineSpacing,
+            paragraphSpacing: _paragraphSpacing,
+            onEditComponent: _openComponentEditor,
+          ),
         ),
       ],
     );
@@ -490,7 +735,7 @@ Stabilité Réseau: 95
       children: [
         // Title Input
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
           child: TextField(
             controller: _titleController,
             enabled: canEdit,
@@ -504,10 +749,75 @@ Stabilité Réseau: 95
         ),
         const Divider(height: 1, color: Color(0xFFE2E8F0)),
 
-        // Word-style Toolbar
-        if (canEdit) _buildWordToolbar(),
+        // Word Action Bar (Sans balises visibles, composants intégrés)
+        if (canEdit)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: const BoxDecoration(
+              color: Color(0xFFF8FAFC),
+              border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+            ),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      elevation: 0,
+                    ),
+                    onPressed: _showNewComponentDialog,
+                    icon: const Icon(Icons.add_circle_outline, size: 16),
+                    label: const Text('Insérer Composant (Tableau, Maths...)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  ),
+                  const SizedBox(width: 8),
+                  PopupMenuButton<String>(
+                    tooltip: 'Insérer un composant existant',
+                    onSelected: (compName) => _insertMacro(compName),
+                    itemBuilder: (ctx) => _components.keys.map((name) {
+                      return PopupMenuItem(
+                        value: name,
+                        child: Row(
+                          children: [
+                            const Icon(Icons.auto_awesome, size: 15, color: AppTheme.primary),
+                            const SizedBox(width: 8),
+                            Text('{{$name}}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFFCBD5E1)),
+                      ),
+                      child: Row(
+                        children: const [
+                          Icon(Icons.token_rounded, size: 15, color: Color(0xFF475569)),
+                          SizedBox(width: 4),
+                          Text('Mes Variables', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF475569))),
+                          Icon(Icons.arrow_drop_down, size: 18, color: Color(0xFF475569)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: const Icon(Icons.format_line_spacing_rounded, size: 20, color: Color(0xFF475569)),
+                    tooltip: 'Espacements',
+                    onPressed: _showSpacingDialog,
+                  ),
+                ],
+              ),
+            ),
+          ),
 
-        // Editor Body
+        // Text Editor Body
         Expanded(
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -516,9 +826,14 @@ Stabilité Réseau: 95
               enabled: canEdit,
               maxLines: null,
               expands: true,
-              style: const TextStyle(fontSize: 14, color: Color(0xFF1E293B), height: 1.5),
+              style: TextStyle(
+                fontSize: 14.5,
+                color: const Color(0xFF1E293B),
+                height: _lineSpacing,
+              ),
               decoration: const InputDecoration(
-                hintText: 'Rédigez ici vos notes, formules de maths, tableaux ou diagrammes...',
+                hintText:
+                    'Rédigez votre texte comme sous Word...\nPour insérer un tableau ou une formule, tapez son nom comme {{tableau1}} ou cliquez sur "Insérer Composant".',
                 border: InputBorder.none,
               ),
             ),
@@ -528,167 +843,128 @@ Stabilité Réseau: 95
     );
   }
 
-  Widget _buildWordToolbar() {
+  Widget _buildComponentsManagerTab(bool canEdit) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: const BoxDecoration(
-        color: Color(0xFFF8FAFC),
-        border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
-      ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            _toolbarButton(icon: Icons.format_bold_rounded, tooltip: 'Gras', onTap: () => _insertFormatting('<b>', '</b>', 'texte en gras')),
-            _toolbarButton(icon: Icons.format_italic_rounded, tooltip: 'Italique', onTap: () => _insertFormatting('<i>', '</i>', 'texte en italique')),
-            _toolbarButton(icon: Icons.format_underlined_rounded, tooltip: 'Souligné', onTap: () => _insertFormatting('<u>', '</u>', 'texte souligné')),
-            _toolbarButton(icon: Icons.format_strikethrough_rounded, tooltip: 'Barré', onTap: () => _insertFormatting('<s>', '</s>', 'texte barré')),
-            const VerticalDivider(width: 16),
-            _toolbarButton(label: 'H1', tooltip: 'Titre 1', onTap: () => _insertFormatting('\n<h1>', '</h1>\n', 'Grand Titre')),
-            _toolbarButton(label: 'H2', tooltip: 'Titre 2', onTap: () => _insertFormatting('\n<h2>', '</h2>\n', 'Sous-Titre')),
-            _toolbarButton(label: 'H3', tooltip: 'Titre 3', onTap: () => _insertFormatting('\n<h3>', '</h3>\n', 'Titre de Section')),
-            const VerticalDivider(width: 16),
-            _toolbarButton(icon: Icons.format_list_bulleted_rounded, tooltip: 'Liste à puces', onTap: () => _insertFormatting('\n<ul>\n  <li>', '</li>\n</ul>\n', 'Élément')),
-            _toolbarButton(icon: Icons.format_quote_rounded, tooltip: 'Citation', onTap: () => _insertFormatting('\n<blockquote>', '</blockquote>\n', 'Citation')),
-            _toolbarButton(icon: Icons.highlight_rounded, tooltip: 'Surlignage', onTap: () => _insertFormatting('<mark>', '</mark>', 'texte surligné')),
-            _toolbarButton(icon: Icons.code_rounded, tooltip: 'Code', onTap: () => _insertFormatting('<code>', '</code>', 'code source')),
-            const VerticalDivider(width: 16),
-            // Specialized Math, Table, Diagram, Graph Buttons
-            _actionPill(
-              icon: Icons.functions_rounded,
-              label: 'Maths',
-              color: AppTheme.primary,
-              onTap: _showMathFormulaPicker,
-            ),
-            const SizedBox(width: 6),
-            _actionPill(
-              icon: Icons.table_chart_rounded,
-              label: 'Tableau',
-              color: const Color(0xFF0D9488),
-              onTap: _insertTableTemplate,
-            ),
-            const SizedBox(width: 6),
-            _actionPill(
-              icon: Icons.account_tree_rounded,
-              label: 'Diagramme',
-              color: const Color(0xFF8B5CF6),
-              onTap: _insertFlowchartTemplate,
-            ),
-            const SizedBox(width: 6),
-            _actionPill(
-              icon: Icons.bar_chart_rounded,
-              label: 'Graphe',
-              color: AppTheme.secondary,
-              onTap: _insertGraphTemplate,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _toolbarButton({
-    IconData? icon,
-    String? label,
-    required String tooltip,
-    required VoidCallback onTap,
-  }) {
-    return Tooltip(
-      message: tooltip,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(6),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-          child: icon != null
-              ? Icon(icon, size: 19, color: const Color(0xFF334155))
-              : Text(
-                  label ?? '',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF334155),
-                  ),
-                ),
-        ),
-      ),
-    );
-  }
-
-  Widget _actionPill({
-    required IconData icon,
-    required String label,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.12),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: color.withOpacity(0.3)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 15, color: color),
-            const SizedBox(width: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHtmlCodeTab(bool canEdit) {
-    return Container(
-      color: const Color(0xFF0F172A),
+      color: const Color(0xFFF8FAFC),
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            children: const [
-              Icon(Icons.security_rounded, size: 16, color: Color(0xFF38BDF8)),
-              SizedBox(width: 6),
-              Text(
-                'Source HTML Sécurisé • Scripts neutralisés',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF38BDF8),
+            children: [
+              const Icon(Icons.view_in_ar_rounded, color: AppTheme.primary),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Variables & Composants HTML Sécurisés',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                 ),
               ),
+              if (canEdit)
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: _showNewComponentDialog,
+                  icon: const Icon(Icons.add, size: 16),
+                  label: const Text('Nouveau', style: TextStyle(fontSize: 12)),
+                ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 6),
+          const Text(
+            'Chaque variable stocke un bloc de code sécurisé (tableau, calcul mathématique, graphe) pouvant être appelé à tout endroit du texte avec {{nom_variable}}.',
+            style: TextStyle(fontSize: 12, color: Color(0xFF64748B), height: 1.4),
+          ),
+          const SizedBox(height: 14),
           Expanded(
-            child: TextField(
-              controller: _textController,
-              enabled: canEdit,
-              maxLines: null,
-              expands: true,
-              style: const TextStyle(
-                fontFamily: 'monospace',
-                fontSize: 13,
-                color: Color(0xFFE2E8F0),
-                height: 1.4,
-              ),
-              decoration: const InputDecoration(
-                border: InputBorder.none,
-                hintText: 'Code source HTML sécurisé...',
-                hintStyle: TextStyle(color: Color(0xFF64748B)),
-              ),
+            child: ListView.separated(
+              itemCount: _components.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 10),
+              itemBuilder: (context, index) {
+                final entry = _components.entries.elementAt(index);
+                return Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: AppTheme.primarySoft,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              '{{${entry.key}}}',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: AppTheme.primary,
+                              ),
+                            ),
+                          ),
+                          const Spacer(),
+                          if (canEdit) ...[
+                            IconButton(
+                              icon: const Icon(Icons.copy_rounded, size: 18, color: Color(0xFF64748B)),
+                              tooltip: 'Insérer dans le texte',
+                              onPressed: () {
+                                _insertMacro(entry.key);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('{{${entry.key}}} inséré dans l\'éditeur.')),
+                                );
+                              },
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.edit_outlined, size: 18, color: AppTheme.primary),
+                              tooltip: 'Modifier le code HTML',
+                              onPressed: () => _openComponentEditor(entry.key),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete_outline, size: 18, color: Color(0xFFEF4444)),
+                              tooltip: 'Supprimer',
+                              onPressed: () {
+                                setState(() {
+                                  _components.remove(entry.key);
+                                  _hasUnsavedChanges = true;
+                                });
+                              },
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF0F172A),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          entry.value.trim(),
+                          maxLines: 4,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                            color: Color(0xFF38BDF8),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
             ),
           ),
         ],

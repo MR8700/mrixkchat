@@ -18,18 +18,32 @@ String sanitizeHtml(String input) {
   return sanitized;
 }
 
-/// Native Flutter renderer for Word-style rich text, safe HTML, Math formulas, Tables, and Diagrams.
+/// Native Flutter renderer for Word-style rich text, Macro components, Safe HTML, Math, Tables, and Diagrams.
 class GroupNoteRenderer extends StatelessWidget {
   final String content;
+  final Map<String, String> components;
+  final double lineSpacing;
+  final double paragraphSpacing;
+  final void Function(String componentName)? onEditComponent;
 
   const GroupNoteRenderer({
     super.key,
     required this.content,
+    this.components = const {},
+    this.lineSpacing = 1.5,
+    this.paragraphSpacing = 12.0,
+    this.onEditComponent,
   });
 
   @override
   Widget build(BuildContext context) {
-    final safeContent = sanitizeHtml(content);
+    // 1. Resolve component macros like {{tableau1}} with their HTML / Math definitions
+    final resolvedContent = _resolveMacros(content, components);
+
+    // 2. Sanitize safely
+    final safeContent = sanitizeHtml(resolvedContent);
+
+    // 3. Parse into visual content blocks
     final blocks = _parseBlocks(safeContent);
 
     return ListView.builder(
@@ -42,114 +56,125 @@ class GroupNoteRenderer extends StatelessWidget {
     );
   }
 
+  /// Replaces {{name}} tokens with their corresponding code from the components map
+  String _resolveMacros(String text, Map<String, String> comps) {
+    var result = text;
+    final macroRegex = RegExp(r'\{\{([a-zA-Z0-9_\-]+)\}\}');
+    result = result.replaceAllMapped(macroRegex, (match) {
+      final name = match.group(1);
+      if (name != null && comps.containsKey(name)) {
+        return '\n<!-- macro:$name -->\n${comps[name]}\n<!-- endmacro -->\n';
+      }
+      return match.group(0) ?? '';
+    });
+    return result;
+  }
+
   Widget _buildBlock(BuildContext context, _ContentBlock block) {
+    Widget child;
+
     switch (block.type) {
       case _BlockType.h1:
-        return Padding(
-          padding: const EdgeInsets.only(top: 16, bottom: 8),
-          child: Text(
-            block.text,
-            style: const TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF0F172A),
-              letterSpacing: -0.5,
-            ),
+        child = Text(
+          block.text,
+          style: const TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF0F172A),
+            letterSpacing: -0.5,
           ),
         );
+        break;
 
       case _BlockType.h2:
-        return Padding(
-          padding: const EdgeInsets.only(top: 14, bottom: 6),
-          child: Text(
-            block.text,
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF1E293B),
-            ),
+        child = Text(
+          block.text,
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF1E293B),
           ),
         );
+        break;
 
       case _BlockType.h3:
-        return Padding(
-          padding: const EdgeInsets.only(top: 10, bottom: 4),
-          child: Text(
-            block.text,
-            style: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF334155),
-            ),
+        child = Text(
+          block.text,
+          style: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF334155),
           ),
         );
+        break;
 
       case _BlockType.hr:
-        return const Padding(
-          padding: EdgeInsets.symmetric(vertical: 12),
-          child: Divider(color: Color(0xFFE2E8F0), thickness: 1),
+        return Padding(
+          padding: EdgeInsets.symmetric(vertical: paragraphSpacing / 2),
+          child: const Divider(color: Color(0xFFE2E8F0), thickness: 1),
         );
 
       case _BlockType.blockquote:
-        return Container(
-          margin: const EdgeInsets.symmetric(vertical: 8),
+        child = Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          decoration: BoxDecoration(
-            color: const Color(0xFFF0FDF4),
-            border: const Border(
+          decoration: const BoxDecoration(
+            color: Color(0xFFF0FDF4),
+            border: Border(
               left: BorderSide(color: AppTheme.secondary, width: 4),
             ),
-            borderRadius: const BorderRadius.only(
+            borderRadius: BorderRadius.only(
               topRight: Radius.circular(8),
               bottomRight: Radius.circular(8),
             ),
           ),
           child: Text(
             block.text,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 13.5,
               fontStyle: FontStyle.italic,
-              color: Color(0xFF065F46),
-              height: 1.4,
+              color: const Color(0xFF065F46),
+              height: lineSpacing,
             ),
           ),
         );
+        break;
 
       case _BlockType.math:
-        return _buildMathCard(block.text);
+        child = _buildMathCard(block.text, block.macroName);
+        break;
 
       case _BlockType.table:
-        return _buildTableCard(block.tableData!);
+        child = _buildTableCard(block.tableData!, block.macroName);
+        break;
 
       case _BlockType.diagram:
-        return _buildFlowchartDiagram(block.text);
+        child = _buildFlowchartDiagram(block.text, block.macroName);
+        break;
 
       case _BlockType.graph:
-        return _buildBarGraph(block.title ?? 'Graphique des Métriques', block.graphData!);
+        child = _buildBarGraph(block.title ?? 'Graphique des Métriques', block.graphData!, block.macroName);
+        break;
 
       case _BlockType.bulletList:
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 3),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Padding(
-                padding: EdgeInsets.only(top: 6, right: 8),
-                child: Icon(Icons.circle, size: 6, color: AppTheme.primary),
+        child = Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.only(top: 6, right: 8),
+              child: Icon(Icons.circle, size: 6, color: AppTheme.primary),
+            ),
+            Expanded(
+              child: Text(
+                block.text,
+                style: TextStyle(fontSize: 13.5, color: const Color(0xFF334155), height: lineSpacing),
               ),
-              Expanded(
-                child: Text(
-                  block.text,
-                  style: const TextStyle(fontSize: 13.5, color: Color(0xFF334155), height: 1.4),
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         );
+        break;
 
       case _BlockType.code:
-        return Container(
-          margin: const EdgeInsets.symmetric(vertical: 8),
+        child = Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: const Color(0xFF0F172A),
@@ -165,26 +190,36 @@ class GroupNoteRenderer extends StatelessWidget {
             ),
           ),
         );
+        break;
 
       case _BlockType.paragraph:
       default:
-        if (block.text.trim().isEmpty) return const SizedBox(height: 4);
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: _buildRichParagraph(block.text),
-        );
+        if (block.text.trim().isEmpty) return SizedBox(height: paragraphSpacing / 2);
+        child = _buildRichParagraph(block.text);
+        break;
     }
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: paragraphSpacing),
+      child: child,
+    );
   }
 
-  /// Builds interactive RichText parsing inline tags like <b>, <i>, <u>, <mark>, <code>
+  /// Builds interactive RichText parsing inline tags like <b>, <i>, <u>, <mark>, <code>, and markdown bold/italic
   Widget _buildRichParagraph(String rawText) {
+    var text = rawText;
+    // Replace markdown formatting with HTML equivalents for single parser
+    text = text.replaceAllMapped(RegExp(r'\*\*(.*?)\*\*'), (m) => '<b>${m.group(1)}</b>');
+    text = text.replaceAllMapped(RegExp(r'\*(.*?)\*'), (m) => '<i>${m.group(1)}</i>');
+    text = text.replaceAllMapped(RegExp(r'`(.*?)`'), (m) => '<code>${m.group(1)}</code>');
+
     final spans = <TextSpan>[];
     final tagRegex = RegExp(r'<(b|i|u|mark|code)>(.*?)<\/\1>', caseSensitive: false);
     int lastIndex = 0;
 
-    for (final match in tagRegex.allMatches(rawText)) {
+    for (final match in tagRegex.allMatches(text)) {
       if (match.start > lastIndex) {
-        spans.add(TextSpan(text: rawText.substring(lastIndex, match.start)));
+        spans.add(TextSpan(text: text.substring(lastIndex, match.start)));
       }
 
       final tag = match.group(1)?.toLowerCase();
@@ -222,22 +257,21 @@ class GroupNoteRenderer extends StatelessWidget {
       lastIndex = match.end;
     }
 
-    if (lastIndex < rawText.length) {
-      spans.add(TextSpan(text: rawText.substring(lastIndex)));
+    if (lastIndex < text.length) {
+      spans.add(TextSpan(text: text.substring(lastIndex)));
     }
 
     return Text.rich(
       TextSpan(
-        style: const TextStyle(fontSize: 14, color: Color(0xFF334155), height: 1.45),
+        style: TextStyle(fontSize: 14, color: const Color(0xFF334155), height: lineSpacing),
         children: spans,
       ),
     );
   }
 
   /// Builds a rendered mathematical card with fractions, integrals, square roots and symbols
-  Widget _buildMathCard(String formula) {
+  Widget _buildMathCard(String formula, String? macroName) {
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: 8),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: const Color(0xFFF8FAFC),
@@ -255,18 +289,31 @@ class GroupNoteRenderer extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            children: const [
-              Icon(Icons.functions_rounded, size: 16, color: AppTheme.primary),
-              SizedBox(width: 6),
+            children: [
+              const Icon(Icons.functions_rounded, size: 16, color: AppTheme.primary),
+              const SizedBox(width: 6),
               Text(
-                'Formule Mathématique Exécutée',
-                style: TextStyle(
+                macroName != null ? 'Composant Formule : {{$macroName}}' : 'Formule Mathématique Exécutée',
+                style: const TextStyle(
                   fontSize: 11.5,
                   fontWeight: FontWeight.bold,
                   color: AppTheme.primary,
                   letterSpacing: 0.3,
                 ),
               ),
+              const Spacer(),
+              if (macroName != null && onEditComponent != null)
+                InkWell(
+                  onTap: () => onEditComponent!(macroName),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEFF6FF),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Text('Modifier', style: TextStyle(fontSize: 10, color: AppTheme.primary, fontWeight: FontWeight.bold)),
+                  ),
+                ),
             ],
           ),
           const SizedBox(height: 10),
@@ -283,7 +330,6 @@ class GroupNoteRenderer extends StatelessWidget {
 
   /// Formats mathematical expression into structured visual widgets
   Widget _renderMathExpression(String expr) {
-    // Check if it's the quadratic formula: x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}
     if (expr.contains(r'\frac') && expr.contains(r'\sqrt')) {
       return Row(
         mainAxisSize: MainAxisSize.min,
@@ -336,7 +382,6 @@ class GroupNoteRenderer extends StatelessWidget {
       );
     }
 
-    // Check if Gaussian integral: \int_{-\infty}^{+\infty} e^{-x^2} dx = \sqrt{\pi}
     if (expr.contains(r'\int')) {
       return Row(
         mainAxisSize: MainAxisSize.min,
@@ -363,7 +408,6 @@ class GroupNoteRenderer extends StatelessWidget {
       );
     }
 
-    // Check if Sum formula: \sum_{k=1}^{n} k = \frac{n(n+1)}{2}
     if (expr.contains(r'\sum')) {
       return Row(
         mainAxisSize: MainAxisSize.min,
@@ -394,7 +438,6 @@ class GroupNoteRenderer extends StatelessWidget {
       );
     }
 
-    // Default clean formatted math text
     final cleanExpr = expr
         .replaceAll(r'\frac', '')
         .replaceAll(r'\sqrt', '√')
@@ -416,9 +459,8 @@ class GroupNoteRenderer extends StatelessWidget {
   }
 
   /// Builds a modern responsive table
-  Widget _buildTableCard(_TableData data) {
+  Widget _buildTableCard(_TableData data, String? macroName) {
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: 10),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
@@ -431,41 +473,72 @@ class GroupNoteRenderer extends StatelessWidget {
           ),
         ],
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(14),
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: DataTable(
-            headingRowColor: MaterialStateProperty.all(const Color(0xFFF1F5F9)),
-            headingTextStyle: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF0F172A),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (macroName != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
+              child: Row(
+                children: [
+                  const Icon(Icons.table_chart_rounded, size: 15, color: Color(0xFF0D9488)),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Tableau : {{$macroName}}',
+                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF0D9488)),
+                  ),
+                  const Spacer(),
+                  if (onEditComponent != null)
+                    InkWell(
+                      onTap: () => onEditComponent!(macroName),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF0FDFA),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Text('Modifier', style: TextStyle(fontSize: 10, color: Color(0xFF0D9488), fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                ],
+              ),
             ),
-            dataTextStyle: const TextStyle(
-              fontSize: 12.5,
-              color: Color(0xFF334155),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: DataTable(
+                headingRowColor: MaterialStateProperty.all(const Color(0xFFF1F5F9)),
+                headingTextStyle: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF0F172A),
+                ),
+                dataTextStyle: const TextStyle(
+                  fontSize: 12.5,
+                  color: Color(0xFF334155),
+                ),
+                horizontalMargin: 16,
+                columnSpacing: 24,
+                columns: data.headers.map((h) => DataColumn(label: Text(h))).toList(),
+                rows: data.rows.asMap().entries.map((entry) {
+                  final idx = entry.key;
+                  final row = entry.value;
+                  return DataRow(
+                    color: MaterialStateProperty.all(idx.isEven ? Colors.white : const Color(0xFFF8FAFC)),
+                    cells: row.map((cell) => DataCell(Text(cell))).toList(),
+                  );
+                }).toList(),
+              ),
             ),
-            horizontalMargin: 16,
-            columnSpacing: 24,
-            columns: data.headers.map((h) => DataColumn(label: Text(h))).toList(),
-            rows: data.rows.asMap().entries.map((entry) {
-              final idx = entry.key;
-              final row = entry.value;
-              return DataRow(
-                color: MaterialStateProperty.all(idx.isEven ? Colors.white : const Color(0xFFF8FAFC)),
-                cells: row.map((cell) => DataCell(Text(cell))).toList(),
-              );
-            }).toList(),
           ),
-        ),
+        ],
       ),
     );
   }
 
   /// Builds a rendered flowchart diagram
-  Widget _buildFlowchartDiagram(String text) {
-    // Parse steps like: [1. Saisie Locale] -> [2. Signature Ed25519] -> [3. Chiffrement X25519] -> [4. Distribution Souveraine]
+  Widget _buildFlowchartDiagram(String text, String? macroName) {
     final nodes = <String>[];
     final stepMatches = RegExp(r'\[(.*?)\]').allMatches(text);
     for (final match in stepMatches) {
@@ -477,7 +550,6 @@ class GroupNoteRenderer extends StatelessWidget {
     }
 
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: 10),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: const Color(0xFFF8FAFC),
@@ -488,17 +560,30 @@ class GroupNoteRenderer extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            children: const [
-              Icon(Icons.account_tree_outlined, size: 18, color: AppTheme.primary),
-              SizedBox(width: 8),
+            children: [
+              const Icon(Icons.account_tree_outlined, size: 18, color: AppTheme.primary),
+              const SizedBox(width: 8),
               Text(
-                'Organigramme & Flux Dynamique',
-                style: TextStyle(
+                macroName != null ? 'Organigramme : {{$macroName}}' : 'Organigramme & Flux Dynamique',
+                style: const TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.bold,
                   color: AppTheme.primary,
                 ),
               ),
+              const Spacer(),
+              if (macroName != null && onEditComponent != null)
+                InkWell(
+                  onTap: () => onEditComponent!(macroName),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEFF6FF),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Text('Modifier', style: TextStyle(fontSize: 10, color: AppTheme.primary, fontWeight: FontWeight.bold)),
+                  ),
+                ),
             ],
           ),
           const SizedBox(height: 12),
@@ -558,9 +643,8 @@ class GroupNoteRenderer extends StatelessWidget {
   }
 
   /// Builds a rendered bar graph
-  Widget _buildBarGraph(String title, List<MapEntry<String, double>> items) {
+  Widget _buildBarGraph(String title, List<MapEntry<String, double>> items, String? macroName) {
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: 10),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -578,13 +662,26 @@ class GroupNoteRenderer extends StatelessWidget {
               const Icon(Icons.bar_chart_rounded, size: 18, color: AppTheme.secondary),
               const SizedBox(width: 8),
               Text(
-                title,
+                macroName != null ? '$title ({{$macroName}})' : title,
                 style: const TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.bold,
                   color: Color(0xFF0F172A),
                 ),
               ),
+              const Spacer(),
+              if (macroName != null && onEditComponent != null)
+                InkWell(
+                  onTap: () => onEditComponent!(macroName),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFFBEB),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Text('Modifier', style: TextStyle(fontSize: 10, color: Color(0xFFB45309), fontWeight: FontWeight.bold)),
+                  ),
+                ),
             ],
           ),
           const SizedBox(height: 14),
@@ -627,14 +724,28 @@ class GroupNoteRenderer extends StatelessWidget {
     );
   }
 
-  /// Parses raw HTML / custom tags into an ordered list of blocks
+  /// Parses raw HTML / Markdown / custom tags into an ordered list of blocks
   List<_ContentBlock> _parseBlocks(String input) {
     final blocks = <_ContentBlock>[];
     final lines = input.split('\n');
 
+    String? currentMacroName;
+
     int i = 0;
     while (i < lines.length) {
       var line = lines[i].trim();
+
+      // Check macro comment tracker
+      if (line.startsWith('<!-- macro:')) {
+        currentMacroName = line.replaceAll('<!-- macro:', '').replaceAll('-->', '').trim();
+        i++;
+        continue;
+      }
+      if (line == '<!-- endmacro -->') {
+        currentMacroName = null;
+        i++;
+        continue;
+      }
 
       // Table detection
       if (line.toLowerCase().startsWith('<table')) {
@@ -646,7 +757,7 @@ class GroupNoteRenderer extends StatelessWidget {
         }
         if (i < lines.length) tableLines.add(lines[i]);
         final tableData = _parseTable(tableLines.join('\n'));
-        blocks.add(_ContentBlock(type: _BlockType.table, text: '', tableData: tableData));
+        blocks.add(_ContentBlock(type: _BlockType.table, text: '', macroName: currentMacroName, tableData: tableData));
         i++;
         continue;
       }
@@ -658,14 +769,14 @@ class GroupNoteRenderer extends StatelessWidget {
           final content = line
               .replaceAll(RegExp(r'<\/?math>', caseSensitive: false), '')
               .replaceAll(RegExp(r'<\/?formula>', caseSensitive: false), '');
-          blocks.add(_ContentBlock(type: _BlockType.math, text: content));
+          blocks.add(_ContentBlock(type: _BlockType.math, text: content, macroName: currentMacroName));
         } else {
           i++;
           while (i < lines.length && !lines[i].toLowerCase().contains('</math>') && !lines[i].toLowerCase().contains('</formula>')) {
             mathLines.add(lines[i]);
             i++;
           }
-          blocks.add(_ContentBlock(type: _BlockType.math, text: mathLines.join('\n')));
+          blocks.add(_ContentBlock(type: _BlockType.math, text: mathLines.join('\n'), macroName: currentMacroName));
         }
         i++;
         continue;
@@ -679,7 +790,7 @@ class GroupNoteRenderer extends StatelessWidget {
           diagramLines.add(lines[i]);
           i++;
         }
-        blocks.add(_ContentBlock(type: _BlockType.diagram, text: diagramLines.join('\n')));
+        blocks.add(_ContentBlock(type: _BlockType.diagram, text: diagramLines.join('\n'), macroName: currentMacroName));
         i++;
         continue;
       }
@@ -695,49 +806,54 @@ class GroupNoteRenderer extends StatelessWidget {
           i++;
         }
         final graphData = _parseGraph(graphLines.join('\n'));
-        blocks.add(_ContentBlock(type: _BlockType.graph, text: '', title: title, graphData: graphData));
+        blocks.add(_ContentBlock(type: _BlockType.graph, text: '', title: title, macroName: currentMacroName, graphData: graphData));
         i++;
         continue;
       }
 
-      // H1
-      if (line.startsWith('<h1>') && line.endsWith('</h1>')) {
-        blocks.add(_ContentBlock(type: _BlockType.h1, text: line.substring(4, line.length - 5)));
+      // H1 (markdown or html)
+      if (line.startsWith('# ') || (line.startsWith('<h1>') && line.endsWith('</h1>'))) {
+        final text = line.startsWith('# ') ? line.substring(2) : line.substring(4, line.length - 5);
+        blocks.add(_ContentBlock(type: _BlockType.h1, text: text));
         i++;
         continue;
       }
 
-      // H2
-      if (line.startsWith('<h2>') && line.endsWith('</h2>')) {
-        blocks.add(_ContentBlock(type: _BlockType.h2, text: line.substring(4, line.length - 5)));
+      // H2 (markdown or html)
+      if (line.startsWith('## ') || (line.startsWith('<h2>') && line.endsWith('</h2>'))) {
+        final text = line.startsWith('## ') ? line.substring(3) : line.substring(4, line.length - 5);
+        blocks.add(_ContentBlock(type: _BlockType.h2, text: text));
         i++;
         continue;
       }
 
-      // H3
-      if (line.startsWith('<h3>') && line.endsWith('</h3>')) {
-        blocks.add(_ContentBlock(type: _BlockType.h3, text: line.substring(4, line.length - 5)));
+      // H3 (markdown or html)
+      if (line.startsWith('### ') || (line.startsWith('<h3>') && line.endsWith('</h3>'))) {
+        final text = line.startsWith('### ') ? line.substring(4) : line.substring(4, line.length - 5);
+        blocks.add(_ContentBlock(type: _BlockType.h3, text: text));
         i++;
         continue;
       }
 
       // HR
-      if (line == '<hr/>' || line == '<hr>' || line == '---') {
+      if (line == '---' || line == '<hr/>' || line == '<hr>') {
         blocks.add(_ContentBlock(type: _BlockType.hr, text: ''));
         i++;
         continue;
       }
 
       // Blockquote
-      if (line.startsWith('<blockquote>') && line.endsWith('</blockquote>')) {
-        blocks.add(_ContentBlock(type: _BlockType.blockquote, text: line.substring(12, line.length - 13)));
+      if (line.startsWith('> ') || (line.startsWith('<blockquote>') && line.endsWith('</blockquote>'))) {
+        final text = line.startsWith('> ') ? line.substring(2) : line.substring(12, line.length - 13);
+        blocks.add(_ContentBlock(type: _BlockType.blockquote, text: text));
         i++;
         continue;
       }
 
       // List item
-      if (line.startsWith('<li>') && line.endsWith('</li>')) {
-        blocks.add(_ContentBlock(type: _BlockType.bulletList, text: line.substring(4, line.length - 5)));
+      if (line.startsWith('- ') || line.startsWith('* ') || (line.startsWith('<li>') && line.endsWith('</li>'))) {
+        final text = (line.startsWith('- ') || line.startsWith('* ')) ? line.substring(2) : line.substring(4, line.length - 5);
+        blocks.add(_ContentBlock(type: _BlockType.bulletList, text: text));
         i++;
         continue;
       }
@@ -784,7 +900,6 @@ class GroupNoteRenderer extends StatelessWidget {
     }
 
     if (headers.isEmpty && rows.isNotEmpty) {
-      // If no <th> tags, use first row as headers
       headers.addAll(rows.removeAt(0));
     }
 
@@ -824,6 +939,7 @@ class _ContentBlock {
   final _BlockType type;
   final String text;
   final String? title;
+  final String? macroName;
   final _TableData? tableData;
   final List<MapEntry<String, double>>? graphData;
 
@@ -831,6 +947,7 @@ class _ContentBlock {
     required this.type,
     required this.text,
     this.title,
+    this.macroName,
     this.tableData,
     this.graphData,
   });

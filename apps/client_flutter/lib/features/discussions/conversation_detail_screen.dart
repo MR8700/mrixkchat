@@ -1163,6 +1163,7 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final currentConv = context.watch<ConversationRepository>().getConversationById(widget.conversation.id) ?? widget.conversation;
     final messages = context.watch<MessageRepository>().getMessagesForConversation(widget.conversation.id);
 
     return Scaffold(
@@ -1173,6 +1174,7 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
           Column(
             children: [
               _buildSecurityBanner(),
+              if (currentConv.isGroup) _buildGroupNotepadInChatBanner(currentConv),
               _buildDateDivider(),
               Expanded(
                 child: ListView.builder(
@@ -1181,7 +1183,7 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                   itemCount: messages.length,
                   itemBuilder: (context, index) {
                     final msg = messages[index];
-                    return _buildMessageItem(msg);
+                    return _buildMessageItem(msg, currentConv);
                   },
                 ),
               ),
@@ -1369,13 +1371,9 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
               child: const Icon(Icons.edit_note_rounded, size: 20, color: AppTheme.primary),
             ),
             onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (ctx) => GroupNotepadScreen(conversation: currentConv),
-                ),
-              );
+              GroupNotepadScreen.showInConversation(context, currentConv);
             },
-            tooltip: 'Bloc-Note & Formules du Groupe',
+            tooltip: 'Bloc-Note Collaboratif & Formules',
           ),
         IconButton(
           icon: Container(
@@ -1595,8 +1593,156 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
     );
   }
 
-  Widget _buildMessageItem(Message msg) {
+  Widget _buildGroupNotepadInChatBanner(Conversation conv) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFDFE4ED)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x06000000),
+            blurRadius: 4,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(7),
+            decoration: BoxDecoration(
+              color: AppTheme.primarySoft,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(Icons.edit_note_rounded, size: 20, color: AppTheme.primary),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: const [
+                Text(
+                  'Bloc-Note Collaboratif du Groupe',
+                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                ),
+                Text(
+                  'Word léger • Formules & Tableaux sans balises',
+                  style: TextStyle(fontSize: 10.5, color: Color(0xFF64748B)),
+                ),
+              ],
+            ),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primary,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              elevation: 0,
+            ),
+            onPressed: () => GroupNotepadScreen.showInConversation(context, conv),
+            icon: const Icon(Icons.open_in_full_rounded, size: 13),
+            label: const Text('Ouvrir', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGroupNoteInChatMessage(Message msg, Conversation conv) {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFBFDBFE), width: 1.2),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0C0043B8),
+            blurRadius: 8,
+            offset: Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppTheme.primarySoft,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.edit_note_rounded, color: AppTheme.primary, size: 22),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Bloc-Note Collaboratif du Groupe',
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                    Text(
+                      'Mis à jour par ${msg.senderName} • ${msg.time}',
+                      style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            msg.content.replaceAll('[Bloc-Note du Groupe]', '').trim(),
+            style: const TextStyle(fontSize: 13, color: Color(0xFF334155), height: 1.4),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primary,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                padding: const EdgeInsets.symmetric(vertical: 8),
+              ),
+              onPressed: () => GroupNotepadScreen.showInConversation(context, conv),
+              icon: const Icon(Icons.auto_stories_rounded, size: 16),
+              label: const Text(
+                'Consulter & Éditer le Bloc-Note',
+                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMessageItem(Message msg, [Conversation? conv]) {
+    final effectiveConv = conv ?? widget.conversation;
     final isSelected = _selectedMessageIds.contains(msg.id);
+
+    if (msg.content.contains('[Bloc-Note du Groupe]')) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: _buildGroupNoteInChatMessage(msg, effectiveConv),
+      );
+    }
 
     return GestureDetector(
       onSecondaryTapUp: (details) =>

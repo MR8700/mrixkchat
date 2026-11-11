@@ -13,33 +13,9 @@ class GroupNoteRepository extends ChangeNotifier {
     });
   }
 
-  /// Default seed note with rich Word formatting, Math formulas, Tables, Flowchart and Bar Graph
-  static const String defaultSeedContent = '''
-<h1>Spécifications & Architecture Souveraine MRixk</h1>
-<p>Bienvenue dans le <b>Bloc-Note Collaboratif</b> du groupe. Cet espace réunit les notes d'équipe, calculs mathématiques certifiés et diagrammes de flux sécurisés.</p>
-
-<hr/>
-
-<h2>1. Fondements Mathématiques & Cryptographiques</h2>
-<p>Les échanges s'appuient sur des primitives asymétriques à haute résistance :</p>
-
-<math>
-x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}
-</math>
-
-<math>
-\int_{-\infty}^{+\infty} e^{-x^2} dx = \sqrt{\pi}
-</math>
-
-<math>
-\sum_{k=1}^{n} k = \frac{n(n+1)}{2}
-</math>
-
-<hr/>
-
-<h2>2. Matrice d'Audit des Modules</h2>
-<p>Tableau récapitulatif des composants validés par l'équipe :</p>
-
+  /// Default predefined components/macros mapping: name -> HTML/Math/Diagram code
+  static const Map<String, String> defaultSeedComponents = {
+    'tableau1': '''
 <table border="1">
   <thead>
     <tr>
@@ -76,31 +52,78 @@ x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}
     </tr>
   </tbody>
 </table>
-
-<hr/>
-
-<h2>3. Flux de Traitement des Données</h2>
-<p>Organigramme du cycle de vie d'un message confidentiel :</p>
-
+''',
+    'formule1': r'''
+<math>
+x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}
+</math>
+''',
+    'integrale1': r'''
+<math>
+\int_{-\infty}^{+\infty} e^{-x^2} dx = \sqrt{\pi}
+</math>
+''',
+    'somme1': r'''
+<math>
+\sum_{k=1}^{n} k = \frac{n(n+1)}{2}
+</math>
+''',
+    'diagramme1': '''
 <diagram type="flowchart">
 [1. Saisie Locale] -> [2. Signature Ed25519] -> [3. Chiffrement X25519] -> [4. Distribution Souveraine]
 </diagram>
-
-<hr/>
-
-<h2>4. Indicateurs Clés de Performance</h2>
-<p>Métriques de fiabilité et de vitesse constatées :</p>
-
+''',
+    'graphe1': '''
 <graph type="bar" title="Indicateurs de Sécurité & Résilience (%)">
 Souveraineté des données: 100
 Résistance Cryptographique: 98
 Disponibilité Hors-ligne: 95
 Vitesse d'Exécution: 92
 </graph>
+''',
+  };
+
+  /// Default seed note text: clean, elegant text with macro component calls {{name}}
+  static const String defaultSeedContent = '''
+# Spécifications & Architecture Souveraine MRixk
+
+Bienvenue dans le Bloc-Note Collaboratif du groupe. Cet espace réunit les notes d'équipe, calculs mathématiques certifiés et diagrammes de flux sécurisés.
+
+---
+
+## 1. Fondements Mathématiques & Cryptographiques
+Les échanges s'appuient sur des primitives asymétriques à haute résistance :
+
+{{formule1}}
+
+{{integrale1}}
+
+{{somme1}}
+
+---
+
+## 2. Matrice d'Audit des Modules
+Tableau récapitulatif des composants validés par l'équipe :
+
+{{tableau1}}
+
+---
+
+## 3. Flux de Traitement des Données
+Organigramme du cycle de vie d'un message confidentiel :
+
+{{diagramme1}}
+
+---
+
+## 4. Indicateurs Clés de Performance
+Métriques de fiabilité et de vitesse constatées :
+
+{{graphe1}}
 ''';
 
   /// Retrieves the note for a given group conversation.
-  /// If none exists, initializes it with a rich default note.
+  /// If none exists, initializes it with a rich default note and macro components.
   GroupNote getNote(String conversationId, {String groupTitle = 'Groupe'}) {
     final data = _db.get('group_notes', conversationId);
     if (data != null) {
@@ -112,12 +135,14 @@ Vitesse d'Exécution: 92
       conversationId: conversationId,
       title: 'Bloc-Note : $groupTitle',
       content: defaultSeedContent,
+      components: defaultSeedComponents,
+      lineSpacing: 1.5,
+      paragraphSpacing: 12.0,
       lastModified: 'Aujourd\'hui à 10:30',
       lastModifiedBy: 'Richard MARE (Créateur)',
       isLocked: false,
     );
 
-    // Save synchronously in db
     _db.insert('group_notes', conversationId, initialNote.toJson());
     return initialNote;
   }

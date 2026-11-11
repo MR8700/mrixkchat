@@ -3,6 +3,9 @@ class GroupNote {
   final String conversationId;
   final String title;
   final String content;
+  final Map<String, String> components;
+  final double lineSpacing;
+  final double paragraphSpacing;
   final String lastModified;
   final String lastModifiedBy;
   final bool isLocked;
@@ -12,6 +15,9 @@ class GroupNote {
     required this.conversationId,
     required this.title,
     required this.content,
+    this.components = const {},
+    this.lineSpacing = 1.5,
+    this.paragraphSpacing = 12.0,
     required this.lastModified,
     required this.lastModifiedBy,
     this.isLocked = false,
@@ -22,6 +28,9 @@ class GroupNote {
     String? conversationId,
     String? title,
     String? content,
+    Map<String, String>? components,
+    double? lineSpacing,
+    double? paragraphSpacing,
     String? lastModified,
     String? lastModifiedBy,
     bool? isLocked,
@@ -31,6 +40,9 @@ class GroupNote {
       conversationId: conversationId ?? this.conversationId,
       title: title ?? this.title,
       content: content ?? this.content,
+      components: components ?? this.components,
+      lineSpacing: lineSpacing ?? this.lineSpacing,
+      paragraphSpacing: paragraphSpacing ?? this.paragraphSpacing,
       lastModified: lastModified ?? this.lastModified,
       lastModifiedBy: lastModifiedBy ?? this.lastModifiedBy,
       isLocked: isLocked ?? this.isLocked,
@@ -42,6 +54,9 @@ class GroupNote {
     'conversationId': conversationId,
     'title': title,
     'content': content,
+    'components': components,
+    'lineSpacing': lineSpacing,
+    'paragraphSpacing': paragraphSpacing,
     'lastModified': lastModified,
     'lastModifiedBy': lastModifiedBy,
     'isLocked': isLocked,
@@ -52,6 +67,12 @@ class GroupNote {
     conversationId: json['conversationId'] as String,
     title: json['title'] as String? ?? 'Bloc-note du groupe',
     content: json['content'] as String? ?? '',
+    components: (json['components'] as Map<String, dynamic>?)?.map(
+          (k, v) => MapEntry(k, v.toString()),
+        ) ??
+        const {},
+    lineSpacing: (json['lineSpacing'] as num?)?.toDouble() ?? 1.5,
+    paragraphSpacing: (json['paragraphSpacing'] as num?)?.toDouble() ?? 12.0,
     lastModified: json['lastModified'] as String? ?? 'Aujourd\'hui',
     lastModifiedBy: json['lastModifiedBy'] as String? ?? 'Admin',
     isLocked: json['isLocked'] as bool? ?? false,
