@@ -2,15 +2,19 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/models/conversation.dart';
+import '../../core/models/dws_media.dart';
 import '../../core/models/group_note.dart';
 import '../../core/models/message.dart';
 import '../../core/models/title_config.dart';
 import '../../core/repositories/conversation_repository.dart';
+import '../../core/repositories/dws_media_repository.dart';
 import '../../core/repositories/group_note_repository.dart';
 import '../../core/repositories/message_repository.dart';
 import '../../core/repositories/profile_repository.dart';
 import '../../core/services/formula_engine.dart';
+import '../../core/services/real_media_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../../shared/widgets/app_media_image.dart';
 import 'widgets/group_note_renderer.dart';
 
 class GroupNotepadScreen extends StatefulWidget {
@@ -909,6 +913,762 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
     );
   }
 
+  void _showInsertMediaDialog() {
+    if (!_canEdit()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Ce document est figé ou vous n\'avez pas la permission d\'édition.')),
+      );
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: const [
+                    Icon(Icons.perm_media_rounded, color: AppTheme.primary),
+                    SizedBox(width: 8),
+                    Text(
+                      'Insérer un média natif DWS',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Intégrez images, vidéos, audios et documents comme composants natifs du document.',
+                  style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                ),
+                const Divider(height: 20),
+                ListTile(
+                  leading: const CircleAvatar(
+                    backgroundColor: Color(0xFFF0FDF4),
+                    child: Icon(Icons.camera_alt_rounded, color: Color(0xFF16A34A)),
+                  ),
+                  title: const Text('Prendre une photo (Appareil photo)', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5)),
+                  subtitle: const Text('Capture directe et enregistrement souverain', style: TextStyle(fontSize: 11.5)),
+                  onTap: () async {
+                    Navigator.of(ctx).pop();
+                    final photo = await RealMediaService.instance.captureCameraPhoto();
+                    if (photo != null && mounted) {
+                      final timestamp = DateTime.now().millisecondsSinceEpoch % 10000;
+                      final slug = 'photo_$timestamp';
+                      final media = DwsMedia(
+                        id: 'media://group/asset_$slug',
+                        conversationId: widget.conversation.id,
+                        slug: slug,
+                        type: DwsMediaType.image,
+                        source: photo,
+                        fileName: '$slug.png',
+                        fileSize: '1.2 Mo',
+                        mimeType: 'image/png',
+                        caption: 'Photographie capturée sur l\'appareil.',
+                        alt: 'Photo directe appareil',
+                        role: DwsMediaRole.photo,
+                        createdAt: 'Aujourd\'hui',
+                        createdBy: 'Vous',
+                      );
+                      await context.read<DwsMediaRepository>().registerMedia(media);
+                      _insertTextAtCursor('\n{image="$slug.png"}\n');
+                      setState(() {});
+                    }
+                  },
+                ),
+                ListTile(
+                  leading: const CircleAvatar(
+                    backgroundColor: Color(0xFFEFF6FF),
+                    child: Icon(Icons.image_rounded, color: Color(0xFF2563EB)),
+                  ),
+                  title: const Text('Image depuis la galerie', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5)),
+                  subtitle: const Text('Choisir une image sur l\'appareil', style: TextStyle(fontSize: 11.5)),
+                  onTap: () async {
+                    Navigator.of(ctx).pop();
+                    final img = await RealMediaService.instance.pickMediaFile(isVideo: false);
+                    if (img != null && mounted) {
+                      final timestamp = DateTime.now().millisecondsSinceEpoch % 10000;
+                      final slug = 'image_$timestamp';
+                      final media = DwsMedia(
+                        id: 'media://group/asset_$slug',
+                        conversationId: widget.conversation.id,
+                        slug: slug,
+                        type: DwsMediaType.image,
+                        source: img,
+                        fileName: '$slug.png',
+                        fileSize: '950 Ko',
+                        mimeType: 'image/png',
+                        caption: 'Image importée depuis la galerie.',
+                        alt: 'Illustration importée',
+                        role: DwsMediaRole.illustration,
+                        createdAt: 'Aujourd\'hui',
+                        createdBy: 'Vous',
+                      );
+                      await context.read<DwsMediaRepository>().registerMedia(media);
+                      _insertTextAtCursor('\n{image="$slug.png"}\n');
+                      setState(() {});
+                    }
+                  },
+                ),
+                ListTile(
+                  leading: const CircleAvatar(
+                    backgroundColor: Color(0xFFFFF7ED),
+                    child: Icon(Icons.videocam_rounded, color: Color(0xFFEA580C)),
+                  ),
+                  title: const Text('Vidéo depuis les fichiers', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5)),
+                  subtitle: const Text('Lecteur intégré avec contrôle et durée', style: TextStyle(fontSize: 11.5)),
+                  onTap: () async {
+                    Navigator.of(ctx).pop();
+                    final vid = await RealMediaService.instance.pickMediaFile(isVideo: true);
+                    if (vid != null && mounted) {
+                      final timestamp = DateTime.now().millisecondsSinceEpoch % 10000;
+                      final slug = 'video_$timestamp';
+                      final media = DwsMedia(
+                        id: 'media://group/asset_$slug',
+                        conversationId: widget.conversation.id,
+                        slug: slug,
+                        type: DwsMediaType.video,
+                        source: vid,
+                        fileName: '$slug.mp4',
+                        fileSize: '3.4 Mo',
+                        duration: '02:30',
+                        mimeType: 'video/mp4',
+                        caption: 'Démonstration vidéo enregistrée.',
+                        alt: 'Vidéo explicative',
+                        role: DwsMediaRole.demo,
+                        createdAt: 'Aujourd\'hui',
+                        createdBy: 'Vous',
+                      );
+                      await context.read<DwsMediaRepository>().registerMedia(media);
+                      _insertTextAtCursor('\n{video="$slug.mp4"}\n');
+                      setState(() {});
+                    }
+                  },
+                ),
+                ListTile(
+                  leading: const CircleAvatar(
+                    backgroundColor: Color(0xFFFEF2F2),
+                    child: Icon(Icons.picture_as_pdf_rounded, color: Color(0xFFDC2626)),
+                  ),
+                  title: const Text('Document PDF / Annexe', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5)),
+                  subtitle: const Text('Fiche technique, annexe ou rapport certifié', style: TextStyle(fontSize: 11.5)),
+                  onTap: () async {
+                    Navigator.of(ctx).pop();
+                    final doc = await RealMediaService.instance.pickDocumentFile();
+                    if (doc != null && mounted) {
+                      final timestamp = DateTime.now().millisecondsSinceEpoch % 10000;
+                      final slug = 'doc_$timestamp';
+                      final media = DwsMedia(
+                        id: 'media://group/asset_$slug',
+                        conversationId: widget.conversation.id,
+                        slug: slug,
+                        type: DwsMediaType.pdf,
+                        source: doc.dataUri,
+                        fileName: doc.fileName,
+                        fileSize: doc.fileSize,
+                        mimeType: 'application/pdf',
+                        caption: 'Annexe documentaire : ${doc.fileName}.',
+                        alt: 'Document PDF certifié',
+                        role: DwsMediaRole.annex,
+                        createdAt: 'Aujourd\'hui',
+                        createdBy: 'Vous',
+                      );
+                      await context.read<DwsMediaRepository>().registerMedia(media);
+                      _insertTextAtCursor('\n{pdf="${doc.fileName}"}\n');
+                      setState(() {});
+                    }
+                  },
+                ),
+                ListTile(
+                  leading: const CircleAvatar(
+                    backgroundColor: Color(0xFFF5F3FF),
+                    child: Icon(Icons.forum_outlined, color: Color(0xFF7C3AED)),
+                  ),
+                  title: const Text('Média partagé dans la conversation', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5)),
+                  subtitle: const Text('Réutiliser sans dupliquer le fichier', style: TextStyle(fontSize: 11.5)),
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    _showConversationMediaPicker();
+                  },
+                ),
+                ListTile(
+                  leading: const CircleAvatar(
+                    backgroundColor: Color(0xFFF8FAFC),
+                    child: Icon(Icons.folder_shared_rounded, color: Color(0xFF475569)),
+                  ),
+                  title: const Text('Bibliothèque médias du groupe', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5)),
+                  subtitle: const Text('Insérer via référence {{media.?slug}}', style: TextStyle(fontSize: 11.5)),
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    _showGroupMediaLibraryPicker();
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showConversationMediaPicker() {
+    final msgRepo = context.read<MessageRepository>();
+    final messages = msgRepo.getMessagesForConversation(widget.conversation.id).where((m) {
+      return m.type != MessageType.text || m.imageUri != null || m.videoUri != null || m.voiceUri != null;
+    }).toList();
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: const [
+                  Icon(Icons.forum_outlined, color: Color(0xFF7C3AED)),
+                  SizedBox(width: 8),
+                  Text('Médias de la conversation MRixk', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              const SizedBox(height: 4),
+              const Text('Sélectionnez un média déjà partagé pour l\'insérer sans duplication.', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+              const Divider(height: 20),
+              if (messages.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 24),
+                  child: Center(
+                    child: Text('Aucun média partagé trouvé dans cette conversation.', style: TextStyle(color: Color(0xFF94A3B8))),
+                  ),
+                )
+              else
+                Expanded(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: messages.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, idx) {
+                      final m = messages[idx];
+                      String title = 'Média partagé';
+                      IconData icon = Icons.attachment_rounded;
+                      DwsMediaType type = DwsMediaType.image;
+                      String source = m.imageUri ?? '/imagetest.png';
+                      String duration = '';
+
+                      if (m.type == MessageType.image || m.imageUri != null) {
+                        title = 'Image partagée (${m.fileName ?? "image.png"})';
+                        icon = Icons.image_rounded;
+                        type = DwsMediaType.image;
+                        source = m.imageUri ?? '/imagetest.png';
+                      } else if (m.type == MessageType.video || m.videoUri != null) {
+                        title = 'Vidéo (${m.videoDuration ?? "01:30"})';
+                        icon = Icons.videocam_rounded;
+                        type = DwsMediaType.video;
+                        source = m.videoUri ?? 'https://sample-videos.com/video321/mp4/720/big_buck_bunny_720p_1mb.mp4';
+                        duration = m.videoDuration ?? '01:30';
+                      } else if (m.type == MessageType.voice || m.voiceUri != null) {
+                        title = 'Note vocale (${m.voiceDuration ?? "00:45"})';
+                        icon = Icons.mic_rounded;
+                        type = DwsMediaType.audio;
+                        source = m.voiceUri ?? '';
+                        duration = m.voiceDuration ?? '00:45';
+                      } else if (m.type == MessageType.document || m.fileName != null) {
+                        title = m.fileName ?? 'Document joint';
+                        icon = Icons.picture_as_pdf_rounded;
+                        type = DwsMediaType.pdf;
+                        source = m.content;
+                      }
+
+                      return ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: const Color(0xFFF1F5F9),
+                          child: Icon(icon, color: AppTheme.primary, size: 20),
+                        ),
+                        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                        subtitle: Text('Envoyé à ${m.time}', style: const TextStyle(fontSize: 11)),
+                        onTap: () async {
+                          Navigator.of(ctx).pop();
+                          final slug = 'media_conv_${m.id.replaceAll("-", "").substring(0, 6)}';
+                          final dwsMedia = DwsMedia(
+                            id: 'media://group/asset_$slug',
+                            conversationId: widget.conversation.id,
+                            slug: slug,
+                            type: type,
+                            source: source.isNotEmpty ? source : '/imagetest.png',
+                            fileName: m.fileName ?? '$slug.${type == DwsMediaType.video ? "mp4" : "png"}',
+                            fileSize: m.fileSize ?? '1.5 Mo',
+                            duration: duration,
+                            caption: 'Média réutilisé depuis la discussion MRixk.',
+                            alt: 'Média de conversation réutilisé',
+                            role: DwsMediaRole.figure,
+                            createdAt: 'Aujourd\'hui',
+                            createdBy: m.senderId,
+                          );
+                          await context.read<DwsMediaRepository>().registerMedia(dwsMedia);
+                          _insertTextAtCursor('\n{{media.?$slug}}\n');
+                          setState(() {});
+                        },
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showGroupMediaLibraryPicker() {
+    final mediaRepo = context.read<DwsMediaRepository>();
+    final list = mediaRepo.getMediaForGroup(widget.conversation.id);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: const [
+                  Icon(Icons.folder_shared_rounded, color: AppTheme.primary),
+                  SizedBox(width: 8),
+                  Text('Bibliothèque de médias du groupe', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              const SizedBox(height: 4),
+              const Text('Sélectionnez un média pour insérer sa référence {{media.?slug}}.', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+              const Divider(height: 20),
+              if (list.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 24),
+                  child: Center(
+                    child: Text('Aucun média dans la bibliothèque.', style: TextStyle(color: Color(0xFF94A3B8))),
+                  ),
+                )
+              else
+                Expanded(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: list.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, idx) {
+                      final item = list[idx];
+                      IconData icon;
+                      switch (item.type) {
+                        case DwsMediaType.image:
+                          icon = Icons.image_rounded;
+                          break;
+                        case DwsMediaType.video:
+                          icon = Icons.videocam_rounded;
+                          break;
+                        case DwsMediaType.audio:
+                          icon = Icons.audiotrack_rounded;
+                          break;
+                        case DwsMediaType.pdf:
+                          icon = Icons.picture_as_pdf_rounded;
+                          break;
+                      }
+
+                      return ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: const Color(0xFFF1F5F9),
+                          child: Icon(icon, color: AppTheme.primary, size: 20),
+                        ),
+                        title: Text('{{media.?${item.slug}}}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, fontFamily: 'monospace', color: Color(0xFF2563EB))),
+                        subtitle: Text(item.caption.isNotEmpty ? item.caption : item.fileName, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11)),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.settings_rounded, size: 18, color: Color(0xFF64748B)),
+                          onPressed: () {
+                            Navigator.of(ctx).pop();
+                            _showMediaPropertiesSheet(item);
+                          },
+                        ),
+                        onTap: () {
+                          Navigator.of(ctx).pop();
+                          _insertTextAtCursor('\n{{media.?${item.slug}}}\n');
+                        },
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showMediaPropertiesSheet(DwsMedia media) {
+    final captionCtrl = TextEditingController(text: media.caption);
+    final altCtrl = TextEditingController(text: media.alt);
+    double selectedWidth = media.widthPercent;
+    String selectedAlign = media.align;
+    String selectedWrap = media.wrap;
+    DwsMediaRole selectedRole = media.role;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          return SafeArea(
+            child: Padding(
+              padding: EdgeInsets.only(
+                left: 18,
+                right: 18,
+                top: 18,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 18,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.perm_media_rounded, color: AppTheme.primary),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Propriétés : ${media.slug}',
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded),
+                          onPressed: () => Navigator.of(ctx).pop(),
+                        ),
+                      ],
+                    ),
+                    const Divider(height: 16),
+                    const Text('Largeur dans le document :', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [50.0, 80.0, 100.0].map((w) {
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            label: Text('${w.toInt()}%'),
+                            selected: (selectedWidth - w).abs() < 1,
+                            selectedColor: AppTheme.primarySoft,
+                            onSelected: (_) {
+                              setSheetState(() => selectedWidth = w);
+                            },
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text('Alignement horizontal :', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        {'val': 'left', 'label': 'Gauche', 'icon': Icons.format_align_left_rounded},
+                        {'val': 'center', 'label': 'Centré', 'icon': Icons.format_align_center_rounded},
+                        {'val': 'right', 'label': 'Droite', 'icon': Icons.format_align_right_rounded},
+                      ].map((al) {
+                        final isSel = selectedAlign == al['val'];
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            avatar: Icon(al['icon'] as IconData, size: 14, color: isSel ? AppTheme.primary : const Color(0xFF64748B)),
+                            label: Text(al['label'] as String),
+                            selected: isSel,
+                            selectedColor: AppTheme.primarySoft,
+                            onSelected: (_) {
+                              setSheetState(() => selectedAlign = al['val'] as String);
+                            },
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text('Disposition du texte (Habillage) :', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        {'val': 'none', 'label': 'Séparé'},
+                        {'val': 'square', 'label': 'Carré'},
+                        {'val': 'inline', 'label': 'En ligne'},
+                      ].map((wr) {
+                        final isSel = selectedWrap == wr['val'];
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            label: Text(wr['label'] as String),
+                            selected: isSel,
+                            selectedColor: AppTheme.primarySoft,
+                            onSelected: (_) {
+                              setSheetState(() => selectedWrap = wr['val'] as String);
+                            },
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text('Rôle sémantique du média :', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      children: DwsMediaRole.values.map((r) {
+                        final isSel = selectedRole == r;
+                        return ChoiceChip(
+                          label: Text(r.name[0].toUpperCase() + r.name.substring(1)),
+                          selected: isSel,
+                          selectedColor: AppTheme.primarySoft,
+                          onSelected: (_) {
+                            setSheetState(() => selectedRole = r);
+                          },
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text('Légende / Titre affiché :', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: captionCtrl,
+                      decoration: InputDecoration(
+                        hintText: 'ex: Figure 1 — Architecture générale...',
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text('Description alternative (Accessibilité) :', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: altCtrl,
+                      decoration: InputDecoration(
+                        hintText: 'Description textuelle pour synthèse vocale...',
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: const [
+                              Icon(Icons.auto_awesome_rounded, size: 16, color: Color(0xFF6366F1)),
+                              SizedBox(width: 6),
+                              Text(
+                                'Assistant IA Souverain Local (100% sur l\'appareil)',
+                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF4338CA)),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              OutlinedButton.icon(
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                                icon: const Icon(Icons.edit_note_rounded, size: 14),
+                                label: const Text('Légende auto', style: TextStyle(fontSize: 11)),
+                                onPressed: () {
+                                  final repo = context.read<DwsMediaRepository>();
+                                  final autoCap = repo.generateAutoCaption(media);
+                                  captionCtrl.text = autoCap;
+                                  setSheetState(() {});
+                                },
+                              ),
+                              OutlinedButton.icon(
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                                icon: const Icon(Icons.accessibility_new_rounded, size: 14),
+                                label: const Text('Accessibilité', style: TextStyle(fontSize: 11)),
+                                onPressed: () {
+                                  final repo = context.read<DwsMediaRepository>();
+                                  final autoAlt = repo.generateAltText(media);
+                                  altCtrl.text = autoAlt;
+                                  setSheetState(() {});
+                                },
+                              ),
+                              if (media.type == DwsMediaType.image || media.type == DwsMediaType.pdf)
+                                OutlinedButton.icon(
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  ),
+                                  icon: const Icon(Icons.document_scanner_outlined, size: 14),
+                                  label: const Text('OCR Texte local', style: TextStyle(fontSize: 11)),
+                                  onPressed: () {
+                                    final repo = context.read<DwsMediaRepository>();
+                                    final ocrText = repo.extractTextOcr(media);
+                                    _showOcrResultDialog(ocrText);
+                                  },
+                                ),
+                              if (media.type == DwsMediaType.audio || media.type == DwsMediaType.video)
+                                OutlinedButton.icon(
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  ),
+                                  icon: const Icon(Icons.record_voice_over_rounded, size: 14),
+                                  label: const Text('Transcription Whisper', style: TextStyle(fontSize: 11)),
+                                  onPressed: () {
+                                    final repo = context.read<DwsMediaRepository>();
+                                    final transcript = repo.transcribeAudio(media);
+                                    _showTranscriptionResultDialog(transcript);
+                                  },
+                                ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.primary,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        icon: const Icon(Icons.save_rounded, size: 18),
+                        label: const Text('Enregistrer les modifications', style: TextStyle(fontWeight: FontWeight.bold)),
+                        onPressed: () async {
+                          final updated = media.copyWith(
+                            caption: captionCtrl.text.trim(),
+                            alt: altCtrl.text.trim(),
+                            widthPercent: selectedWidth,
+                            align: selectedAlign,
+                            wrap: selectedWrap,
+                            role: selectedRole,
+                          );
+                          await context.read<DwsMediaRepository>().registerMedia(updated);
+                          if (mounted) {
+                            Navigator.of(ctx).pop();
+                            setState(() {});
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Média "${media.slug}" actualisé.')),
+                            );
+                          }
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _showOcrResultDialog(String text) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: const [
+            Icon(Icons.document_scanner_outlined, color: AppTheme.primary),
+            SizedBox(width: 8),
+            Text('OCR Local MRixk', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: SelectableText(text, style: const TextStyle(fontSize: 13, height: 1.4)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Fermer'),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primary,
+              foregroundColor: Colors.white,
+            ),
+            icon: const Icon(Icons.add_rounded, size: 16),
+            label: const Text('Insérer dans Word'),
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              _insertTextAtCursor('\n$text\n');
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showTranscriptionResultDialog(String text) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: const [
+            Icon(Icons.record_voice_over_rounded, color: AppTheme.primary),
+            SizedBox(width: 8),
+            Text('Transcription Whisper Locale', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: SelectableText(text, style: const TextStyle(fontSize: 13, height: 1.4)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Fermer'),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primary,
+              foregroundColor: Colors.white,
+            ),
+            icon: const Icon(Icons.add_rounded, size: 16),
+            label: const Text('Insérer dans Word'),
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              _insertTextAtCursor('\n$text\n');
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final myProfile = context.read<ProfileRepository>().getProfile();
@@ -1204,6 +1964,11 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
             builder: (ctx) {
               final repo = ctx.watch<GroupNoteRepository>();
               final extVars = repo.getAllGroupVariables(widget.conversation.id);
+              Map<String, DwsMedia> mediaRegistry = const {};
+              try {
+                final mediaRepo = Provider.of<DwsMediaRepository>(ctx, listen: true);
+                mediaRegistry = mediaRepo.getAllGroupMediaRegistry(widget.conversation.id);
+              } catch (_) {}
               return GroupNoteRenderer(
                 content: _textController.text,
                 components: _components,
@@ -1211,6 +1976,8 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
                 paragraphSpacing: _paragraphSpacing,
                 externalDocumentsVariables: extVars,
                 currentDocumentId: _currentNote.id,
+                mediaRegistry: mediaRegistry,
+                onConfigureMedia: (media) => _showMediaPropertiesSheet(media),
                 onStartEditing: () {
                   setState(() => _activeCompartment = 1);
                 },
@@ -1451,6 +2218,22 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
               icon: const Icon(Icons.check_box_outlined, size: 19),
               tooltip: 'Case à cocher',
               onPressed: () => _insertTextAtCursor('\n[ ] '),
+            ),
+
+            const VerticalDivider(width: 16, thickness: 1, color: Color(0xFFE2E8F0)),
+
+            // Insert Multimedia (Photo, Video, Audio, Doc, Reference)
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFEEF2FF),
+                foregroundColor: const Color(0xFF4F46E5),
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: _showInsertMediaDialog,
+              icon: const Icon(Icons.perm_media_rounded, size: 15),
+              label: const Text('Média', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
             ),
           ],
         ),

@@ -467,6 +467,30 @@ class FormulaEngine {
       template: '{Tableau des résultats}',
       category: 'Composants',
     ),
+    FormulaSuggestion(
+      label: '{image="nom.png"}',
+      description: 'Incorpore une image native avec légende',
+      template: '{image="schema_reseau.png"}',
+      category: 'Médias',
+    ),
+    FormulaSuggestion(
+      label: '{video="video.mp4"}',
+      description: 'Incorpore une vidéo native avec lecteur',
+      template: '{video="experience.mp4"}',
+      category: 'Médias',
+    ),
+    FormulaSuggestion(
+      label: '{audio="audio.mp3"}',
+      description: 'Incorpore un enregistrement audio',
+      template: '{audio="explication.mp3"}',
+      category: 'Médias',
+    ),
+    FormulaSuggestion(
+      label: '{{media.?nom}}',
+      description: 'Référence un média existant sans duplication',
+      template: '{{media.?schema_reseau}}',
+      category: 'Médias',
+    ),
   ];
 }
 

@@ -8,6 +8,7 @@ import 'core/repositories/call_history_repository.dart';
 import 'core/repositories/contact_repository.dart';
 import 'core/repositories/conversation_repository.dart';
 import 'core/repositories/device_repository.dart';
+import 'core/repositories/dws_media_repository.dart';
 import 'core/repositories/group_note_repository.dart';
 import 'core/repositories/message_repository.dart';
 import 'core/repositories/moment_repository.dart';
@@ -39,6 +40,7 @@ void main() async {
         ChangeNotifierProvider(create: (_) => AssistantRepository(localDb)),
         ChangeNotifierProvider(create: (_) => CallHistoryRepository(localDb)),
         ChangeNotifierProvider(create: (_) => GroupNoteRepository(localDb)),
+        ChangeNotifierProvider(create: (_) => DwsMediaRepository(localDb)),
         ChangeNotifierProvider(create: (_) => ProfileRepository(localDb)),
       ],
       child: const MRixkApp(),

@@ -1,6 +1,12 @@
 import 'package:flutter/material.dart';
+import '../../../core/models/dws_media.dart';
 import '../../../core/services/formula_engine.dart';
+import '../../../core/services/real_media_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../shared/widgets/app_media_image.dart';
+import '../../viewers/document_viewer_screen.dart';
+import '../../viewers/image_viewer_screen.dart';
+import '../../viewers/video_player_screen.dart';
 
 /// Sanitizes untrusted HTML inputs to strictly prevent script injection or unsafe attributes.
 String sanitizeHtml(String input) {
@@ -36,6 +42,8 @@ class GroupNoteRenderer extends StatelessWidget {
   final VoidCallback? onStartEditing;
   final Map<String, Map<String, double>>? externalDocumentsVariables;
   final String? currentDocumentId;
+  final Map<String, DwsMedia>? mediaRegistry;
+  final void Function(DwsMedia media)? onConfigureMedia;
 
   const GroupNoteRenderer({
     super.key,
@@ -47,6 +55,8 @@ class GroupNoteRenderer extends StatelessWidget {
     this.onStartEditing,
     this.externalDocumentsVariables,
     this.currentDocumentId,
+    this.mediaRegistry,
+    this.onConfigureMedia,
   });
 
   @override
@@ -69,6 +79,7 @@ class GroupNoteRenderer extends StatelessWidget {
       computedVars,
       externalDocs: externalDocumentsVariables,
       currentDoc: currentDocumentId,
+      mediaReg: mediaRegistry,
     );
 
     // 3. Sanitize safely
@@ -163,6 +174,7 @@ class GroupNoteRenderer extends StatelessWidget {
     Map<String, double> vars, {
     Map<String, Map<String, double>>? externalDocs,
     String? currentDoc,
+    Map<String, DwsMedia>? mediaReg,
   }) {
     var result = text;
     final comps = Map<String, String>.from(compsInput);
@@ -185,34 +197,103 @@ class GroupNoteRenderer extends StatelessWidget {
       return ' <calc val="$valStr" expr="${expr.replaceAll('"', '')}"/> ';
     });
 
-    // 3. Resolve components declared as {{id="Titre"; <table>...</table>}} or {{id="Titre"; type="table"; ...}}
+    // 3. Resolve Media references: {{media.?slug}} or {{media.slug}}
+    final mediaRefRegex = RegExp(r'\{\{media\.(\??)([a-zA-Z0-9_\-]+)\}\}');
+    result = result.replaceAllMapped(mediaRefRegex, (m) {
+      final isImmediate = m.group(1) == '?';
+      final slug = m.group(2)!.trim();
+      final media = mediaReg?[slug];
+      if (media != null) {
+        return '\n<dws-media id="${media.id}" type="${media.type.name}" source="${media.source}" slug="${media.slug}" fileName="${media.fileName}" fileSize="${media.fileSize}" duration="${media.duration}" caption="${media.caption}" alt="${media.alt}" width="${media.widthPercent}" align="${media.align}" wrap="${media.wrap}" role="${media.role.name}"/>\n';
+      }
+      if (comps.containsKey(slug)) {
+        return '\n<!-- macro:$slug -->\n${comps[slug]}\n<!-- endmacro -->\n';
+      }
+      if (isImmediate) {
+        return '\n<dws-media-error slug="$slug"/>\n';
+      }
+      return m.group(0) ?? '';
+    });
+
+    // 4. Resolve Inline media syntax in Word:
+    // {image="schema_reseau.png"} or {image="src" caption="..." width=80% align="center" alt="..." role="figure"}
+    // {video="experience.mp4" caption="..." duration="04:32"}
+    // {audio="explication.mp3" caption="..." duration="02:15"}
+    // {pdf="rapport.pdf" caption="..."}
+    final inlineMediaRegex = RegExp(r'\{(image|video|audio|pdf)="([^"]+)"(?:\s+caption="([^"]*)")?(?:\s+width=([0-9.]+)%?)?(?:\s+align="([^"]*)")?(?:\s+alt="([^"]*)")?(?:\s+role="([^"]*)")?(?:\s+duration="([^"]*)")?\}');
+    result = result.replaceAllMapped(inlineMediaRegex, (m) {
+      final type = m.group(1)!;
+      final src = m.group(2)!;
+      final caption = m.group(3) ?? '';
+      final width = m.group(4) ?? '80';
+      final align = m.group(5) ?? 'center';
+      final alt = m.group(6) ?? '';
+      final role = m.group(7) ?? (type == 'image' ? 'figure' : type == 'video' ? 'demo' : type == 'audio' ? 'explanation' : 'annex');
+      final duration = m.group(8) ?? '';
+      return '\n<dws-media type="$type" source="$src" caption="$caption" width="$width" align="$align" alt="$alt" role="$role" duration="$duration"/>\n';
+    });
+
+    // 5. Resolve components declared as {{id="Titre"; <table>...</table>}} or {{id="Titre"; type="image"; ...}}
     final compDeclRegex = RegExp(r'\{\{id="([^"]+)";\s*(.*?)\}\}', dotAll: true);
     for (final match in compDeclRegex.allMatches(text)) {
       final compId = match.group(1);
       final compPayload = match.group(2);
       if (compId != null && compPayload != null && !comps.containsKey(compId)) {
-        comps[compId] = compPayload.trim();
+        if (compPayload.contains('type="image"') ||
+            compPayload.contains('type="video"') ||
+            compPayload.contains('type="audio"') ||
+            compPayload.contains('type="pdf"')) {
+          final typeMatch = RegExp(r'type="([^"]+)"').firstMatch(compPayload);
+          final srcMatch = RegExp(r'source="([^"]+)"').firstMatch(compPayload);
+          final capMatch = RegExp(r'caption="([^"]+)"').firstMatch(compPayload);
+          final widthMatch = RegExp(r'width=([0-9.]+)%?').firstMatch(compPayload);
+          final alignMatch = RegExp(r'align="([^"]+)"').firstMatch(compPayload);
+          final altMatch = RegExp(r'alt="([^"]+)"').firstMatch(compPayload);
+          final roleMatch = RegExp(r'role="([^"]+)"').firstMatch(compPayload);
+          final durMatch = RegExp(r'duration="([^"]+)"').firstMatch(compPayload);
+
+          final type = typeMatch?.group(1) ?? 'image';
+          final src = srcMatch?.group(1) ?? '';
+          final cap = capMatch?.group(1) ?? '';
+          final width = widthMatch?.group(1) ?? '80';
+          final align = alignMatch?.group(1) ?? 'center';
+          final alt = altMatch?.group(1) ?? '';
+          final role = roleMatch?.group(1) ?? (type == 'image' ? 'figure' : 'demo');
+          final dur = durMatch?.group(1) ?? '';
+
+          comps[compId] = '<dws-media id="$compId" slug="$compId" type="$type" source="$src" caption="$cap" width="$width" align="$align" alt="$alt" role="$role" duration="$dur"/>';
+        } else {
+          comps[compId] = compPayload.trim();
+        }
       }
     }
     // Remove component declaration blocks from document body text
     result = result.replaceAll(compDeclRegex, '');
 
-    // 4. Resolve double curly {{name}} from components map
+    // 6. Resolve double curly {{name}} from components map or media registry
     final macroRegex = RegExp(r'\{\{([a-zA-Z0-9_\-\s]+)\}\}');
     result = result.replaceAllMapped(macroRegex, (match) {
       final rawName = match.group(1)?.trim();
       if (rawName != null && comps.containsKey(rawName)) {
         return '\n<!-- macro:$rawName -->\n${comps[rawName]}\n<!-- endmacro -->\n';
       }
+      if (rawName != null && mediaReg != null && mediaReg.containsKey(rawName)) {
+        final media = mediaReg[rawName]!;
+        return '\n<dws-media id="${media.id}" type="${media.type.name}" source="${media.source}" slug="${media.slug}" fileName="${media.fileName}" fileSize="${media.fileSize}" duration="${media.duration}" caption="${media.caption}" alt="${media.alt}" width="${media.widthPercent}" align="${media.align}" wrap="${media.wrap}" role="${media.role.name}"/>\n';
+      }
       return match.group(0) ?? '';
     });
 
-    // 5. Resolve single curly {Titre du tableau} if matching a component
+    // 7. Resolve single curly {Titre du tableau} or {schema_reseau}
     final singleBraceRegex = RegExp(r'\{([^{}]+)\}');
     result = result.replaceAllMapped(singleBraceRegex, (match) {
       final inner = match.group(1)?.trim();
       if (inner != null && comps.containsKey(inner)) {
         return '\n<!-- macro:$inner -->\n${comps[inner]}\n<!-- endmacro -->\n';
+      }
+      if (inner != null && mediaReg != null && mediaReg.containsKey(inner)) {
+        final media = mediaReg[inner]!;
+        return '\n<dws-media id="${media.id}" type="${media.type.name}" source="${media.source}" slug="${media.slug}" fileName="${media.fileName}" fileSize="${media.fileSize}" duration="${media.duration}" caption="${media.caption}" alt="${media.alt}" width="${media.widthPercent}" align="${media.align}" wrap="${media.wrap}" role="${media.role.name}"/>\n';
       }
       return match.group(0) ?? '';
     });
@@ -373,6 +454,14 @@ class GroupNoteRenderer extends StatelessWidget {
         );
         break;
 
+      case _BlockType.mediaItem:
+        child = _buildMediaComponent(context, block.mediaData!);
+        break;
+
+      case _BlockType.mediaError:
+        child = _buildMediaErrorCard(block.text);
+        break;
+
       case _BlockType.paragraph:
       default:
         if (block.text.trim().isEmpty) return SizedBox(height: paragraphSpacing / 2);
@@ -445,6 +534,454 @@ class GroupNoteRenderer extends StatelessWidget {
         color: block.textColor ?? color,
         fontFamily: block.fontFamily ?? 'Inter',
         letterSpacing: level <= 2 ? -0.4 : 0.0,
+      ),
+    );
+  }
+
+  Widget _buildMediaComponent(BuildContext context, DwsMedia media) {
+    switch (media.type) {
+      case DwsMediaType.image:
+        return _buildImageMediaCard(context, media);
+      case DwsMediaType.video:
+        return _buildVideoMediaCard(context, media);
+      case DwsMediaType.audio:
+        return _buildAudioMediaCard(context, media);
+      case DwsMediaType.pdf:
+        return _buildPdfMediaCard(context, media);
+    }
+  }
+
+  Widget _buildImageMediaCard(BuildContext context, DwsMedia media) {
+    final factor = (media.widthPercent / 100.0).clamp(0.2, 1.0);
+    Alignment align = Alignment.center;
+    if (media.align == 'left') align = Alignment.centerLeft;
+    if (media.align == 'right') align = Alignment.centerRight;
+
+    return Align(
+      alignment: align,
+      child: FractionallySizedBox(
+        widthFactor: factor,
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+            boxShadow: const [BoxShadow(color: Color(0x08000000), blurRadius: 6, offset: Offset(0, 2))],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEFF6FF),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.image_outlined, size: 13, color: AppTheme.primary),
+                          const SizedBox(width: 4),
+                          Text(media.roleDisplayName, style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: AppTheme.primary)),
+                        ],
+                      ),
+                    ),
+                    const Spacer(),
+                    if (media.alt.isNotEmpty)
+                      Tooltip(
+                        message: 'Alt: ${media.alt}',
+                        child: const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 4),
+                          child: Icon(Icons.accessibility_new_rounded, size: 16, color: Color(0xFF64748B)),
+                        ),
+                      ),
+                    IconButton(
+                      icon: const Icon(Icons.zoom_in_rounded, size: 18, color: Color(0xFF64748B)),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      tooltip: 'Agrandir l\'image',
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => ImageViewerScreen(
+                              imageUri: media.source,
+                              title: media.caption.isNotEmpty ? media.caption : media.fileName,
+                              subtitle: 'Figure ${media.figureNumber ?? 1} • MRixk DWS',
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    if (onConfigureMedia != null) ...[
+                      const SizedBox(width: 8),
+                      InkWell(
+                        onTap: () => onConfigureMedia!(media),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF1F5F9),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Text('Propriétés', style: TextStyle(fontSize: 10.5, color: Color(0xFF334155), fontWeight: FontWeight.w600)),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              GestureDetector(
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => ImageViewerScreen(
+                        imageUri: media.source,
+                        title: media.caption.isNotEmpty ? media.caption : media.fileName,
+                        subtitle: 'Figure ${media.figureNumber ?? 1} • MRixk DWS',
+                      ),
+                    ),
+                  );
+                },
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 10),
+                    child: AppMediaImage(
+                      imageUrl: media.source,
+                      height: 220,
+                      width: double.infinity,
+                      fallbackTitle: media.caption.isNotEmpty ? media.caption : media.fileName,
+                      fallbackSubtitle: 'Figure ${media.figureNumber ?? 1} • Image haute résolution',
+                    ),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text.rich(
+                      TextSpan(
+                        style: const TextStyle(fontSize: 12.5, color: Color(0xFF334155), height: 1.4),
+                        children: [
+                          TextSpan(
+                            text: 'Figure ${media.figureNumber ?? 1} — ',
+                            style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                          ),
+                          TextSpan(text: media.caption.isNotEmpty ? media.caption : media.fileName),
+                        ],
+                      ),
+                    ),
+                    if (media.alt.isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        'Description : ${media.alt}',
+                        style: const TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: Color(0xFF64748B)),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVideoMediaCard(BuildContext context, DwsMedia media) {
+    final factor = (media.widthPercent / 100.0).clamp(0.2, 1.0);
+    Alignment align = Alignment.center;
+    if (media.align == 'left') align = Alignment.centerLeft;
+    if (media.align == 'right') align = Alignment.centerRight;
+
+    return Align(
+      alignment: align,
+      child: FractionallySizedBox(
+        widthFactor: factor,
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+            boxShadow: const [BoxShadow(color: Color(0x08000000), blurRadius: 6, offset: Offset(0, 2))],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFEF2F2),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.videocam_rounded, size: 13, color: Color(0xFFDC2626)),
+                          const SizedBox(width: 4),
+                          Text(media.roleDisplayName, style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFFDC2626))),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0F172A),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        'MP4 · ${media.duration.isNotEmpty ? media.duration : "04:32"}',
+                        style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    const Spacer(),
+                    if (onConfigureMedia != null)
+                      InkWell(
+                        onTap: () => onConfigureMedia!(media),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF1F5F9),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Text('Propriétés', style: TextStyle(fontSize: 10.5, color: Color(0xFF334155), fontWeight: FontWeight.w600)),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              GestureDetector(
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => VideoPlayerScreen(
+                        videoUri: media.source,
+                        title: media.caption.isNotEmpty ? media.caption : media.fileName,
+                        duration: media.duration.isNotEmpty ? media.duration : '04:32',
+                      ),
+                    ),
+                  );
+                },
+                child: Container(
+                  height: 180,
+                  margin: const EdgeInsets.symmetric(horizontal: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0F172A),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          gradient: LinearGradient(
+                            colors: [const Color(0xFF1E293B), Colors.black.withOpacity(0.8)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                        ),
+                      ),
+                      Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            width: 50,
+                            height: 50,
+                            decoration: BoxDecoration(
+                              color: AppTheme.primary.withOpacity(0.9),
+                              shape: BoxShape.circle,
+                              boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 8, offset: Offset(0, 3))],
+                            ),
+                            child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 32),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            media.fileName.isNotEmpty ? media.fileName : 'Vidéo de démonstration',
+                            style: const TextStyle(color: Colors.white70, fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text.rich(
+                  TextSpan(
+                    style: const TextStyle(fontSize: 12.5, color: Color(0xFF334155), height: 1.4),
+                    children: [
+                      TextSpan(
+                        text: 'Figure ${media.figureNumber ?? 2} — ',
+                        style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                      ),
+                      TextSpan(text: media.caption.isNotEmpty ? media.caption : media.fileName),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAudioMediaCard(BuildContext context, DwsMedia media) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: const [BoxShadow(color: Color(0x06000000), blurRadius: 4, offset: Offset(0, 2))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFECFDF5),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.audiotrack_rounded, size: 20, color: Color(0xFF059669)),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      media.caption.isNotEmpty ? media.caption : media.fileName,
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      'Figure ${media.figureNumber ?? 3} • MP3 · ${media.duration.isNotEmpty ? media.duration : "02:15"}',
+                      style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.play_circle_fill_rounded, size: 36, color: Color(0xFF059669)),
+                onPressed: () {
+                  RealMediaService.instance.playAudio(media.source);
+                },
+              ),
+              if (onConfigureMedia != null)
+                IconButton(
+                  icon: const Icon(Icons.settings_outlined, size: 18, color: Color(0xFF64748B)),
+                  onPressed: () => onConfigureMedia!(media),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPdfMediaCard(BuildContext context, DwsMedia media) {
+    return GestureDetector(
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => DocumentViewerScreen(
+              fileName: media.fileName.isNotEmpty ? media.fileName : 'Annexe.pdf',
+              fileSize: media.fileSize.isNotEmpty ? media.fileSize : '2.8 Mo',
+              fileUri: media.source,
+            ),
+          ),
+        );
+      },
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEF2F2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.picture_as_pdf_rounded, color: Color(0xFFDC2626), size: 22),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    media.caption.isNotEmpty ? media.caption : media.fileName,
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    'Annexe ${media.figureNumber ?? 1} • PDF · ${media.fileSize.isNotEmpty ? media.fileSize : "2.8 Mo"}',
+                    style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                  ),
+                ],
+              ),
+            ),
+            if (onConfigureMedia != null)
+              IconButton(
+                icon: const Icon(Icons.settings_outlined, size: 18, color: Color(0xFF64748B)),
+                onPressed: () => onConfigureMedia!(media),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMediaErrorCard(String slug) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFEF2F2),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFFECACA)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.broken_image_rounded, size: 20, color: Color(0xFFDC2626)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Média introuvable : {{media.?$slug}}',
+                  style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Color(0xFFB91C1C)),
+                ),
+                const SizedBox(height: 2),
+                const Text(
+                  'Ce média n\'existe pas dans la bibliothèque du groupe ou vous ne disposez pas des autorisations nécessaires.',
+                  style: TextStyle(fontSize: 11, color: Color(0xFF991B1B)),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1274,6 +1811,7 @@ class GroupNoteRenderer extends StatelessWidget {
     final lines = input.split('\n');
 
     String? currentMacroName;
+    int figureCounter = 1;
 
     int i = 0;
     while (i < lines.length) {
@@ -1286,6 +1824,59 @@ class GroupNoteRenderer extends StatelessWidget {
       }
       if (line == '<!-- endmacro -->') {
         currentMacroName = null;
+        i++;
+        continue;
+      }
+
+      // DWS Media Component detection
+      if (line.startsWith('<dws-media ') || line.startsWith('<dws-media-error ')) {
+        if (line.startsWith('<dws-media-error ')) {
+          final slug = RegExp(r'slug="([^"]+)"').firstMatch(line)?.group(1) ?? '';
+          blocks.add(_ContentBlock(
+            type: _BlockType.mediaError,
+            text: slug,
+            macroName: slug,
+          ));
+        } else {
+          final typeStr = RegExp(r'type="([^"]+)"').firstMatch(line)?.group(1) ?? 'image';
+          final src = RegExp(r'source="([^"]+)"').firstMatch(line)?.group(1) ?? '';
+          final id = RegExp(r'id="([^"]+)"').firstMatch(line)?.group(1) ?? 'media_$figureCounter';
+          final slug = RegExp(r'slug="([^"]+)"').firstMatch(line)?.group(1) ?? (src.split('/').last);
+          final cap = RegExp(r'caption="([^"]*)"').firstMatch(line)?.group(1) ?? '';
+          final alt = RegExp(r'alt="([^"]*)"').firstMatch(line)?.group(1) ?? '';
+          final align = RegExp(r'align="([^"]*)"').firstMatch(line)?.group(1) ?? 'center';
+          final wrap = RegExp(r'wrap="([^"]*)"').firstMatch(line)?.group(1) ?? 'break';
+          final width = double.tryParse(RegExp(r'width="?([0-9.]+)"?').firstMatch(line)?.group(1) ?? '80') ?? 80.0;
+          final dur = RegExp(r'duration="([^"]*)"').firstMatch(line)?.group(1) ?? '';
+          final roleStr = RegExp(r'role="([^"]*)"').firstMatch(line)?.group(1) ?? '';
+
+          final mType = DwsMediaType.values.firstWhere((e) => e.name == typeStr, orElse: () => DwsMediaType.image);
+          final mRole = DwsMediaRole.values.firstWhere((e) => e.name == roleStr, orElse: () => mType == DwsMediaType.image ? DwsMediaRole.figure : DwsMediaRole.demo);
+
+          final media = DwsMedia(
+            id: id,
+            conversationId: '',
+            slug: slug,
+            type: mType,
+            source: src,
+            fileName: src.split('/').last,
+            caption: cap,
+            alt: alt,
+            widthPercent: width,
+            align: align,
+            wrap: wrap,
+            duration: dur,
+            role: mRole,
+            figureNumber: figureCounter++,
+          );
+
+          blocks.add(_ContentBlock(
+            type: _BlockType.mediaItem,
+            text: cap,
+            macroName: slug,
+            mediaData: media,
+          ));
+        }
         i++;
         continue;
       }
@@ -1577,6 +2168,8 @@ enum _BlockType {
   table,
   diagram,
   graph,
+  mediaItem,
+  mediaError,
 }
 
 class _ContentBlock {
@@ -1592,6 +2185,7 @@ class _ContentBlock {
   final bool? isChecked;
   final _TableData? tableData;
   final List<MapEntry<String, double>>? graphData;
+  final DwsMedia? mediaData;
 
   _ContentBlock({
     required this.type,
@@ -1606,6 +2200,7 @@ class _ContentBlock {
     this.isChecked,
     this.tableData,
     this.graphData,
+    this.mediaData,
   });
 }
 
