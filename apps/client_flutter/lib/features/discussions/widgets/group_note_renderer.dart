@@ -9,9 +9,11 @@ import '../../viewers/image_viewer_screen.dart';
 import '../../viewers/video_player_screen.dart';
 import 'scientific_components_renderer.dart';
 
-/// Sanitizes untrusted HTML inputs to strictly prevent script injection or unsafe attributes.
+/// Sanitizes untrusted HTML/SVG inputs to strictly prevent script injection, active elements or unsafe attributes.
 String sanitizeHtml(String input) {
   var sanitized = input;
+
+  // 1. Strip active scripts, frames, objects and embedded plug-ins
   sanitized = sanitized.replaceAll(
     RegExp(r'<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>', caseSensitive: false),
     '',
@@ -24,12 +26,36 @@ String sanitizeHtml(String input) {
     RegExp(r'<object\b[^<]*(?:(?!<\/object>)<[^<]*)*<\/object>', caseSensitive: false),
     '',
   );
-  sanitized = sanitized.replaceAll(RegExp(r'<embed\b[^>]*>', caseSensitive: false), '');
   sanitized = sanitized.replaceAll(
-    RegExp(r'\bon\w+\s*=\s*(?:"[^"]*"|[^>\s]+)', caseSensitive: false),
+    RegExp(r'<applet\b[^<]*(?:(?!<\/applet>)<[^<]*)*<\/applet>', caseSensitive: false),
     '',
   );
+  sanitized = sanitized.replaceAll(
+    RegExp(r'<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>', caseSensitive: false),
+    '',
+  );
+  sanitized = sanitized.replaceAll(RegExp(r'<embed\b[^>]*>', caseSensitive: false), '');
+  sanitized = sanitized.replaceAll(RegExp(r'<meta\b[^>]*>', caseSensitive: false), '');
+  sanitized = sanitized.replaceAll(RegExp(r'<link\b[^>]*>', caseSensitive: false), '');
+
+  // 2. SVG active elements sanitization: strip foreignObject and nested active tags
+  sanitized = sanitized.replaceAll(
+    RegExp(r'<foreignObject\b[^<]*(?:(?!<\/foreignObject>)<[^<]*)*<\/foreignObject>', caseSensitive: false),
+    '',
+  );
+
+  // 3. Strip all inline event handlers (onload, onerror, onclick, onmouseover, etc.)
+  sanitized = sanitized.replaceAll(
+    RegExp(r'\bon\w+\s*=\s*(?:"[^"]*"|\x27[^\x27]*\x27|[^>\s]+)', caseSensitive: false),
+    '',
+  );
+
+  // 4. Strip dangerous URI schemes: javascript:, vbscript:, data:text/html
   sanitized = sanitized.replaceAll(RegExp(r'javascript:[^\s"<>]+', caseSensitive: false), '');
+  sanitized = sanitized.replaceAll(RegExp(r'vbscript:[^\s"<>]+', caseSensitive: false), '');
+  sanitized = sanitized.replaceAll(RegExp(r'data:text\/html[^\s"<>]+', caseSensitive: false), '');
+  sanitized = sanitized.replaceAll(RegExp(r'xlink:href\s*=\s*(?:"[^"]*"|\x27[^\x27]*\x27|[^>\s]+)', caseSensitive: false), '');
+
   return sanitized;
 }
 

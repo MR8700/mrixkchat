@@ -221,15 +221,31 @@ class FormulaEngine {
     Map<String, Set<String>>? graph,
   }) {
     try {
+      final trimmed = expr.trim();
+      if (trimmed.isEmpty) return null;
+
+      // 1. Security Guard: Prevent injection / evasion keywords
+      const dangerousKeywords = {
+        'system', 'exec', 'execute', 'window', 'document', 'fetch', 'xmlhttprequest',
+        'constructor', 'prototype', '__proto__', 'process', 'require', 'import', 'eval',
+        'readfile', 'writefile', 'fs', 'child_process'
+      };
+      final lower = trimmed.toLowerCase();
+      for (final kw in dangerousKeywords) {
+        if (RegExp('\\b$kw\\b').hasMatch(lower)) {
+          return null;
+        }
+      }
+
       final sanitized = _substituteVariables(
-        expr.trim(),
+        trimmed,
         localVars,
         externalDocs: externalDocs,
         currentDoc: currentDoc,
         graph: graph,
       );
       final tokens = _tokenize(sanitized);
-      if (tokens.isEmpty) return null;
+      if (tokens.isEmpty || tokens.length > 512) return null;
       final parser = _ExprParser(tokens);
       return parser.parseExpression();
     } on CircularDependencyException {
@@ -591,6 +607,8 @@ class FormulaSuggestion {
 class _ExprParser {
   final List<String> tokens;
   int pos = 0;
+  int depth = 0;
+  static const int maxDepth = 32;
 
   _ExprParser(this.tokens);
 
@@ -665,8 +683,11 @@ class _ExprParser {
     }
 
     if (token == '(') {
+      if (depth >= maxDepth) return null;
+      depth++;
       pos++;
       final val = parseExpression();
+      depth--;
       if (pos < tokens.length && tokens[pos] == ')') {
         pos++;
       }
@@ -683,8 +704,11 @@ class _ExprParser {
       final fn = token.toLowerCase();
       pos++;
       if (pos < tokens.length && tokens[pos] == '(') {
+        if (depth >= maxDepth) return null;
+        depth++;
         pos++;
         final arg = parseExpression();
+        depth--;
         if (pos < tokens.length && tokens[pos] == ')') {
           pos++;
         }
@@ -709,6 +733,8 @@ class _ExprParser {
     }
 
     if (token.toLowerCase() == 'det') {
+      if (depth >= maxDepth) return null;
+      depth++;
       pos++;
       while (pos < tokens.length && (tokens[pos] == '(' || tokens[pos] == '[')) {
         pos++;
@@ -729,6 +755,7 @@ class _ExprParser {
       while (pos < tokens.length && (tokens[pos] == ']' || tokens[pos] == ')')) {
         pos++;
       }
+      depth--;
       return a * d - b * c;
     }
 
