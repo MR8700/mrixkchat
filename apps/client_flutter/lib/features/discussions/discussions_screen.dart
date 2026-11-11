@@ -5,6 +5,7 @@ import '../../core/models/message.dart';
 import '../../core/models/moment.dart';
 import '../../core/repositories/contact_repository.dart';
 import '../../core/repositories/conversation_repository.dart';
+import '../../core/repositories/device_repository.dart';
 import '../../core/repositories/message_repository.dart';
 import '../../core/repositories/moment_repository.dart';
 import '../../core/repositories/profile_repository.dart';
@@ -188,12 +189,30 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                   final timeStr =
                       '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
                   final firstMsg = messageController.text.trim();
+
+                  int myDeviceCount = 1;
+                  try {
+                    final devRepo = context.read<DeviceRepository>();
+                    final devs = devRepo.getActiveDevices();
+                    if (devs.isNotEmpty) myDeviceCount = devs.length;
+                  } catch (_) {}
+
+                  final creatorMember = GroupMember(
+                    id: myProfile.id,
+                    name: myProfile.displayName.isNotEmpty ? '${myProfile.displayName} (Moi)' : 'Moi',
+                    handle: myProfile.handle,
+                    avatarUrl: myProfile.avatarUrl,
+                    role: 'creator',
+                    connectedDevicesCount: myDeviceCount,
+                  );
+
                   final newConv = Conversation(
                     id: 'conv_${DateTime.now().millisecondsSinceEpoch}',
                     title: title,
                     peerAvatar: '',
                     isGroup: isGroup,
-                    groupMembersCount: isGroup ? 3 : 1,
+                    groupMembersCount: 1,
+                    groupMembers: isGroup ? [creatorMember] : const [],
                     lastMessage: firstMsg.isNotEmpty ? firstMsg : 'Discussion créée',
                     lastMessageTime: timeStr,
                     unreadCount: 0,
@@ -647,12 +666,16 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
 
 
 
-  void _showMomentStory(BuildContext context, Moment moment) {
+  void _showMomentStory(BuildContext context, List<Moment> moments, {int initialIndex = 0}) {
+    if (moments.isEmpty) return;
     showDialog(
       context: context,
       useSafeArea: false,
       barrierColor: Colors.black.withOpacity(0.92),
-      builder: (ctx) => MomentStoryViewerDialog(initialMoment: moment),
+      builder: (ctx) => MomentStoryViewerDialog(
+        moments: moments,
+        initialIndex: initialIndex,
+      ),
     );
   }
 
@@ -665,14 +688,20 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
       m.authorId == profile.id ||
       (profile.displayName.isNotEmpty && m.authorName.toLowerCase() == profile.displayName.toLowerCase())
     ).toList();
-    final myMoment = myMoments.isNotEmpty ? myMoments.first : null;
 
     // Filter contacts' moments
-    final contactMoments = moments.where((m) =>
-      m != myMoment &&
+    final otherMoments = moments.where((m) =>
+      !myMoments.contains(m) &&
       m.authorId != profile.id &&
       (profile.displayName.isEmpty || m.authorName.toLowerCase() != profile.displayName.toLowerCase())
     ).toList();
+
+    // Group contact moments by author key to play their stories sequentially
+    final Map<String, List<Moment>> contactMomentsGrouped = {};
+    for (final m in otherMoments) {
+      final key = m.authorId.isNotEmpty ? m.authorId : m.authorName;
+      contactMomentsGrouped.putIfAbsent(key, () => []).add(m);
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -714,10 +743,10 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 16),
             children: [
               // Mon statut (+ Ajouter)
-              _buildAddMomentItem(myMoment),
-              for (final m in contactMoments) ...[
+              _buildAddMomentItem(myMoments),
+              for (final group in contactMomentsGrouped.values) ...[
                 const SizedBox(width: 12),
-                _buildContactMomentItem(m),
+                _buildContactMomentGroupItem(group),
               ],
             ],
           ),
@@ -726,9 +755,9 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
     );
   }
 
-  Widget _buildAddMomentItem(Moment? myMoment) {
+  Widget _buildAddMomentItem(List<Moment> myMoments) {
     final profile = context.watch<ProfileRepository>().getProfile();
-    final hasMoment = myMoment != null;
+    final hasMoment = myMoments.isNotEmpty;
 
     return Column(
       children: [
@@ -738,7 +767,7 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
             GestureDetector(
               onTap: () {
                 if (hasMoment) {
-                  _showMomentStory(context, myMoment);
+                  _showMomentStory(context, myMoments, initialIndex: 0);
                 } else {
                   showDialog(
                     context: context,
@@ -814,34 +843,62 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
     );
   }
 
-  Widget _buildContactMomentItem(Moment moment) {
+  Widget _buildContactMomentGroupItem(List<Moment> momentsGroup) {
+    if (momentsGroup.isEmpty) return const SizedBox.shrink();
+    final firstMoment = momentsGroup.first;
+    final count = momentsGroup.length;
     return GestureDetector(
-      onTap: () => _showMomentStory(context, moment),
+      onTap: () => _showMomentStory(context, momentsGroup, initialIndex: 0),
       child: Column(
         children: [
-          Container(
-            padding: const EdgeInsets.all(2.5),
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [AppTheme.primary, Color(0xFF245BDB), AppTheme.secondaryGlow],
-                begin: Alignment.bottomLeft,
-                end: Alignment.topRight,
+          Stack(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(2.5),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [AppTheme.primary, Color(0xFF245BDB), AppTheme.secondaryGlow],
+                    begin: Alignment.bottomLeft,
+                    end: Alignment.topRight,
+                  ),
+                  shape: BoxShape.circle,
+                ),
+                child: AppAvatar(
+                  name: firstMoment.authorName,
+                  avatarUrl: firstMoment.authorAvatar,
+                  radius: 23,
+                  isClickable: false,
+                  showBadge: false,
+                ),
               ),
-              shape: BoxShape.circle,
-            ),
-            child: AppAvatar(
-              name: moment.authorName,
-              avatarUrl: moment.authorAvatar,
-              radius: 23,
-              isClickable: false,
-              showBadge: false,
-            ),
+              if (count > 1)
+                Positioned(
+                  top: 0,
+                  right: 0,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: AppTheme.secondary,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.white, width: 1.5),
+                    ),
+                    child: Text(
+                      '$count',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ),
           const SizedBox(height: 4),
           SizedBox(
             width: 58,
             child: Text(
-              moment.authorName,
+              firstMoment.authorName,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,

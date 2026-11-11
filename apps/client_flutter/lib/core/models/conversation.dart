@@ -140,11 +140,11 @@ class Conversation {
   });
 
   /// Total count of unique user accounts in the group (based strictly on user_id)
-  int get totalUserAccountsCount => groupMembers.isNotEmpty ? groupMembers.length : groupMembersCount;
+  int get totalUserAccountsCount => groupMembers.isNotEmpty ? groupMembers.length : (isGroup ? 1 : 1);
 
   /// Total count of all connected devices across all members
   int get totalConnectedDevicesCount {
-    if (groupMembers.isEmpty) return groupMembersCount;
+    if (groupMembers.isEmpty) return 1;
     return groupMembers.fold<int>(0, (sum, m) => sum + m.connectedDevicesCount);
   }
 

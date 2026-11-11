@@ -9,11 +9,15 @@ import '../../discussions/widgets/audio_player_widget.dart';
 
 /// Fullscreen Sovereign Status / Story Viewer conforming to modern ephemeral story standards.
 class MomentStoryViewerDialog extends StatefulWidget {
-  final Moment initialMoment;
+  final List<Moment> moments;
+  final int initialIndex;
+  final Moment? initialMoment;
 
   const MomentStoryViewerDialog({
     super.key,
-    required this.initialMoment,
+    this.moments = const [],
+    this.initialIndex = 0,
+    this.initialMoment,
   });
 
   @override
@@ -25,21 +29,77 @@ class _MomentStoryViewerDialogState extends State<MomentStoryViewerDialog>
   late AnimationController _progressController;
   final TextEditingController _replyController = TextEditingController();
   bool _isReplying = false;
+  late List<Moment> _playlist;
+  int _currentIndex = 0;
 
   @override
   void initState() {
     super.initState();
+    if (widget.moments.isNotEmpty) {
+      _playlist = List<Moment>.from(widget.moments);
+      _currentIndex = widget.initialIndex.clamp(0, _playlist.length - 1);
+    } else if (widget.initialMoment != null) {
+      _playlist = [widget.initialMoment!];
+      _currentIndex = 0;
+    } else {
+      _playlist = [];
+      _currentIndex = 0;
+    }
+
     _progressController = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 8),
+      duration: const Duration(seconds: 7),
     );
 
-    _progressController.forward();
     _progressController.addStatusListener((status) {
       if (status == AnimationStatus.completed && mounted && !_isReplying) {
-        Navigator.of(context).pop();
+        _onStoryCompleted();
       }
     });
+
+    if (_playlist.isNotEmpty) {
+      _progressController.forward();
+    }
+  }
+
+  void _onStoryCompleted() {
+    if (!mounted || _isReplying) return;
+    if (_currentIndex < _playlist.length - 1) {
+      setState(() {
+        _currentIndex++;
+      });
+      _progressController.reset();
+      _progressController.forward();
+    } else {
+      Navigator.of(context).pop();
+    }
+  }
+
+  void _previousStory() {
+    if (!mounted || _isReplying) return;
+    if (_progressController.value > 0.2 || _currentIndex == 0) {
+      _progressController.reset();
+      _progressController.forward();
+    } else {
+      setState(() {
+        _currentIndex--;
+      });
+      _progressController.reset();
+      _progressController.forward();
+    }
+  }
+
+  void _nextStory() {
+    if (!mounted || _isReplying) return;
+    if (_currentIndex < _playlist.length - 1) {
+      setState(() {
+        _currentIndex++;
+      });
+      _progressController.reset();
+      _progressController.forward();
+    } else {
+      Navigator.of(context).pop();
+    }
   }
 
   @override
@@ -61,39 +121,67 @@ class _MomentStoryViewerDialogState extends State<MomentStoryViewerDialog>
     }
   }
 
+  Widget _buildProgressBars() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: AnimatedBuilder(
+        animation: _progressController,
+        builder: (context, _) {
+          return Row(
+            children: List.generate(_playlist.length, (index) {
+              double val;
+              if (index < _currentIndex) {
+                val = 1.0;
+              } else if (index == _currentIndex) {
+                val = _progressController.value;
+              } else {
+                val = 0.0;
+              }
+              return Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    right: index < _playlist.length - 1 ? 4.0 : 0.0,
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: val,
+                      backgroundColor: Colors.white.withOpacity(0.3),
+                      valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+                      minHeight: 3.5,
+                    ),
+                  ),
+                ),
+              );
+            }),
+          );
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_playlist.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
     // Watch repository for live reaction updates
     final repo = context.watch<MomentRepository>();
-    final moment = repo.getMomentById(widget.initialMoment.id) ?? widget.initialMoment;
+    final activeMoment = _playlist[_currentIndex];
+    final moment = repo.getMomentById(activeMoment.id) ?? activeMoment;
 
     return GestureDetector(
-      onTapDown: (_) => _pauseProgress(),
-      onTapUp: (_) => _resumeProgress(),
-      onTapCancel: () => _resumeProgress(),
+      onLongPressStart: (_) => _pauseProgress(),
+      onLongPressEnd: (_) => _resumeProgress(),
+      onLongPressCancel: () => _resumeProgress(),
       child: Scaffold(
         backgroundColor: Colors.black,
         body: SafeArea(
           child: Column(
             children: [
-              // 1. Top Story Progress Bar
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: AnimatedBuilder(
-                  animation: _progressController,
-                  builder: (context, _) {
-                    return ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: LinearProgressIndicator(
-                        value: _progressController.value,
-                        backgroundColor: Colors.white.withOpacity(0.3),
-                        valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
-                        minHeight: 3.5,
-                      ),
-                    );
-                  },
-                ),
-              ),
+              // 1. Top Story Progress Bars (Segmented by status in playlist)
+              _buildProgressBars(),
 
               // 2. Author Header
               Padding(
@@ -181,10 +269,34 @@ class _MomentStoryViewerDialogState extends State<MomentStoryViewerDialog>
                 ),
               ),
 
-              // 3. Status Content (Image / Video / Voice / Text Quote)
+              // 3. Status Content (Image / Video / Voice / Text Quote) with Tap Navigation
               Expanded(
-                child: Center(
-                  child: _buildStatusContent(moment),
+                child: Stack(
+                  children: [
+                    Center(
+                      child: _buildStatusContent(moment),
+                    ),
+                    Positioned.fill(
+                      child: Row(
+                        children: [
+                          Expanded(
+                            flex: 1,
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.translucent,
+                              onTap: _previousStory,
+                            ),
+                          ),
+                          Expanded(
+                            flex: 2,
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.translucent,
+                              onTap: _nextStory,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
 

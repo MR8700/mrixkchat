@@ -4,15 +4,18 @@ import 'package:provider/provider.dart';
 
 import 'package:mrixk_client/core/database/local_database.dart';
 import 'package:mrixk_client/core/database/database_seed.dart';
+import 'package:mrixk_client/core/models/conversation.dart';
 import 'package:mrixk_client/core/models/moment.dart';
 import 'package:mrixk_client/core/repositories/assistant_repository.dart';
 import 'package:mrixk_client/core/repositories/contact_repository.dart';
 import 'package:mrixk_client/core/repositories/conversation_repository.dart';
 import 'package:mrixk_client/core/repositories/device_repository.dart';
+import 'package:mrixk_client/core/repositories/group_note_repository.dart';
 import 'package:mrixk_client/core/repositories/message_repository.dart';
 import 'package:mrixk_client/core/repositories/moment_repository.dart';
 import 'package:mrixk_client/core/repositories/profile_repository.dart';
 import 'package:mrixk_client/features/assistant/assistant_screen.dart';
+import 'package:mrixk_client/features/discussions/conversation_info_screen.dart';
 import 'package:mrixk_client/features/discussions/discussions_screen.dart';
 import 'package:mrixk_client/features/moments/widgets/moment_story_viewer_dialog.dart';
 import 'package:mrixk_client/shared/widgets/app_avatar.dart';
@@ -152,6 +155,141 @@ void main() {
       // Verify MomentStoryViewerDialog opened
       expect(find.byType(MomentStoryViewerDialog), findsOneWidget);
       expect(find.text('Chiffrement quantique validé en laboratoire.'), findsOneWidget);
+
+      // Close dialog cleanly to dispose animation controller
+      await tester.tap(find.byIcon(Icons.close));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('MomentStoryViewerDialog plays multiple moments sequentially with segmented bars', (tester) async {
+      final db = await resetDb();
+      final moments = [
+        Moment(
+          id: 'moment_seq_1',
+          authorId: 'author_sarah',
+          authorName: 'Sarah Connor',
+          authorAvatar: '',
+          type: MomentType.quote,
+          timeAgo: 'Il y a 5 min',
+          caption: 'Premier statut souverain',
+        ),
+        Moment(
+          id: 'moment_seq_2',
+          authorId: 'author_sarah',
+          authorName: 'Sarah Connor',
+          authorAvatar: '',
+          type: MomentType.quote,
+          timeAgo: 'Il y a 2 min',
+          caption: 'Deuxième statut souverain',
+        ),
+      ];
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider(create: (_) => MomentRepository(db)),
+          ],
+          child: MaterialApp(
+            home: Builder(
+              builder: (ctx) => Scaffold(
+                body: ElevatedButton(
+                  onPressed: () {
+                    showDialog(
+                      context: ctx,
+                      builder: (_) => MomentStoryViewerDialog(moments: moments, initialIndex: 0),
+                    );
+                  },
+                  child: const Text('Open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Open'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Verify segmented progress indicators (2 segments for 2 moments)
+      expect(find.byType(LinearProgressIndicator), findsNWidgets(2));
+      expect(find.text('Premier statut souverain'), findsOneWidget);
+      expect(find.text('Deuxième statut souverain'), findsNothing);
+
+      // Tap right area to advance to next story immediately
+      await tester.tapAt(const Offset(600, 300));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Now on second story
+      expect(find.text('Deuxième statut souverain'), findsOneWidget);
+      expect(find.text('Premier statut souverain'), findsNothing);
+
+      // Tap right area again on the last story -> closes dialog cleanly
+      await tester.tapAt(const Offset(600, 300));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(find.byType(MomentStoryViewerDialog), findsNothing);
+    });
+
+    testWidgets('Groupe créé avec 1 membre et 1 appareil affiche fidèlement 1 compte et 1 appareil', (tester) async {
+      tester.view.physicalSize = const Size(1080, 3000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final db = await resetDb();
+      final convRepo = ConversationRepository(db);
+      final profileRepo = ProfileRepository(db);
+      final contactRepo = ContactRepository(db);
+      final deviceRepo = DeviceRepository(db);
+
+      // Group with creator only
+      final creator = GroupMember(
+        id: 'user_richard',
+        name: 'Richard MARE (Moi)',
+        role: 'creator',
+        connectedDevicesCount: 1,
+      );
+      final newGroup = Conversation(
+        id: 'group_single_member_test',
+        title: 'Nouveau Groupe Lab',
+        peerAvatar: '',
+        lastMessage: 'Discussion créée',
+        lastMessageTime: '10:00',
+        isGroup: true,
+        groupMembersCount: 1,
+        groupMembers: [creator],
+      );
+      await convRepo.createConversation(newGroup);
+
+      // Verify conversation model computed properties
+      expect(newGroup.totalUserAccountsCount, equals(1));
+      expect(newGroup.totalConnectedDevicesCount, equals(1));
+
+      // Verify UI rendering in ConversationInfoScreen
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider.value(value: convRepo),
+            ChangeNotifierProvider.value(value: profileRepo),
+            ChangeNotifierProvider.value(value: contactRepo),
+            ChangeNotifierProvider.value(value: deviceRepo),
+            ChangeNotifierProvider(create: (_) => GroupNoteRepository(db)),
+          ],
+          child: MaterialApp(
+            home: ConversationInfoScreen(conversation: newGroup),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Membres du groupe (1)'), findsOneWidget);
+      expect(find.text('Total des comptes membres'), findsOneWidget);
+      expect(find.text('Total des appareils'), findsOneWidget);
+      // Both numbers must be 1, never 3
+      expect(find.text('1'), findsNWidgets(2));
+      expect(find.text('3'), findsNothing);
     });
   });
 

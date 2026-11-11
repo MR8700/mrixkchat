@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../core/models/conversation.dart';
 import '../../core/repositories/contact_repository.dart';
 import '../../core/repositories/conversation_repository.dart';
+import '../../core/repositories/device_repository.dart';
 import '../../core/repositories/profile_repository.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/app_avatar.dart';
@@ -31,6 +32,28 @@ class _ConversationInfoScreenState extends State<ConversationInfoScreen> {
   void initState() {
     super.initState();
     _conv = widget.conversation;
+    if (_conv.isGroup && _conv.groupMembers.isEmpty) {
+      final myProfile = context.read<ProfileRepository>().getProfile();
+      int myDevCount = 1;
+      try {
+        final devRepo = context.read<DeviceRepository>();
+        final devs = devRepo.getActiveDevices();
+        if (devs.isNotEmpty) myDevCount = devs.length;
+      } catch (_) {}
+
+      final creator = GroupMember(
+        id: myProfile.id,
+        name: myProfile.displayName.isNotEmpty ? '${myProfile.displayName} (Moi)' : 'Moi',
+        handle: myProfile.handle,
+        avatarUrl: myProfile.avatarUrl,
+        role: 'creator',
+        connectedDevicesCount: myDevCount,
+      );
+      _conv = _conv.copyWith(
+        groupMembers: [creator],
+        groupMembersCount: 1,
+      );
+    }
   }
 
   bool _isCurrentUserAdmin() {
@@ -605,7 +628,21 @@ class _ConversationInfoScreenState extends State<ConversationInfoScreen> {
   }
 
   Widget _buildMembersListCard(bool isAdmin) {
-    final members = _conv.groupMembers;
+    final myProfile = context.read<ProfileRepository>().getProfile();
+    final members = _conv.groupMembers.isNotEmpty
+        ? _conv.groupMembers
+        : [
+            GroupMember(
+              id: myProfile.id,
+              name: myProfile.displayName.isNotEmpty ? '${myProfile.displayName} (Moi)' : 'Moi',
+              handle: myProfile.handle,
+              avatarUrl: myProfile.avatarUrl,
+              role: 'creator',
+              connectedDevicesCount: 1,
+            ),
+          ];
+    final totalAccounts = members.length;
+    final totalDevices = members.fold<int>(0, (sum, m) => sum + m.connectedDevicesCount);
     final canAdd = isAdmin || !_conv.onlyAdminsCanAddMembers;
 
     return Material(
@@ -626,7 +663,7 @@ class _ConversationInfoScreenState extends State<ConversationInfoScreen> {
                 const Icon(Icons.people_outline_rounded, color: AppTheme.primary, size: 20),
                 const SizedBox(width: 8),
                 Text(
-                  'Membres du groupe (${members.length})',
+                  'Membres du groupe ($totalAccounts)',
                   style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
                 ),
                 const Spacer(),
@@ -757,7 +794,7 @@ class _ConversationInfoScreenState extends State<ConversationInfoScreen> {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              '${_conv.totalUserAccountsCount}',
+                              '$totalAccounts',
                               style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppTheme.primary),
                             ),
                           ],
@@ -782,7 +819,7 @@ class _ConversationInfoScreenState extends State<ConversationInfoScreen> {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              '${_conv.totalConnectedDevicesCount}',
+                              '$totalDevices',
                               style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0284C7)),
                             ),
                           ],

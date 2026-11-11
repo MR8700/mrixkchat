@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../database/local_database.dart';
 import '../models/group_note.dart';
@@ -5,13 +6,20 @@ import '../services/formula_engine.dart';
 
 class GroupNoteRepository extends ChangeNotifier {
   final LocalDatabase _db;
+  StreamSubscription? _sub;
 
   GroupNoteRepository(this._db) {
-    _db.changes.listen((event) {
+    _sub = _db.changes.listen((event) {
       if (event.table == 'group_notes') {
         notifyListeners();
       }
     });
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
   }
 
   /// Default predefined components/macros mapping: name -> HTML/Math/Diagram code

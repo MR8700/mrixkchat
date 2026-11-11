@@ -1,16 +1,24 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../database/local_database.dart';
 import '../models/contact.dart';
 
 class ContactRepository extends ChangeNotifier {
   final LocalDatabase _db;
+  StreamSubscription? _sub;
 
   ContactRepository(this._db) {
-    _db.changes.listen((event) {
+    _sub = _db.changes.listen((event) {
       if (event.table == 'contacts') {
         notifyListeners();
       }
     });
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
   }
 
   // --- CRUD: CREATE ---
