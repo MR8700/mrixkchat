@@ -163,9 +163,11 @@ class RealMediaService {
         _mediaRecorder!.start();
         return true;
       }
-    } catch (_) {}
+    } catch (e) {
+      return false;
+    }
 
-    return true;
+    return false;
   }
 
   /// Stops microphone recording and resolves audio URL
@@ -303,23 +305,26 @@ class RealMediaService {
     return null;
   }
 
-  /// Plays audio from URL, data URI, or gentle vocal note
+  /// Plays audio from URL, data URI, or gentle vocal harmonic note
   void playAudio(String? audioUrl) {
     stopAudio();
     try {
-      final effectiveUrl = (audioUrl != null && audioUrl.isNotEmpty)
-          ? audioUrl
-          : generateAuthenticWavDataUri(durationSeconds: 3, frequency: 130.0);
-
-      _activeAudioElement = html.AudioElement(effectiveUrl);
-      _activeAudioElement?.onEnded.listen((_) {
-        _activeAudioElement = null;
-      });
-      _activeAudioElement?.play().catchError((e) {
-        speakAudibleMessage("Note vocale.");
-      });
+      if (audioUrl != null && audioUrl.isNotEmpty) {
+        final audio = html.AudioElement(audioUrl)
+          ..volume = 1.0
+          ..autoplay = false;
+        _activeAudioElement = audio;
+        audio.onEnded.listen((_) {
+          _activeAudioElement = null;
+        });
+        audio.play().catchError((e) {
+          _playAuthenticVocalTone();
+        });
+      } else {
+        _playAuthenticVocalTone();
+      }
     } catch (_) {
-      speakAudibleMessage("Note vocale.");
+      _playAuthenticVocalTone();
     }
   }
 
@@ -329,7 +334,70 @@ class RealMediaService {
       _activeAudioElement?.pause();
       _activeAudioElement?.currentTime = 0;
       _activeAudioElement = null;
+      js.context.callMethod('eval', [
+        '''
+        (function() {
+          try {
+            if (window._mrixkVoiceOsc) {
+              window._mrixkVoiceOsc.forEach(function(o) { try { o.stop(); } catch(e){} });
+              window._mrixkVoiceOsc = [];
+            }
+          } catch(e) {}
+        })();
+        '''
+      ]);
     } catch (_) {}
+  }
+
+  /// Plays an authentic acoustic vocal harmonic tone using Web Audio API
+  void _playAuthenticVocalTone() {
+    try {
+      js.context.callMethod('eval', [
+        '''
+        (function() {
+          try {
+            var AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (!AudioCtx) return;
+            var ctx = window._mrixkAudioCtx || (window._mrixkAudioCtx = new AudioCtx());
+            if (ctx.state === 'suspended') ctx.resume();
+            var now = ctx.currentTime;
+
+            var osc1 = ctx.createOscillator();
+            var osc2 = ctx.createOscillator();
+            var gain = ctx.createGain();
+
+            osc1.type = 'sawtooth';
+            osc1.frequency.setValueAtTime(140, now);
+            osc1.frequency.exponentialRampToValueAtTime(180, now + 0.3);
+            osc1.frequency.exponentialRampToValueAtTime(135, now + 0.9);
+
+            osc2.type = 'sine';
+            osc2.frequency.setValueAtTime(280, now);
+            osc2.frequency.exponentialRampToValueAtTime(360, now + 0.3);
+            osc2.frequency.exponentialRampToValueAtTime(270, now + 0.9);
+
+            gain.gain.setValueAtTime(0.001, now);
+            gain.gain.exponentialRampToValueAtTime(0.22, now + 0.05);
+            gain.gain.setValueAtTime(0.22, now + 0.9);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.2);
+
+            osc1.connect(gain);
+            osc2.connect(gain);
+            gain.connect(ctx.destination);
+
+            osc1.start(now);
+            osc2.start(now);
+            osc1.stop(now + 1.2);
+            osc2.stop(now + 1.2);
+
+            window._mrixkVoiceOsc = [osc1, osc2];
+          } catch(e) {}
+        })();
+        '''
+      ]);
+    } catch (_) {
+      speakAudibleMessage("Note vocale.");
+    }
   }
 
   /// Fallback authentic WAV generator with a gentle, warm vocal fundamental frequency

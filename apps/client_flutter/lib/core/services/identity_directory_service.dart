@@ -29,8 +29,8 @@ class IdentityDirectoryService {
       name: 'Dr. Sarah Connor',
       handle: '@sarah.connor',
       avatarUrl: '',
-      statusText: 'Recherche & IA 🧬 (Hors ligne)',
-      isOnline: false,
+      statusText: 'Recherche & IA 🧬 (En ligne)',
+      isOnline: true,
       isVerified: true,
     ),
   ];

@@ -8,6 +8,7 @@ class AudioPlayerWidget extends StatefulWidget {
   final bool isCompact;
   final List<double>? waveform;
   final String? audioUrl;
+  final bool isOutgoing;
 
   const AudioPlayerWidget({
     super.key,
@@ -15,6 +16,7 @@ class AudioPlayerWidget extends StatefulWidget {
     this.isCompact = false,
     this.waveform,
     this.audioUrl,
+    this.isOutgoing = false,
   });
 
   @override
@@ -35,7 +37,7 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
       final total = m * 60 + s;
       if (total > 0) return total;
     }
-    return 42;
+    return 18;
   }
 
   @override
@@ -52,18 +54,22 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
       _isPlaying = !_isPlaying;
       if (_isPlaying) {
         RealMediaService.instance.playAudio(widget.audioUrl);
-        _timer = Timer.periodic(Duration(milliseconds: (1000 / _playbackSpeed).round()), (timer) {
-          if (!mounted) return;
-          setState(() {
-            _currentSeconds++;
-            if (_currentSeconds >= _totalSeconds) {
-              _isPlaying = false;
-              _currentSeconds = 0;
-              RealMediaService.instance.stopAudio();
-              _timer?.cancel();
-            }
-          });
-        });
+        _timer?.cancel();
+        _timer = Timer.periodic(
+          Duration(milliseconds: (1000 / _playbackSpeed).round()),
+          (timer) {
+            if (!mounted) return;
+            setState(() {
+              _currentSeconds++;
+              if (_currentSeconds >= _totalSeconds) {
+                _isPlaying = false;
+                _currentSeconds = 0;
+                RealMediaService.instance.stopAudio();
+                _timer?.cancel();
+              }
+            });
+          },
+        );
       } else {
         RealMediaService.instance.stopAudio();
         _timer?.cancel();
@@ -82,17 +88,21 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
       }
       if (_isPlaying) {
         _timer?.cancel();
-        _timer = Timer.periodic(Duration(milliseconds: (1000 / _playbackSpeed).round()), (timer) {
-          if (!mounted) return;
-          setState(() {
-            _currentSeconds++;
-            if (_currentSeconds >= _totalSeconds) {
-              _isPlaying = false;
-              _currentSeconds = 0;
-              _timer?.cancel();
-            }
-          });
-        });
+        _timer = Timer.periodic(
+          Duration(milliseconds: (1000 / _playbackSpeed).round()),
+          (timer) {
+            if (!mounted) return;
+            setState(() {
+              _currentSeconds++;
+              if (_currentSeconds >= _totalSeconds) {
+                _isPlaying = false;
+                _currentSeconds = 0;
+                RealMediaService.instance.stopAudio();
+                _timer?.cancel();
+              }
+            });
+          },
+        );
       }
     });
   }
@@ -117,9 +127,15 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: AppTheme.surfaceWarm,
+          color: widget.isOutgoing
+              ? Colors.white.withOpacity(0.15)
+              : AppTheme.surfaceWarm,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFCBD5E1)),
+          border: Border.all(
+            color: widget.isOutgoing
+                ? Colors.white24
+                : const Color(0xFFCBD5E1),
+          ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -127,38 +143,38 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
             GestureDetector(
               onTap: _togglePlay,
               child: Container(
-                width: 24,
-                height: 24,
-                decoration: const BoxDecoration(
-                  color: AppTheme.primary,
+                width: 26,
+                height: 26,
+                decoration: BoxDecoration(
+                  color: widget.isOutgoing ? Colors.white : AppTheme.primary,
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
-                  _isPlaying ? Icons.pause : Icons.play_arrow,
-                  size: 15,
-                  color: Colors.white,
+                  _isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                  size: 16,
+                  color: widget.isOutgoing ? const Color(0xFF1D4ED8) : Colors.white,
                 ),
               ),
             ),
             const SizedBox(width: 8),
-            // Mini interactive scrubber
             GestureDetector(
               onTapDown: (details) => _seekByDx(details.localPosition.dx, 60),
-              onHorizontalDragUpdate: (details) => _seekByDx(details.localPosition.dx, 60),
+              onHorizontalDragUpdate: (details) =>
+                  _seekByDx(details.localPosition.dx, 60),
               child: SizedBox(
                 width: 60,
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    _bar(6, AppTheme.primary),
-                    _bar(12, AppTheme.primary),
-                    _bar(4, AppTheme.primary),
-                    _bar(10, AppTheme.primary),
-                    _bar(7, AppTheme.primary),
-                    _bar(12, Colors.grey.shade300),
-                    _bar(6, Colors.grey.shade300),
-                    _bar(8, Colors.grey.shade300),
-                    _bar(4, Colors.grey.shade300),
+                    _bar(6, widget.isOutgoing ? Colors.white : AppTheme.primary),
+                    _bar(12, widget.isOutgoing ? Colors.white : AppTheme.primary),
+                    _bar(4, widget.isOutgoing ? Colors.white : AppTheme.primary),
+                    _bar(10, widget.isOutgoing ? Colors.white : AppTheme.primary),
+                    _bar(7, widget.isOutgoing ? Colors.white : AppTheme.primary),
+                    _bar(12, widget.isOutgoing ? Colors.white38 : Colors.grey.shade300),
+                    _bar(6, widget.isOutgoing ? Colors.white38 : Colors.grey.shade300),
+                    _bar(8, widget.isOutgoing ? Colors.white38 : Colors.grey.shade300),
+                    _bar(4, widget.isOutgoing ? Colors.white38 : Colors.grey.shade300),
                   ],
                 ),
               ),
@@ -166,10 +182,10 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
             const SizedBox(width: 8),
             Text(
               _isPlaying ? _formattedTime : widget.duration,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
-                color: AppTheme.onSurfaceVariant,
+                color: widget.isOutgoing ? Colors.white : AppTheme.onSurfaceVariant,
               ),
             ),
           ],
@@ -177,131 +193,125 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
       );
     }
 
-    // Full audio bar in active chat with draggable scrubber
+    // Standard Chat Bubble Voice Note Player
+    final isOut = widget.isOutgoing;
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: AppTheme.surfaceWarm,
-        borderRadius: BorderRadius.circular(14),
+        color: isOut ? Colors.white.withOpacity(0.12) : const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: const Color(0xFFCBD5E1),
-          width: 1.1,
+          color: isOut ? Colors.white.withOpacity(0.20) : const Color(0xFFE2E8F0),
+          width: 1.0,
         ),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // Play button
+          // Sleek Play / Pause Button
           GestureDetector(
             onTap: _togglePlay,
             child: Container(
-              width: 40,
-              height: 40,
+              width: 42,
+              height: 42,
               decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [AppTheme.secondary, AppTheme.secondaryGlow],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
+                color: isOut ? Colors.white : null,
+                gradient: isOut
+                    ? null
+                    : const LinearGradient(
+                        colors: [Color(0xFF0043B8), Color(0xFF2563EB)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: AppTheme.secondary.withOpacity(0.3),
-                    blurRadius: 10,
+                    color: (isOut ? Colors.black : const Color(0xFF0043B8))
+                        .withOpacity(0.22),
+                    blurRadius: 8,
                     offset: const Offset(0, 2),
                   ),
                 ],
               ),
               child: Icon(
-                _isPlaying ? Icons.pause : Icons.play_arrow,
-                size: 22,
-                color: Colors.white,
+                _isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                size: 24,
+                color: isOut ? const Color(0xFF1D4ED8) : Colors.white,
               ),
             ),
           ),
           const SizedBox(width: 12),
 
-          // Waveform & Draggable Scrubber Timeline
+          // Waveform & Time Track
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
+                // Waveform scrubber
                 LayoutBuilder(
                   builder: (context, constraints) {
-                    final progressRatio = _totalSeconds > 0
-                        ? (_currentSeconds / _totalSeconds).clamp(0.0, 1.0)
-                        : 0.0;
-
                     return MouseRegion(
                       cursor: SystemMouseCursors.click,
                       child: GestureDetector(
                         behavior: HitTestBehavior.opaque,
-                        onTapDown: (details) =>
-                            _seekByDx(details.localPosition.dx, constraints.maxWidth),
-                        onHorizontalDragUpdate: (details) =>
-                            _seekByDx(details.localPosition.dx, constraints.maxWidth),
-                        child: Stack(
-                          alignment: Alignment.centerLeft,
-                          children: [
-                            SizedBox(
-                              height: 26,
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: _buildWaveformBars(),
-                              ),
-                            ),
-                            // Draggable scrubbing cursor needle
-                            Positioned(
-                              left: (constraints.maxWidth * progressRatio - 4)
-                                  .clamp(0.0, constraints.maxWidth - 8),
-                              child: Container(
-                                width: 8,
-                                height: 26,
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF0043B8),
-                                  borderRadius: BorderRadius.circular(4),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: const Color(0xFF0043B8).withOpacity(0.4),
-                                      blurRadius: 6,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
+                        onTapDown: (details) => _seekByDx(
+                            details.localPosition.dx, constraints.maxWidth),
+                        onHorizontalDragUpdate: (details) => _seekByDx(
+                            details.localPosition.dx, constraints.maxWidth),
+                        child: SizedBox(
+                          height: 28,
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: _buildWaveformBars(isOut),
+                          ),
                         ),
                       ),
                     );
                   },
                 ),
                 const SizedBox(height: 4),
+
+                // Timers & Voice info
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      _formattedTime,
-                      style: const TextStyle(
+                      _isPlaying ? _formattedTime : '0:00',
+                      style: TextStyle(
                         fontFamily: 'monospace',
                         fontSize: 11,
                         fontWeight: FontWeight.bold,
-                        color: AppTheme.secondary,
+                        color: isOut ? Colors.white : const Color(0xFF0043B8),
                       ),
                     ),
-                    const Text(
-                      'Tirer pour naviguer',
-                      style: TextStyle(
-                        fontSize: 9.5,
-                        color: Color(0xFF94A3B8),
-                      ),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.mic_rounded,
+                          size: 11,
+                          color: isOut ? Colors.white70 : const Color(0xFF64748B),
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          isOut ? 'Vocal chiffré' : 'Vocal vérifié',
+                          style: TextStyle(
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w500,
+                            color: isOut ? Colors.white70 : const Color(0xFF64748B),
+                          ),
+                        ),
+                      ],
                     ),
                     Text(
                       widget.duration,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontFamily: 'monospace',
                         fontSize: 11,
-                        color: AppTheme.onSurfaceVariant,
+                        color: isOut ? Colors.white70 : const Color(0xFF64748B),
                       ),
                     ),
                   ],
@@ -311,23 +321,25 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
           ),
           const SizedBox(width: 10),
 
-          // Speed button
+          // Speed Pill
           GestureDetector(
             onTap: _cycleSpeed,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: isOut ? Colors.white.withOpacity(0.18) : Colors.white,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFFCBD5E1)),
+                border: Border.all(
+                  color: isOut ? Colors.white24 : const Color(0xFFCBD5E1),
+                ),
               ),
               child: Text(
                 '${_playbackSpeed}x',
-                style: const TextStyle(
-                  fontSize: 11,
+                style: TextStyle(
+                  fontSize: 10.5,
                   fontFamily: 'monospace',
                   fontWeight: FontWeight.bold,
-                  color: AppTheme.onSurface,
+                  color: isOut ? Colors.white : AppTheme.onSurface,
                 ),
               ),
             ),
@@ -349,9 +361,11 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
     );
   }
 
-  List<Widget> _buildWaveformBars() {
+  List<Widget> _buildWaveformBars(bool isOut) {
     final bars = widget.waveform ?? [
-      0.3, 0.5, 0.8, 0.4, 0.9, 0.6, 0.3, 0.7, 0.4, 0.6, 0.8, 0.5, 0.3, 0.6, 0.4, 0.7, 0.2, 0.5, 0.7, 0.4
+      0.3, 0.5, 0.8, 0.4, 0.9, 0.6, 0.3, 0.7, 0.4, 0.6,
+      0.8, 0.5, 0.3, 0.6, 0.4, 0.7, 0.2, 0.5, 0.7, 0.4,
+      0.6, 0.8, 0.3, 0.7, 0.5, 0.9, 0.4, 0.6
     ];
     final progress = _totalSeconds > 0 ? (_currentSeconds / _totalSeconds) : 0.0;
 
@@ -359,11 +373,19 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
       final index = entry.key;
       final value = entry.value;
       final isPlayed = (index / bars.length) <= progress;
+
+      final Color barColor;
+      if (isOut) {
+        barColor = isPlayed ? Colors.white : Colors.white.withOpacity(0.38);
+      } else {
+        barColor = isPlayed ? const Color(0xFF0043B8) : const Color(0xFFCBD5E1);
+      }
+
       return Container(
-        width: 3.5,
-        height: 6 + (value * 18),
+        width: 3.2,
+        height: 6 + (value * 20),
         decoration: BoxDecoration(
-          color: isPlayed ? AppTheme.secondary : const Color(0xFFCBD5E1),
+          color: barColor,
           borderRadius: BorderRadius.circular(2),
         ),
       );

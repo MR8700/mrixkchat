@@ -48,6 +48,42 @@ class _AssistantScreenState extends State<AssistantScreen> {
     );
   }
 
+  void _confirmClearChat() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: const [
+            Icon(Icons.cleaning_services_rounded, color: Color(0xFF0043B8)),
+            SizedBox(width: 8),
+            Text('Effacer la conversation', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: const Text('Voulez-vous réinitialiser les échanges avec votre Assistant ?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0043B8),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () {
+              context.read<AssistantRepository>().clearAssistantMessages();
+              Navigator.of(ctx).pop();
+            },
+            child: const Text('Effacer'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final assistantRepo = context.watch<AssistantRepository>();
@@ -56,331 +92,164 @@ class _AssistantScreenState extends State<AssistantScreen> {
 
     return Scaffold(
       backgroundColor: AppTheme.surfaceWarm,
+      appBar: AppBar(
+        backgroundColor: Colors.white.withOpacity(0.95),
+        elevation: 0.5,
+        leading: Padding(
+          padding: const EdgeInsets.only(left: 12.0),
+          child: Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF0043B8), Color(0xFF2563EB)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF0043B8).withOpacity(0.3),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: const Icon(Icons.auto_awesome, color: Colors.white, size: 20),
+          ),
+        ),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Assistant MRixk',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: AppTheme.onSurface,
+              ),
+            ),
+            Row(
+              children: [
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: const BoxDecoration(
+                    color: AppTheme.statusGreen,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                const Text(
+                  'IA Souveraine active • 100% local',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: AppTheme.statusGreen,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          Tooltip(
+            message: 'Mémoire & Souvenirs ($activeMemoriesCount)',
+            child: IconButton(
+              icon: const Icon(Icons.memory_rounded, color: Color(0xFF0043B8)),
+              onPressed: _openMemoryManager,
+            ),
+          ),
+          if (messages.isNotEmpty)
+            Tooltip(
+              message: 'Effacer la conversation',
+              child: IconButton(
+                icon: const Icon(Icons.delete_sweep_outlined, color: Color(0xFF64748B)),
+                onPressed: _confirmClearChat,
+              ),
+            ),
+          const SizedBox(width: 4),
+        ],
+      ),
       body: SafeArea(
         child: Column(
           children: [
-            // Top App Bar
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 36,
-                        height: 36,
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [AppTheme.primary, AppTheme.secondaryGlow],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(Icons.auto_awesome, color: Colors.white, size: 20),
-                      ),
-                      const SizedBox(width: 10),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: const [
-                          Text(
-                            'Assistant MRixk',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: AppTheme.onSurface,
-                            ),
-                          ),
-                          Text(
-                            'À votre écoute en toute discrétion',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: AppTheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: AppTheme.secondaryLight,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFF74F8E3).withOpacity(0.5)),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: const [
-                        Icon(Icons.lock, size: 12, color: AppTheme.secondary),
-                        SizedBox(width: 4),
-                        Text(
-                          'Pensée 100% sur cet appareil',
-                          style: TextStyle(
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.bold,
-                            color: AppTheme.secondary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // Scrollable Content
+            // Conversational stream taking full focus
             Expanded(
-              child: ListView(
-                controller: _scrollController,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                children: [
-                  // 4 Action Prompt Cards
-                  GridView.count(
-                    crossAxisCount: 2,
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    crossAxisSpacing: 10,
-                    mainAxisSpacing: 10,
-                    childAspectRatio: 1.6,
-                    children: [
-                      _actionCard(
-                        icon: Icons.forum_outlined,
-                        iconColor: AppTheme.primary,
-                        title: 'Résumer mes échanges',
-                        subtitle: 'Synthèse claire de vos discussions',
-                        onTap: () => _submitPrompt('Résume mes échanges et messages récents'),
-                      ),
-                      _actionCard(
-                        icon: Icons.folder_shared_outlined,
-                        iconColor: AppTheme.secondary,
-                        title: 'Rechercher un document',
-                        subtitle: 'Fichiers & pièces jointes',
-                        onTap: () => _submitPrompt('Quels sont les fichiers partagés ?'),
-                      ),
-                      _actionCard(
-                        icon: Icons.edit_note_outlined,
-                        iconColor: const Color(0xFF2B4A93),
-                        title: 'Rédiger un message',
-                        subtitle: 'Aide écrite bienveillante',
-                        onTap: () => _submitPrompt('Aide-moi à rédiger un message bienveillant'),
-                      ),
-                      _actionCard(
-                        icon: Icons.shield_outlined,
-                        iconColor: const Color(0xFF007165),
-                        title: 'Sécurité & Appareils',
-                        subtitle: 'État de vos terminaux chiffrés',
-                        onTap: () => _submitPrompt('Quel est l\'état de sécurité de mes appareils ?'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-
-                  // Mémoire & Souvenirs protégés
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: const Color(0xFFDFE4ED)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFF111C2C).withOpacity(0.02),
-                          blurRadius: 8,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
+              child: messages.isEmpty
+                  ? _buildEmptyWelcomeState(activeMemoriesCount)
+                  : ListView.builder(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      itemCount: messages.length,
+                      itemBuilder: (context, index) {
+                        final msg = messages[index];
+                        return _buildAssistantMessageBubble(msg);
+                      },
                     ),
-                    child: Column(
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Row(
-                              children: [
-                                Container(
-                                  width: 36,
-                                  height: 36,
-                                  decoration: BoxDecoration(
-                                    color: AppTheme.primarySoft,
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: const Icon(Icons.shield, color: AppTheme.primary, size: 20),
-                                ),
-                                const SizedBox(width: 10),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
-                                      'Mémoire & Souvenirs protégés',
-                                      style: TextStyle(
-                                        fontSize: 13.5,
-                                        fontWeight: FontWeight.bold,
-                                        color: AppTheme.onSurface,
-                                      ),
-                                    ),
-                                    Text(
-                                      '$activeMemoriesCount informations sécurisées retenues',
-                                      style: const TextStyle(
-                                        fontSize: 11,
-                                        color: AppTheme.secondary,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                            Switch(
-                              value: assistantRepo.isPrivateLearningActive,
-                              activeColor: AppTheme.secondary,
-                              onChanged: (val) {
-                                context.read<AssistantRepository>().togglePrivateLearning(val);
-                              },
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: AppTheme.surfaceWarm,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Row(
-                                children: const [
-                                  Icon(Icons.verified, size: 15, color: AppTheme.secondary),
-                                  SizedBox(width: 6),
-                                  Text(
-                                    'Vous gardez le contrôle total',
-                                    style: TextStyle(
-                                      fontSize: 11.5,
-                                      color: AppTheme.onSurfaceVariant,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              GestureDetector(
-                                onTap: _openMemoryManager,
-                                child: Row(
-                                  children: const [
-                                    Text(
-                                      'Gérer ce qu\'il retient',
-                                      style: TextStyle(
-                                        fontSize: 11.5,
-                                        fontWeight: FontWeight.bold,
-                                        color: AppTheme.primary,
-                                      ),
-                                    ),
-                                    Icon(Icons.chevron_right, size: 16, color: AppTheme.primary),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Chat Stream Section
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: const [
-                        Text(
-                          'Échanges récents avec l\'assistant',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: AppTheme.onSurface,
-                          ),
-                        ),
-                        Text(
-                          'Mémoire locale active',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontFamily: 'monospace',
-                            color: AppTheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-
-                  // Messages stream
-                  if (messages.isEmpty)
-                    _buildSovereignWelcomeCard()
-                  else
-                    ...messages.map((m) => _buildAssistantMessageBubble(m)),
-
-                  const SizedBox(height: 12),
-
-                  // Zero-emission guarantee banner
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: AppTheme.surfaceWarm,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: const Color(0xFFDFE4ED)),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 36,
-                          height: 36,
-                          decoration: const BoxDecoration(
-                            color: Colors.white,
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(Icons.eco, color: AppTheme.secondary, size: 20),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: const [
-                              Text(
-                                'Zéro émission de vos mots',
-                                style: TextStyle(
-                                  fontSize: 12.5,
-                                  fontWeight: FontWeight.bold,
-                                  color: AppTheme.onSurface,
-                                ),
-                              ),
-                              Text(
-                                'Vos questions ne sont jamais partagées ni analysées par un serveur externe.',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: AppTheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                ],
-              ),
             ),
 
-            // Bottom tactile input
+            // Quick suggestion prompt pills above input
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.95),
-                border: Border(
-                  top: BorderSide(color: const Color(0xFFDFE4ED).withOpacity(0.8)),
+              color: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    _quickPromptPill(
+                      icon: Icons.forum_outlined,
+                      label: 'Résumer les messages',
+                      prompt: 'Résume mes échanges et messages récents',
+                    ),
+                    const SizedBox(width: 8),
+                    _quickPromptPill(
+                      icon: Icons.folder_shared_outlined,
+                      label: 'Fichiers & Documents',
+                      prompt: 'Quels sont les fichiers ou documents partagés ?',
+                    ),
+                    const SizedBox(width: 8),
+                    _quickPromptPill(
+                      icon: Icons.shield_outlined,
+                      label: 'Sécurité de mes appareils',
+                      prompt: 'Quel est l\'état de sécurité de mes appareils ?',
+                    ),
+                    const SizedBox(width: 8),
+                    _quickPromptPill(
+                      icon: Icons.contacts_outlined,
+                      label: 'Mes contacts',
+                      prompt: 'Quels sont mes contacts enregistrés ?',
+                    ),
+                    const SizedBox(width: 8),
+                    _quickPromptPill(
+                      icon: Icons.phone_in_talk_outlined,
+                      label: 'Comment appeler ?',
+                      prompt: 'Comment lancer un appel vocal ou vidéo sécurisé ?',
+                    ),
+                    const SizedBox(width: 8),
+                    _quickPromptPill(
+                      icon: Icons.edit_note_outlined,
+                      label: 'Aide rédaction',
+                      prompt: 'Aide-moi à rédiger un message bienveillant',
+                    ),
+                  ],
                 ),
+              ),
+            ),
+            const Divider(height: 1, thickness: 1, color: Color(0xFFE2E8F0)),
+
+            // Bottom interactive chat input
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.04),
+                    blurRadius: 8,
+                    offset: const Offset(0, -2),
+                  ),
+                ],
               ),
               child: Row(
                 children: [
@@ -395,12 +264,13 @@ class _AssistantScreenState extends State<AssistantScreen> {
                       width: 40,
                       height: 40,
                       decoration: BoxDecoration(
-                        color: _isListening ? AppTheme.secondary : AppTheme.surfaceWarm,
+                        color: _isListening ? const Color(0xFFDC2626) : const Color(0xFFF1F5F9),
                         borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFCBD5E1)),
                       ),
                       child: Icon(
                         Icons.mic,
-                        color: _isListening ? Colors.white : AppTheme.onSurfaceVariant,
+                        color: _isListening ? Colors.white : const Color(0xFF0F172A),
                         size: 20,
                       ),
                     ),
@@ -411,9 +281,9 @@ class _AssistantScreenState extends State<AssistantScreen> {
                       controller: _promptController,
                       decoration: InputDecoration(
                         hintText: _isListening
-                            ? 'Écoute active et sécurisée...'
-                            : 'Demandez ou dictez une question...',
-                        hintStyle: const TextStyle(fontSize: 13, color: AppTheme.onSurfaceVariant),
+                            ? 'Écoute active...'
+                            : 'Discutez avec votre Assistant...',
+                        hintStyle: const TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
                         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                         border: InputBorder.none,
                       ),
@@ -428,16 +298,16 @@ class _AssistantScreenState extends State<AssistantScreen> {
                       height: 40,
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
-                          colors: [Color(0xFF0043B8), Color(0xFF20B8A5)],
+                          colors: [Color(0xFF0043B8), Color(0xFF245BDB)],
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                         ),
                         borderRadius: BorderRadius.circular(12),
                         boxShadow: [
                           BoxShadow(
-                            color: const Color(0xFF20B8A5).withOpacity(0.4),
-                            blurRadius: 12,
-                            offset: const Offset(0, 3),
+                            color: const Color(0xFF0043B8).withOpacity(0.35),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
                           ),
                         ],
                       ),
@@ -453,86 +323,175 @@ class _AssistantScreenState extends State<AssistantScreen> {
     );
   }
 
-  Widget _buildSovereignWelcomeCard() {
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 8),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFDFE4ED)),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF111C2C).withOpacity(0.02),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
+  Widget _quickPromptPill({
+    required IconData icon,
+    required String label,
+    required String prompt,
+  }) {
+    return GestureDetector(
+      onTap: () => _submitPrompt(prompt),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFCBD5E1)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: const Color(0xFF0043B8)),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF334155),
+              ),
+            ),
+          ],
+        ),
       ),
+    );
+  }
+
+  Widget _buildEmptyWelcomeState(int activeMemoriesCount) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
       child: Column(
         children: [
           Container(
-            width: 52,
-            height: 52,
+            padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [AppTheme.primary, AppTheme.secondaryGlow],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(16),
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: const Color(0xFFDFE4ED)),
               boxShadow: [
                 BoxShadow(
-                  color: AppTheme.primary.withOpacity(0.25),
-                  blurRadius: 12,
+                  color: const Color(0xFF111C2C).withOpacity(0.03),
+                  blurRadius: 16,
                   offset: const Offset(0, 4),
                 ),
               ],
             ),
-            child: const Icon(Icons.shield_outlined, color: Colors.white, size: 28),
-          ),
-          const SizedBox(height: 14),
-          const Text(
-            'Assistant Privé & Souverain',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: AppTheme.onSurface,
-            ),
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            'Votre assistant intelligent s\'exécute en local sur cet appareil. Vos données, contacts, messages et souvenirs ne quittent jamais votre terminal.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 12.5,
-              height: 1.45,
-              color: AppTheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 14),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: AppTheme.secondaryLight,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFF74F8E3).withOpacity(0.6)),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: const [
-                Icon(Icons.verified_user_outlined, size: 14, color: AppTheme.secondary),
-                SizedBox(width: 6),
-                Text(
-                  'Prêt à vous assister en toute discrétion',
+            child: Column(
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF0043B8), Color(0xFF2563EB)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF0043B8).withOpacity(0.3),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(Icons.auto_awesome, color: Colors.white, size: 28),
+                ),
+                const SizedBox(height: 14),
+                const Text(
+                  'Assistant Privé & Souverain',
                   style: TextStyle(
-                    fontSize: 11,
+                    fontSize: 17,
                     fontWeight: FontWeight.bold,
-                    color: AppTheme.secondary,
+                    color: AppTheme.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Posez une question, demandez une synthèse ou discutez librement. Votre intelligence artificielle s\'exécute en toute confidentialité sur cet appareil.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    height: 1.45,
+                    color: AppTheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFECFDF5),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFA7F3D0)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.lock_outline, size: 14, color: Color(0xFF047857)),
+                      const SizedBox(width: 6),
+                      Text(
+                        '$activeMemoriesCount informations retenues en mémoire protégée',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF047857),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
+          ),
+          const SizedBox(height: 18),
+
+          // 4 Action suggestion cards
+          Row(
+            children: [
+              Expanded(
+                child: _actionCard(
+                  icon: Icons.forum_outlined,
+                  iconColor: const Color(0xFF0043B8),
+                  title: 'Résumer mes échanges',
+                  subtitle: 'Synthèse claire',
+                  onTap: () => _submitPrompt('Résume mes échanges et messages récents'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _actionCard(
+                  icon: Icons.folder_shared_outlined,
+                  iconColor: const Color(0xFF059669),
+                  title: 'Rechercher un document',
+                  subtitle: 'Fichiers & pièces',
+                  onTap: () => _submitPrompt('Quels sont les fichiers ou documents partagés ?'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _actionCard(
+                  icon: Icons.shield_outlined,
+                  iconColor: const Color(0xFF4F46E5),
+                  title: 'Sécurité & Appareils',
+                  subtitle: 'État des terminaux',
+                  onTap: () => _submitPrompt('Quel est l\'état de sécurité de mes appareils ?'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _actionCard(
+                  icon: Icons.edit_note_outlined,
+                  iconColor: const Color(0xFFD97706),
+                  title: 'Rédiger un message',
+                  subtitle: 'Aide bienveillante',
+                  onTap: () => _submitPrompt('Aide-moi à rédiger un message bienveillant'),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -563,40 +522,36 @@ class _AssistantScreenState extends State<AssistantScreen> {
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Container(
               width: 32,
               height: 32,
               decoration: BoxDecoration(
-                color: iconColor.withOpacity(0.1),
+                color: iconColor.withOpacity(0.12),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Icon(icon, color: iconColor, size: 18),
             ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.bold,
-                    color: AppTheme.onSurface,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Text(
-                  subtitle,
-                  style: const TextStyle(
-                    fontSize: 10.5,
-                    color: AppTheme.onSurfaceVariant,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
+            const SizedBox(height: 8),
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: AppTheme.onSurface,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 2),
+            Text(
+              subtitle,
+              style: const TextStyle(
+                fontSize: 10.5,
+                color: AppTheme.onSurfaceVariant,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ],
         ),
@@ -609,8 +564,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
       return Align(
         alignment: Alignment.centerRight,
         child: Container(
-          margin: const EdgeInsets.only(bottom: 10, left: 40),
-          padding: const EdgeInsets.all(12),
+          margin: const EdgeInsets.only(bottom: 12, left: 48),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
             gradient: const LinearGradient(
               colors: [Color(0xFF0043B8), Color(0xFF245BDB)],
@@ -621,15 +576,22 @@ class _AssistantScreenState extends State<AssistantScreen> {
               bottomLeft: Radius.circular(16),
               bottomRight: Radius.circular(4),
             ),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF0043B8).withOpacity(0.25),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
                 msg.text,
-                style: const TextStyle(fontSize: 13.5, color: Colors.white),
+                style: const TextStyle(fontSize: 14, color: Colors.white, height: 1.35),
               ),
-              const SizedBox(height: 2),
+              const SizedBox(height: 3),
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -650,25 +612,32 @@ class _AssistantScreenState extends State<AssistantScreen> {
     return Align(
       alignment: Alignment.centerLeft,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 10, right: 30),
+        margin: const EdgeInsets.only(bottom: 14, right: 36),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
-              width: 30,
-              height: 30,
+              width: 32,
+              height: 32,
               decoration: BoxDecoration(
                 gradient: const LinearGradient(
-                  colors: [AppTheme.primary, AppTheme.secondaryGlow],
+                  colors: [Color(0xFF0043B8), Color(0xFF2563EB)],
                 ),
                 shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF0043B8).withOpacity(0.25),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
               ),
-              child: const Icon(Icons.smart_toy, color: Colors.white, size: 16),
+              child: const Icon(Icons.auto_awesome, color: Colors.white, size: 16),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 10),
             Expanded(
               child: Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: const BorderRadius.only(
@@ -680,8 +649,9 @@ class _AssistantScreenState extends State<AssistantScreen> {
                   border: Border.all(color: const Color(0xFFDFE4ED)),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFF111C2C).withOpacity(0.02),
-                      blurRadius: 6,
+                      color: const Color(0xFF111C2C).withOpacity(0.03),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
                     ),
                   ],
                 ),
@@ -693,23 +663,24 @@ class _AssistantScreenState extends State<AssistantScreen> {
                       style: const TextStyle(
                         fontSize: 13.5,
                         color: AppTheme.onSurface,
-                        height: 1.35,
+                        height: 1.45,
                       ),
                     ),
                     if (msg.sourceTitle != null) ...[
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 10),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                         decoration: BoxDecoration(
-                          color: AppTheme.surfaceWarm,
+                          color: const Color(0xFFF1F5F9),
                           borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFCBD5E1)),
                         ),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Row(
                               children: [
-                                const Icon(Icons.forum, size: 16, color: AppTheme.secondary),
+                                const Icon(Icons.security, size: 14, color: Color(0xFF0043B8)),
                                 const SizedBox(width: 6),
                                 Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -717,7 +688,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
                                     Text(
                                       msg.sourceTitle!,
                                       style: const TextStyle(
-                                        fontSize: 11.5,
+                                        fontSize: 11,
                                         fontWeight: FontWeight.bold,
                                         color: AppTheme.onSurface,
                                       ),
@@ -726,7 +697,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
                                       Text(
                                         msg.sourceSubtitle!,
                                         style: const TextStyle(
-                                          fontSize: 10,
+                                          fontSize: 9.5,
                                           color: AppTheme.onSurfaceVariant,
                                         ),
                                       ),
@@ -735,25 +706,19 @@ class _AssistantScreenState extends State<AssistantScreen> {
                               ],
                             ),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                               decoration: BoxDecoration(
                                 color: Colors.white,
                                 borderRadius: BorderRadius.circular(6),
-                                border: Border.all(color: const Color(0xFFDFE4ED)),
+                                border: Border.all(color: const Color(0xFFCBD5E1)),
                               ),
-                              child: Row(
-                                children: const [
-                                  Text(
-                                    'Voir',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold,
-                                      color: AppTheme.primary,
-                                    ),
-                                  ),
-                                  SizedBox(width: 2),
-                                  Icon(Icons.arrow_outward, size: 12, color: AppTheme.primary),
-                                ],
+                              child: const Text(
+                                'Local',
+                                style: TextStyle(
+                                  fontSize: 9.5,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF0043B8),
+                                ),
                               ),
                             ),
                           ],
@@ -765,25 +730,15 @@ class _AssistantScreenState extends State<AssistantScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          msg.confidenceText ?? 'Trouvé en local en 0.2s',
+                          msg.confidenceText ?? 'Traitement souverain en 0.1s',
                           style: const TextStyle(
-                            fontSize: 10.5,
+                            fontSize: 10,
                             color: AppTheme.onSurfaceVariant,
                           ),
                         ),
-                        Row(
-                          children: const [
-                            Icon(Icons.thumb_up, size: 12, color: AppTheme.secondary),
-                            SizedBox(width: 4),
-                            Text(
-                              'Utile',
-                              style: TextStyle(
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.bold,
-                                color: AppTheme.secondary,
-                              ),
-                            ),
-                          ],
+                        Text(
+                          msg.time,
+                          style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8)),
                         ),
                       ],
                     ),

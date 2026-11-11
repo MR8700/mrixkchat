@@ -1,3 +1,4 @@
+import '../models/call_log.dart';
 import '../models/contact.dart';
 import '../models/conversation.dart';
 import '../models/device.dart';
@@ -24,14 +25,14 @@ Future<void> seedCleanProductionDatabase(LocalDatabase db) async {
   );
   await db.insert('devices', device.id, device.toJson());
 
-  // 2. Exactly one single contact who is offline and has no previous discussion
+  // 2. Exactly one single contact who is verified (Dr. Sarah Connor)
   final singleContact = Contact(
     id: 'contact_sarah',
     name: 'Dr. Sarah Connor',
     handle: '@sarah.connor',
     avatarUrl: '',
-    statusText: 'Recherche & IA 🧬 (Hors ligne)',
-    isOnline: false,
+    statusText: 'Recherche & IA 🧬 (En ligne)',
+    isOnline: true,
     isVerified: true,
     category: 'C',
   );
@@ -427,5 +428,41 @@ Future<void> seedInitialDatabase(LocalDatabase db) async {
   ];
   for (final mem in memories) {
     await db.insert('memories', mem.id, mem.toJson());
+  }
+
+  // 8. Call History CRUD inserts
+  final initialCallLogs = [
+    CallLog(
+      id: 'call_1',
+      peerName: 'Sophie Valade',
+      peerAvatar:
+          'https://lh3.googleusercontent.com/aida-public/AB6AXuBnQ6ZoC8wo3nLNU4wcm4uKYUvFAlBfMoP6saRcHGC1Pyc3O5sN3p45KfqLgu4iL5VgpHoAlSS9zFmJvzAoOMjpjts3jHV0wARsChitgTFNBJPSnJMkUsGNr6gfnlASfDCJOGtd1tb9whRc-S_2YEtwMojts7ttsd8CBl-ooFjsDwDZyGLGddcGKgOxk9A0SbOaLDb3Y-9HJ_vZRT88CL8KsSybmD4rrKu6RU-v8zc',
+      isVideo: false,
+      direction: CallDirection.outgoing,
+      timestamp: 'Aujourd\'hui à 10:45',
+      duration: '04:12',
+    ),
+    CallLog(
+      id: 'call_2',
+      peerName: 'Dr. Idriss Traoré',
+      peerAvatar:
+          'https://lh3.googleusercontent.com/aida-public/AB6AXuBPFAiD9Og5A8GtV1bmuIbN_eye-Uhvv5nO328ezbs4q4UUuEuMtM9kBVqGlHpXDbmxYD82XU9hARxi-KtSPWrW9i7L0sGfZLhmuhyhVyYYiqyIzQnmc896G3h9Jf-izVUbf4LY_bZKYBXK-z74Ql6WnBlZLEeJzzgQd47iFcXEgwEAx5TeCsLEqMyI6P3wau72sDeU2NzBDrYbfom1fYZPpjF3uYYgktrK-nz4t4w',
+      isVideo: true,
+      direction: CallDirection.incoming,
+      timestamp: 'Hier à 16:20',
+      duration: '12:45',
+    ),
+    CallLog(
+      id: 'call_3',
+      peerName: 'Dr. Sarah Connor',
+      peerAvatar: '',
+      isVideo: false,
+      direction: CallDirection.missed,
+      timestamp: 'Hier à 11:05',
+      duration: 'Sans réponse',
+    ),
+  ];
+  for (final log in initialCallLogs) {
+    await db.insert('call_logs', log.id, log.toJson());
   }
 }

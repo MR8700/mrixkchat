@@ -12,6 +12,7 @@ import '../../core/services/identity_directory_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../shared/widgets/app_avatar.dart';
 import '../../shared/widgets/app_empty_state.dart';
+import '../calls/call_history_screen.dart';
 import '../media_vault/media_vault_screen.dart';
 import '../moments/widgets/add_moment_dialog.dart';
 import '../moments/widgets/moment_story_viewer_dialog.dart';
@@ -287,6 +288,16 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                 },
               ),
               ListTile(
+                leading: const Icon(Icons.phone_in_talk_outlined, color: AppTheme.primary),
+                title: const Text('Historique des appels sécurisés'),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const CallHistoryScreen()),
+                  );
+                },
+              ),
+              ListTile(
                 leading: const Icon(Icons.folder_special_outlined, color: AppTheme.primary),
                 title: const Text('Ouvrir le Coffre Médias'),
                 onTap: () {
@@ -377,12 +388,56 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                                             : 'Aucune discussion',
                             message: _selectedFilter == 'Tous'
                                 ? 'Vos conversations privées et sécurisées apparaîtront ici.'
-                                : 'Aucune conversation dans la catégorie "$_selectedFilter".',
-                            actionLabel: _selectedFilter == 'Tous' ? 'Nouvelle discussion' : null,
-                            onAction: _selectedFilter == 'Tous' ? _showNewConversationDialog : null,
+                                : (_selectedFilter == 'Archivés'
+                                    ? 'Vos discussions archivées apparaîtront ici. Vous pouvez archiver une discussion en glissant vers la droite.'
+                                    : 'Aucune conversation dans la catégorie "$_selectedFilter".'),
+                            actionLabel: _selectedFilter == 'Archivés'
+                                ? 'Retour aux discussions'
+                                : (_selectedFilter == 'Tous'
+                                    ? 'Nouvelle discussion'
+                                    : 'Afficher tout'),
+                            onAction: _selectedFilter == 'Archivés'
+                                ? () => setState(() => _selectedFilter = 'Tous')
+                                : (_selectedFilter == 'Tous'
+                                    ? _showNewConversationDialog
+                                    : () => setState(() => _selectedFilter = 'Tous')),
                           ),
                   )
-                else
+                else ...[
+                  if (_selectedFilter == 'Archivés')
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEFF6FF),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: const Color(0xFFBFDBFE)),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.archive_outlined, color: Color(0xFF1D4ED8), size: 20),
+                              const SizedBox(width: 10),
+                              const Expanded(
+                                child: Text(
+                                  'Discussions archivées • Masquées de la liste principale',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF1E40AF),
+                                  ),
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: () => setState(() => _selectedFilter = 'Tous'),
+                                child: const Text('Fermer', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1D4ED8))),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
                   SliverPadding(
                     padding: const EdgeInsets.only(left: 16, right: 16, bottom: 100, top: 8),
                     sliver: SliverList(
@@ -395,6 +450,7 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                       ),
                     ),
                   ),
+                ],
               ],
             ),
 
@@ -509,9 +565,30 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
             ],
           ),
 
-          // Actions: Media Vault, Tune & Profile
+          // Actions: Calls, Media Vault, Tune & Profile
           Row(
             children: [
+              IconButton(
+                icon: Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFDFE4ED)),
+                  ),
+                  child: const Icon(Icons.phone_outlined, size: 18, color: AppTheme.primary),
+                ),
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const CallHistoryScreen(),
+                    ),
+                  );
+                },
+                tooltip: 'Historique des appels',
+              ),
+              const SizedBox(width: 6),
               IconButton(
                 icon: Container(
                   width: 38,
@@ -1221,7 +1298,7 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
               ),
             );
           }
-          return false;
+          return true;
         } else {
           // Swipe left: Delete with confirmation
           final confirmed = await showDialog<bool>(

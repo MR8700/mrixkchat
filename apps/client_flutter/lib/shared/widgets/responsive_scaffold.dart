@@ -33,9 +33,20 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
     final allConvs = convRepo.getAllConversations();
     final unreadTotal = allConvs.where((c) => c.unreadCount > 0).length;
 
-    // Default select first conversation for desktop/tablet if null
-    if ((isDesktop || isTablet) && _selectedDesktopConversation == null && allConvs.isNotEmpty) {
-      _selectedDesktopConversation = allConvs.first;
+    // Default select first non-archived conversation for desktop/tablet if null
+    final nonArchived = allConvs.where((c) => !c.isArchived).toList();
+    if ((isDesktop || isTablet) && _selectedDesktopConversation == null && nonArchived.isNotEmpty) {
+      _selectedDesktopConversation = nonArchived.first;
+    }
+
+    // Keep active conversation updated, or cleanly deselect if it was archived/deleted
+    if (_selectedDesktopConversation != null) {
+      final fresh = convRepo.getConversationById(_selectedDesktopConversation!.id);
+      if (fresh == null || (fresh.isArchived && !_selectedDesktopConversation!.isArchived)) {
+        _selectedDesktopConversation = null;
+      } else {
+        _selectedDesktopConversation = fresh;
+      }
     }
 
     if (isDesktop) {
@@ -141,8 +152,20 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
             const VerticalDivider(width: 1, thickness: 1, color: Color(0xFFCBD5E1)),
             Expanded(
               child: _selectedDesktopConversation != null
-                  ? ConversationDetailScreen(conversation: _selectedDesktopConversation!)
-                  : const Center(child: Text('Sélectionnez une discussion')),
+                  ? ConversationDetailScreen(
+                      conversation: _selectedDesktopConversation!,
+                      onCloseDesktop: () => setState(() => _selectedDesktopConversation = null),
+                    )
+                  : const Center(
+                      child: Text(
+                        'Sélectionnez une discussion pour afficher l\'échange sécurisé',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
             ),
           ] else ...[
             Expanded(
@@ -275,7 +298,10 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
           // Pane 3: Right Pane: Active Detail or Sovereign Inspector
           Expanded(
             child: _selectedDesktopConversation != null
-                ? ConversationDetailScreen(conversation: _selectedDesktopConversation!)
+                ? ConversationDetailScreen(
+                    conversation: _selectedDesktopConversation!,
+                    onCloseDesktop: () => setState(() => _selectedDesktopConversation = null),
+                  )
                 : Container(
                     color: Colors.white,
                     child: Center(

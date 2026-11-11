@@ -1,5 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../../../core/models/call_log.dart';
+import '../../../core/repositories/call_history_repository.dart';
 import '../../../core/services/real_media_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/app_avatar.dart';
@@ -30,13 +33,13 @@ class _CallDialogState extends State<CallDialog> with SingleTickerProviderStateM
   int _seconds = 0;
   Timer? _callTimer;
   Timer? _connectTimer;
-  Timer? _autoCloseTimer;
   CallStatus _status = CallStatus.ringing;
 
   bool _isMuted = false;
   bool _isSpeaker = false;
   bool _isVideoOff = false;
   late AnimationController _pulseController;
+  bool _hasLogged = false;
 
   @override
   void initState() {
@@ -46,29 +49,49 @@ class _CallDialogState extends State<CallDialog> with SingleTickerProviderStateM
       duration: const Duration(milliseconds: 1200),
     )..repeat(reverse: true);
 
+    _startCallCycle();
+  }
+
+  void _startCallCycle() {
+    _callTimer?.cancel();
+    _connectTimer?.cancel();
+
+    setState(() {
+      _status = CallStatus.ringing;
+      _seconds = 0;
+      _hasLogged = false;
+    });
+
     // Real acoustic ringtone & vibration while ringing
     RealMediaService.instance.startRingtone();
     RealMediaService.instance.vibrate();
 
-    // The counter does NOT run during the ringing phase!
+    // 2 rings cycle (3000ms)
     _connectTimer = Timer(const Duration(milliseconds: 3000), () {
-      if (mounted && _status == CallStatus.ringing) {
-        RealMediaService.instance.stopRingtone();
-        if (widget.isPeerOnline) {
-          setState(() {
-            _status = CallStatus.connected;
-            _seconds = 0; // Strictly starts at 0 upon genuine connection
-          });
+      if (!mounted || _status != CallStatus.ringing) return;
+      RealMediaService.instance.stopRingtone();
 
-          // The timer begins strictly when exchanges have started
-          _callTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-            if (mounted && _status == CallStatus.connected) {
-              setState(() => _seconds++);
-            }
-          });
-        } else {
-          _triggerUnavailable();
-        }
+      if (widget.isPeerOnline) {
+        _connectCall();
+      } else {
+        _triggerUnavailable();
+      }
+    });
+  }
+
+  void _connectCall() {
+    _connectTimer?.cancel();
+    RealMediaService.instance.stopRingtone();
+
+    setState(() {
+      _status = CallStatus.connected;
+      _seconds = 0;
+    });
+
+    _callTimer?.cancel();
+    _callTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted && _status == CallStatus.connected) {
+        setState(() => _seconds++);
       }
     });
   }
@@ -77,7 +100,6 @@ class _CallDialogState extends State<CallDialog> with SingleTickerProviderStateM
   void dispose() {
     _connectTimer?.cancel();
     _callTimer?.cancel();
-    _autoCloseTimer?.cancel();
     RealMediaService.instance.stopRingtone();
     _pulseController.dispose();
     super.dispose();
@@ -89,39 +111,77 @@ class _CallDialogState extends State<CallDialog> with SingleTickerProviderStateM
     return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
   }
 
+  void _logCallToHistory({required bool wasConnected}) {
+    if (_hasLogged) return;
+    _hasLogged = true;
+
+    final now = DateTime.now();
+    final timeStr =
+        'Aujourd\'hui à ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+    final dur = wasConnected ? _durationString : 'Sans réponse';
+
+    try {
+      context.read<CallHistoryRepository>().addCallLog(
+            CallLog(
+              id: 'call_${DateTime.now().millisecondsSinceEpoch}',
+              peerName: widget.peerName,
+              peerAvatar: widget.peerAvatar,
+              isVideo: widget.isVideo,
+              direction: wasConnected ? CallDirection.outgoing : CallDirection.missed,
+              timestamp: timeStr,
+              duration: dur,
+            ),
+          );
+    } catch (_) {}
+
+    if (widget.onCallEnded != null) {
+      widget.onCallEnded!(dur, widget.isVideo);
+    }
+  }
+
   void _triggerUnavailable() {
     _connectTimer?.cancel();
     _callTimer?.cancel();
-    _autoCloseTimer?.cancel();
     RealMediaService.instance.stopRingtone();
+    _pulseController.stop();
 
     setState(() {
       _status = CallStatus.unavailable;
     });
 
-    // Audible spoken announcement + clear visual feedback
+    _logCallToHistory(wasConnected: false);
+
+    // Audible gentle notification
     RealMediaService.instance.speakAudibleMessage(
       'Le correspondant n\'est pas joignable pour le moment. Veuillez réessayer plus tard.',
     );
-
-    // Auto-close after 3 seconds
-    _autoCloseTimer = Timer(const Duration(seconds: 3), () {
-      if (mounted) _hangUp();
-    });
   }
 
-  void _hangUp() {
+  void _hangUpCall() {
     _connectTimer?.cancel();
     _callTimer?.cancel();
-    _autoCloseTimer?.cancel();
+    RealMediaService.instance.stopRingtone();
+    _pulseController.stop();
+
+    final wasConnected = _status == CallStatus.connected;
+    setState(() {
+      _status = CallStatus.ended;
+    });
+
+    _logCallToHistory(wasConnected: wasConnected);
+
+    if (mounted) {
+      Navigator.of(context).maybePop();
+    }
+  }
+
+  void _closeDialog() {
+    _connectTimer?.cancel();
+    _callTimer?.cancel();
     RealMediaService.instance.stopRingtone();
 
-    final duration = _durationString;
-    if (mounted) {
+    if (mounted && Navigator.of(context).canPop()) {
       Navigator.of(context).pop();
-    }
-    if (widget.onCallEnded != null) {
-      widget.onCallEnded!(duration, widget.isVideo);
     }
   }
 
@@ -129,6 +189,8 @@ class _CallDialogState extends State<CallDialog> with SingleTickerProviderStateM
   Widget build(BuildContext context) {
     final isConnected = _status == CallStatus.connected;
     final isUnavailable = _status == CallStatus.unavailable;
+    final isEnded = _status == CallStatus.ended;
+    final isTerminated = isUnavailable || isEnded;
 
     return Dialog(
       backgroundColor: Colors.transparent,
@@ -154,60 +216,74 @@ class _CallDialogState extends State<CallDialog> with SingleTickerProviderStateM
               mainAxisSize: MainAxisSize.min,
               children: [
                 // Top status badge
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: isConnected
-                        ? AppTheme.secondaryLight
-                        : (isUnavailable
-                            ? const Color(0xFFFEE2E2)
-                            : const Color(0xFFFEF3C7)),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: isConnected
-                          ? const Color(0xFF20B8A5).withOpacity(0.4)
-                          : (isUnavailable
-                              ? const Color(0xFFEF4444)
-                              : const Color(0xFFF59E0B)),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 8,
-                        height: 8,
+                Row(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(
                           color: isConnected
-                              ? AppTheme.statusGreen
-                              : (isUnavailable ? Colors.red : const Color(0xFFF59E0B)),
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        child: Text(
-                          isConnected
-                              ? (widget.isVideo
-                                  ? 'Appel vidéo direct et protégé'
-                                  : 'Appel audio direct et protégé')
-                              : (isUnavailable
-                                  ? 'Correspondant indisponible'
-                                  : 'Sonnerie en cours...'),
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
+                              ? AppTheme.secondaryLight
+                              : (isTerminated
+                                  ? const Color(0xFFFEE2E2)
+                                  : const Color(0xFFFEF3C7)),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
                             color: isConnected
-                                ? AppTheme.secondary
-                                : (isUnavailable
-                                    ? const Color(0xFFDC2626)
-                                    : const Color(0xFFB45309)),
+                                ? const Color(0xFF20B8A5).withOpacity(0.4)
+                                : (isTerminated
+                                    ? const Color(0xFFEF4444)
+                                    : const Color(0xFFF59E0B)),
                           ),
-                          overflow: TextOverflow.ellipsis,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                color: isConnected
+                                    ? AppTheme.statusGreen
+                                    : (isTerminated ? Colors.red : const Color(0xFFF59E0B)),
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                isConnected
+                                    ? (widget.isVideo
+                                        ? 'Appel vidéo direct et protégé'
+                                        : 'Appel audio direct et protégé')
+                                    : (isUnavailable
+                                        ? 'Correspondant indisponible'
+                                        : (isEnded
+                                            ? 'Appel terminé'
+                                            : 'Sonnerie en cours...')),
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: isConnected
+                                      ? AppTheme.secondary
+                                      : (isTerminated
+                                          ? const Color(0xFFDC2626)
+                                          : const Color(0xFFB45309)),
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(width: 6),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Color(0xFF64748B), size: 20),
+                      onPressed: _closeDialog,
+                      tooltip: 'Fermer',
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 20),
 
@@ -273,7 +349,7 @@ class _CallDialogState extends State<CallDialog> with SingleTickerProviderStateM
                   Stack(
                     alignment: Alignment.center,
                     children: [
-                      if (!isConnected && !isUnavailable)
+                      if (!isConnected && !isTerminated)
                         FadeTransition(
                           opacity: _pulseController,
                           child: Container(
@@ -288,15 +364,11 @@ class _CallDialogState extends State<CallDialog> with SingleTickerProviderStateM
                             ),
                           ),
                         ),
-                      // Avatar is clickable to enlarge
-                      Tooltip(
-                        message: 'Cliquer pour agrandir la photo',
-                        child: AppAvatar(
-                          name: widget.peerName,
-                          avatarUrl: widget.peerAvatar,
-                          radius: 46,
-                          isClickable: true,
-                        ),
+                      AppAvatar(
+                        name: widget.peerName,
+                        avatarUrl: widget.peerAvatar,
+                        radius: 46,
+                        isClickable: true,
                       ),
                     ],
                   ),
@@ -314,20 +386,22 @@ class _CallDialogState extends State<CallDialog> with SingleTickerProviderStateM
                 ),
                 const SizedBox(height: 6),
 
-                // Call timer / Status description
+                // Call duration / status description
                 Text(
                   isConnected
                       ? _durationString
                       : (isUnavailable
                           ? 'Indisponible pour le moment'
-                          : 'Sonnerie chez le correspondant...'),
+                          : (isEnded
+                              ? 'Durée totale : $_durationString'
+                              : 'Sonnerie chez le correspondant...')),
                   style: TextStyle(
                     fontSize: isConnected ? 16 : 13,
                     fontFamily: isConnected ? 'monospace' : null,
                     fontWeight: FontWeight.bold,
                     color: isConnected
                         ? AppTheme.primary
-                        : (isUnavailable ? const Color(0xFFDC2626) : AppTheme.onSurfaceVariant),
+                        : (isTerminated ? const Color(0xFFDC2626) : AppTheme.onSurfaceVariant),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -363,62 +437,101 @@ class _CallDialogState extends State<CallDialog> with SingleTickerProviderStateM
                   ),
                 const SizedBox(height: 20),
 
-                // Responsive Call Controls
-                Wrap(
-                  spacing: 16,
-                  runSpacing: 12,
-                  alignment: WrapAlignment.center,
-                  children: [
-                    _buildActionBtn(
-                      icon: _isMuted ? Icons.mic_off : Icons.mic,
-                      isActive: _isMuted,
-                      label: 'Micro',
-                      onTap: () => setState(() => _isMuted = !_isMuted),
-                    ),
-                    if (widget.isVideo)
+                // Controls
+                if (!isTerminated) ...[
+                  Wrap(
+                    spacing: 16,
+                    runSpacing: 12,
+                    alignment: WrapAlignment.center,
+                    children: [
                       _buildActionBtn(
-                        icon: _isVideoOff ? Icons.videocam_off : Icons.videocam,
-                        isActive: _isVideoOff,
-                        label: 'Caméra',
-                        onTap: () => setState(() => _isVideoOff = !_isVideoOff),
+                        icon: _isMuted ? Icons.mic_off : Icons.mic,
+                        isActive: _isMuted,
+                        label: 'Micro',
+                        onTap: () => setState(() => _isMuted = !_isMuted),
                       ),
-                    _buildActionBtn(
-                      icon: _isSpeaker ? Icons.volume_up : Icons.volume_down,
-                      isActive: _isSpeaker,
-                      label: 'HP',
-                      onTap: () => setState(() => _isSpeaker = !_isSpeaker),
-                    ),
-                    if (!isConnected && !isUnavailable)
+                      if (widget.isVideo)
+                        _buildActionBtn(
+                          icon: _isVideoOff ? Icons.videocam_off : Icons.videocam,
+                          isActive: _isVideoOff,
+                          label: 'Caméra',
+                          onTap: () => setState(() => _isVideoOff = !_isVideoOff),
+                        ),
+                      _buildActionBtn(
+                        icon: _isSpeaker ? Icons.volume_up : Icons.volume_down,
+                        isActive: _isSpeaker,
+                        label: 'HP',
+                        onTap: () => setState(() => _isSpeaker = !_isSpeaker),
+                      ),
                       _buildActionBtn(
                         icon: Icons.person_off_rounded,
                         isActive: false,
                         label: 'Simuler Occupé',
                         onTap: _triggerUnavailable,
                       ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-
-                // Hang up / End call button
-                GestureDetector(
-                  onTap: _hangUp,
-                  child: Container(
-                    width: 64,
-                    height: 64,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFDC2626),
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFFDC2626).withOpacity(0.4),
-                          blurRadius: 16,
-                          offset: const Offset(0, 6),
-                        ),
-                      ],
-                    ),
-                    child: const Icon(Icons.call_end, color: Colors.white, size: 28),
+                    ],
                   ),
-                ),
+                  const SizedBox(height: 24),
+
+                  // Red hang up button
+                  GestureDetector(
+                    onTap: _hangUpCall,
+                    child: Container(
+                      width: 64,
+                      height: 64,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFDC2626),
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFFDC2626).withOpacity(0.4),
+                            blurRadius: 16,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(Icons.call_end, color: Colors.white, size: 28),
+                    ),
+                  ),
+                ] else ...[
+                  // State when call ended or unavailable: Relancer l'appel button!
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 10,
+                    runSpacing: 8,
+                    children: [
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF0043B8),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          elevation: 3,
+                        ),
+                        icon: Icon(widget.isVideo ? Icons.videocam : Icons.call, size: 18),
+                        label: const Text(
+                          'Relancer l\'appel',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                        onPressed: _startCallCycle,
+                      ),
+                      OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF334155),
+                          side: const BorderSide(color: Color(0xFFCBD5E1)),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                        onPressed: _closeDialog,
+                        child: const Text('Fermer'),
+                      ),
+                    ],
+                  ),
+                ],
               ],
             );
           },

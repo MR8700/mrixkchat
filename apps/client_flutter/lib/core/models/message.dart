@@ -23,6 +23,7 @@ class Message {
   final String? voiceDuration;
   final String? voiceTranscription;
   final List<double>? waveform;
+  final String? voiceUri;
 
   // Video attributes
   final String? videoUri;
@@ -72,6 +73,7 @@ class Message {
     this.voiceDuration,
     this.voiceTranscription,
     this.waveform,
+    this.voiceUri,
     this.videoUri,
     this.videoDuration,
     this.fileName,
@@ -106,6 +108,7 @@ class Message {
     String? voiceDuration,
     String? voiceTranscription,
     List<double>? waveform,
+    String? voiceUri,
     String? videoUri,
     String? videoDuration,
     String? fileName,
@@ -139,6 +142,7 @@ class Message {
       voiceDuration: voiceDuration ?? this.voiceDuration,
       voiceTranscription: voiceTranscription ?? this.voiceTranscription,
       waveform: waveform ?? this.waveform,
+      voiceUri: voiceUri ?? this.voiceUri,
       videoUri: videoUri ?? this.videoUri,
       videoDuration: videoDuration ?? this.videoDuration,
       fileName: fileName ?? this.fileName,
@@ -174,6 +178,7 @@ class Message {
     'voiceDuration': voiceDuration,
     'voiceTranscription': voiceTranscription,
     'waveform': waveform,
+    'voiceUri': voiceUri,
     'videoUri': videoUri,
     'videoDuration': videoDuration,
     'fileName': fileName,
@@ -211,6 +216,7 @@ class Message {
     voiceDuration: json['voiceDuration'] as String?,
     voiceTranscription: json['voiceTranscription'] as String?,
     waveform: (json['waveform'] as List<dynamic>?)?.map((e) => (e as num).toDouble()).toList(),
+    voiceUri: json['voiceUri'] as String?,
     videoUri: json['videoUri'] as String?,
     videoDuration: json['videoDuration'] as String?,
     fileName: json['fileName'] as String?,

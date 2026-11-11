@@ -5,9 +5,10 @@ import '../../../../core/services/real_media_service.dart';
 import '../../../../core/theme/app_theme.dart';
 
 /// Sovereign Voice Recorder Widget with dynamic waveform, timer,
+/// permission gate (timer does not increment before microphone is active),
 /// pause-and-listen preview with blue playback button, and record resume button.
 class WhatsAppVoiceRecorder extends StatefulWidget {
-  final Function(String durationStr, List<double> waveform) onSend;
+  final Function onSend;
   final VoidCallback onCancel;
 
   const WhatsAppVoiceRecorder({
@@ -42,16 +43,21 @@ class _WhatsAppVoiceRecorderState extends State<WhatsAppVoiceRecorder>
       duration: const Duration(milliseconds: 900),
     )..repeat(reverse: true);
 
-    RealMediaService.instance.startMicrophoneRecording();
-    _startRecordTimer();
-
     // Initial waveform samples
     for (int i = 0; i < 16; i++) {
       _waveformSamples.add(0.2 + _random.nextDouble() * 0.6);
     }
+
+    // Timer strictly begins ONLY when microphone stream has been approved/opened
+    RealMediaService.instance.startMicrophoneRecording().then((granted) {
+      if (granted && mounted && !_isPaused) {
+        _startRecordTimer();
+      }
+    });
   }
 
   void _startRecordTimer() {
+    _recordTimer?.cancel();
     _recordTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!_isPaused && mounted) {
         setState(() {
@@ -154,14 +160,19 @@ class _WhatsAppVoiceRecorderState extends State<WhatsAppVoiceRecorder>
     _recordTimer?.cancel();
     _playbackTimer?.cancel();
     RealMediaService.instance.stopAudio();
+    String? audioUrl = _previewAudioUrl;
     if (!_isPaused) {
-      _previewAudioUrl = await RealMediaService.instance.stopMicrophoneRecording();
+      audioUrl = await RealMediaService.instance.stopMicrophoneRecording();
     }
-    final dur = _formatTime(_seconds);
+    final dur = _formatTime(_seconds > 0 ? _seconds : 1);
     final wave = List<double>.from(_waveformSamples.isNotEmpty
         ? _waveformSamples
         : [0.3, 0.7, 0.5, 0.9, 0.4, 0.8, 0.6]);
-    widget.onSend(dur, wave);
+    try {
+      (widget.onSend as dynamic)(dur, wave, audioUrl);
+    } catch (_) {
+      (widget.onSend as dynamic)(dur, wave);
+    }
   }
 
   @override
@@ -292,14 +303,14 @@ class _WhatsAppVoiceRecorderState extends State<WhatsAppVoiceRecorder>
               tooltip: 'Mettre en pause',
             ),
           ] else ...[
-            // 1. LE BOUTON BLEU POUR JOUER LA PRÉ-ÉCOUTE
+            // Playback Preview button
             GestureDetector(
               onTap: _togglePlaybackPreview,
               child: Container(
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF0043B8), // Bouton Bleu
+                  color: const Color(0xFF0043B8),
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
@@ -318,14 +329,14 @@ class _WhatsAppVoiceRecorderState extends State<WhatsAppVoiceRecorder>
             ),
             const SizedBox(width: 6),
 
-            // 2. LE BOUTON D'ENREGISTREMENT POUR CONTINUER
+            // Resume recording button
             GestureDetector(
               onTap: _resumeRecording,
               child: Container(
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFDC2626), // Rouge enregistrement
+                  color: const Color(0xFFDC2626),
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(

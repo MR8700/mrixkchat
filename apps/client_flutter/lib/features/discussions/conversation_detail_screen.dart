@@ -20,10 +20,12 @@ import '../../core/services/real_media_service.dart';
 
 class ConversationDetailScreen extends StatefulWidget {
   final Conversation conversation;
+  final VoidCallback? onCloseDesktop;
 
   const ConversationDetailScreen({
     super.key,
     required this.conversation,
+    this.onCloseDesktop,
   });
 
   @override
@@ -135,7 +137,7 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
     });
   }
 
-  void _onVoiceRecorded(String durationStr, List<double> waveform) {
+  void _onVoiceRecorded(String durationStr, List<double> waveform, [String? audioUrl]) {
     final now = DateTime.now();
     final timeStr =
         '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
@@ -152,6 +154,7 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
       isOutgoing: true,
       isRead: widget.conversation.isOnline,
       voiceDuration: durationStr,
+      voiceUri: audioUrl,
       voiceTranscription: '« Note vocale enregistrée en direct. »',
       waveform: waveform.isNotEmpty
           ? waveform
@@ -1262,7 +1265,13 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
       elevation: 0.5,
       leading: IconButton(
         icon: const Icon(Icons.arrow_back, color: AppTheme.onSurface),
-        onPressed: () => Navigator.of(context).pop(),
+        onPressed: () {
+          if (widget.onCloseDesktop != null) {
+            widget.onCloseDesktop!();
+          } else if (Navigator.of(context).canPop()) {
+            Navigator.of(context).pop();
+          }
+        },
       ),
       titleSpacing: 0,
       title: GestureDetector(
@@ -1311,19 +1320,27 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                   Row(
                     children: [
                       Container(
-                        width: 5,
-                        height: 5,
-                        decoration: const BoxDecoration(
-                          color: AppTheme.statusGreen,
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          color: widget.conversation.isOnline
+                              ? AppTheme.statusGreen
+                              : const Color(0xFF94A3B8),
                           shape: BoxShape.circle,
                         ),
                       ),
                       const SizedBox(width: 4),
-                      const Text(
-                        'En ligne',
+                      Text(
+                        widget.conversation.isGroup
+                            ? '${widget.conversation.groupMembersCount ?? 3} membres • Chiffré'
+                            : (widget.conversation.isOnline
+                                ? 'En ligne'
+                                : 'Vu récemment'),
                         style: TextStyle(
                           fontSize: 11,
-                          color: AppTheme.statusGreen,
+                          color: widget.conversation.isOnline
+                              ? AppTheme.statusGreen
+                              : const Color(0xFF64748B),
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -2013,6 +2030,8 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                         AudioPlayerWidget(
                           duration: msg.voiceDuration ?? '0:42',
                           waveform: msg.waveform,
+                          audioUrl: msg.voiceUri,
+                          isOutgoing: false,
                         ),
                         if (msg.voiceTranscription != null) ...[
                           const SizedBox(height: 10),
@@ -2418,6 +2437,8 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                   AudioPlayerWidget(
                     duration: msg.voiceDuration ?? '0:18',
                     waveform: msg.waveform,
+                    audioUrl: msg.voiceUri,
+                    isOutgoing: true,
                   ),
                 ] else ...[
                   Text(

@@ -81,6 +81,18 @@ class AssistantRepository extends ChangeNotifier {
     return 'Vous';
   }
 
+  // --- CLEAR CHAT HISTORY ---
+  Future<void> clearAssistantMessages() async {
+    final list = _db.getAll('assistant_messages');
+    for (final item in list) {
+      final id = item['id'] as String?;
+      if (id != null) {
+        await _db.delete('assistant_messages', id);
+      }
+    }
+    notifyListeners();
+  }
+
   Future<void> askAssistant(String userQuestion) async {
     final now = DateTime.now();
     final timeStr = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
@@ -94,12 +106,13 @@ class AssistantRepository extends ChangeNotifier {
       isUser: true,
     );
     await _db.insert('assistant_messages', userMsg.id, userMsg.toJson());
+    notifyListeners();
 
     // Sovereign cognitive query
     String responseText = '';
     String? sourceTitle;
     String? sourceSubtitle;
-    final lower = userQuestion.toLowerCase();
+    final lower = userQuestion.toLowerCase().trim();
 
     // 1. Try querying remote/local AI engine
     final networkAnswer = await ApiClient().queryAI(userQuestion).catchError((_) => null);
@@ -107,6 +120,31 @@ class AssistantRepository extends ChangeNotifier {
       responseText = networkAnswer;
       sourceTitle = 'Assistant Souverain';
       sourceSubtitle = 'Traitement cognitif validé';
+    } else if (lower.startsWith('bonjour') ||
+        lower.startsWith('salut') ||
+        lower.startsWith('hello') ||
+        lower.startsWith('coucou') ||
+        lower.contains('qui es-tu') ||
+        lower.contains('tu es qui') ||
+        lower.contains('présente-toi')) {
+      // Friendly greeting & introduction
+      responseText = "Bonjour $userName ! Je suis votre Assistant Souverain MRixk, propulsé par une intelligence locale et privée.\n\n"
+          "Mes garanties pour vous :\n"
+          "• Zéro émission : vos données ne quittent jamais cet appareil.\n"
+          "• Contrôle absolu : vous choisissez ce que je retiens.\n"
+          "• Connaissance de vos échanges : je peux résumer vos messages récents, retrouver un document partagé, vous assister dans la rédaction ou vérifier la sécurité de vos appareils.\n\n"
+          "Que souhaitez-vous explorer aujourd'hui ?";
+      sourceTitle = 'Accueil Souverain';
+      sourceSubtitle = 'IA privée sur l\'appareil';
+    } else if (lower.contains('appel') || lower.contains('téléphon') || lower.contains('vidéo') || lower.contains('joindre')) {
+      // Calls guidance
+      responseText = "Dans MRixk, vos appels sont directs et hautement chiffrés :\n"
+          "1. Ouvrez une discussion ou votre liste de contacts.\n"
+          "2. Appuyez sur l'icône téléphone (appel vocal) ou caméra (appel vidéo HD).\n"
+          "3. Si votre contact est en ligne, le téléphone sonne avec une tonalité authentique.\n"
+          "4. Vous pouvez consulter tous vos appels passés ou manqués dans l'Historique des appels depuis l'icône téléphone de l'accueil.";
+      sourceTitle = 'Appels & Téléphonie Sécurisée';
+      sourceSubtitle = 'Guide d\'utilisation';
     } else if (lower.contains('résum') || lower.contains('échange') || lower.contains('message') || lower.contains('discut')) {
       // 2. Query real conversations & messages
       final convs = _db.getAll('conversations');

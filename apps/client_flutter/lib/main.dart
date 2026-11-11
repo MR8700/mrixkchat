@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'core/database/database_seed.dart';
 import 'core/database/local_database.dart';
 import 'core/repositories/assistant_repository.dart';
+import 'core/repositories/call_history_repository.dart';
 import 'core/repositories/contact_repository.dart';
 import 'core/repositories/conversation_repository.dart';
 import 'core/repositories/device_repository.dart';
@@ -35,6 +36,7 @@ void main() async {
         ChangeNotifierProvider(create: (_) => MomentRepository(localDb)),
         ChangeNotifierProvider(create: (_) => DeviceRepository(localDb)),
         ChangeNotifierProvider(create: (_) => AssistantRepository(localDb)),
+        ChangeNotifierProvider(create: (_) => CallHistoryRepository(localDb)),
         ChangeNotifierProvider(create: (_) => ProfileRepository(localDb)),
       ],
       child: const MRixkApp(),
