@@ -99,6 +99,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/users/{id}", s.handleGetUser)
 	s.mux.HandleFunc("PUT /api/v1/users/{id}", s.handleUpdateUser)
 	s.mux.HandleFunc("POST /api/v1/users/{id}", s.handleUpdateUser)
+	s.mux.HandleFunc("DELETE /api/v1/users/{id}", s.handleDeleteUser)
 	s.mux.HandleFunc("POST /api/v1/contacts/verify", s.handleVerifyContact)
 
 	// Devices (Max 3 limit enforced)
@@ -352,6 +353,38 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"message": "User updated successfully",
 		"user":    user.Public(),
+	})
+}
+
+func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		jsonError(w, http.StatusBadRequest, "User ID required in path")
+		return
+	}
+
+	targetID := id
+	if strings.HasPrefix(id, "@") {
+		u, err := s.repo.GetUserByHandle(id)
+		if err == nil && u != nil {
+			targetID = u.ID
+		}
+	} else {
+		// check if it's a handle without @
+		u, err := s.repo.GetUserByHandle("@" + id)
+		if err == nil && u != nil {
+			targetID = u.ID
+		}
+	}
+
+	if err := s.repo.DeleteUser(targetID); err != nil {
+		jsonError(w, http.StatusNotFound, "Utilisateur introuvable sur le serveur")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"message": "Utilisateur supprimé avec succès",
+		"id":      targetID,
 	})
 }
 

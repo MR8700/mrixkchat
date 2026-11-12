@@ -406,6 +406,24 @@ func (r *MemoryRepository) UpdateUser(u *User) error {
 	return nil
 }
 
+// DeleteUser permanently removes a user from repository.
+func (r *MemoryRepository) DeleteUser(id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	defer r.saveIfConfigured()
+
+	u, exists := r.users[id]
+	if !exists {
+		return ErrUserNotFound
+	}
+	delete(r.users, id)
+	delete(r.usersByHandle, u.Handle)
+	if u.RecoveryCode != "" {
+		delete(r.usersByRecoveryCode, u.RecoveryCode)
+	}
+	return nil
+}
+
 // RegisterDevice registers a device enforcing the strict 3-device limit.
 func (r *MemoryRepository) RegisterDevice(d *Device) error {
 	r.mu.Lock()

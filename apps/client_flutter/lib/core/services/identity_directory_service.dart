@@ -172,10 +172,10 @@ class IdentityDirectoryService {
       final remoteUsers = await ApiClient().searchUsers(query);
       for (final u in remoteUsers) {
         final id = (u['id'] ?? '').toString();
-        final name = (u['display_name'] ?? '').toString();
+        final name = (u['display_name'] ?? u['displayName'] ?? '').toString();
         final handle = (u['handle'] ?? '').toString();
-        final avatar = (u['avatar_ref'] ?? u['avatar_url'] ?? '').toString();
-        final status = (u['status_message'] ?? 'Membre du réseau souverain').toString();
+        final avatar = (u['avatar_ref'] ?? u['avatar_url'] ?? u['avatarUrl'] ?? '').toString();
+        final status = (u['status_message'] ?? u['statusMessage'] ?? 'Membre du réseau souverain').toString();
         if (id.isNotEmpty && handle.isNotEmpty) {
           registerUser(SovereignUser(
             id: id,

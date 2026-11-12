@@ -18,6 +18,7 @@ class ApiClient {
   }
 
   /// Automatically resolves the active backend server (local or production).
+  /// Strictly online-first as required: prioritizes the production backend.
   Future<String> getActiveBaseUrl() async {
     if (kIsWeb) {
       // In web browser: if served over HTTPS or on GitHub Pages / remote domain,
@@ -28,18 +29,20 @@ class ApiClient {
       }
     }
 
+    // 1. Online-first: prioritize the remote production server
     try {
-      final res = await http.get(Uri.parse('$localFallbackUrl/health')).timeout(const Duration(milliseconds: 600));
+      final res = await http.get(Uri.parse('$prodRemoteUrl/health')).timeout(const Duration(milliseconds: 2000));
       if (res.statusCode == 200) {
-        baseUrl = localFallbackUrl;
+        baseUrl = prodRemoteUrl;
         return baseUrl;
       }
     } catch (_) {}
 
+    // 2. Fallback to local server if offline or running in local dev without internet
     try {
-      final res = await http.get(Uri.parse('$prodRemoteUrl/health')).timeout(const Duration(milliseconds: 1500));
+      final res = await http.get(Uri.parse('$localFallbackUrl/health')).timeout(const Duration(milliseconds: 600));
       if (res.statusCode == 200) {
-        baseUrl = prodRemoteUrl;
+        baseUrl = localFallbackUrl;
         return baseUrl;
       }
     } catch (_) {}

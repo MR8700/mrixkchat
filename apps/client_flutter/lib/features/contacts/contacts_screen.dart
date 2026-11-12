@@ -36,6 +36,14 @@ class _ContactsScreenState extends State<ContactsScreen> {
   bool _fabInitialized = false;
 
   @override
+  void initState() {
+    super.initState();
+    IdentityDirectoryService.searchUsersOnline('').then((_) {
+      if (mounted) setState(() {});
+    }).catchError((_) {});
+  }
+
+  @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
@@ -730,10 +738,28 @@ class _ContactsScreenState extends State<ContactsScreen> {
   }
 
   Widget _buildRealtimeDirectoryResults(List<Contact> displayedContacts) {
+    final myProfile = context.read<ProfileRepository>().getProfile();
+    final myHandleClean = myProfile.handle.toLowerCase().replaceAll('@', '').trim();
+    final myNameLower = myProfile.displayName.toLowerCase().trim();
+    final myId = myProfile.id.trim();
+
     final matchingUsers = IdentityDirectoryService.searchUsers(_searchQuery);
-    final existingNames = displayedContacts.map((c) => c.name.toLowerCase()).toSet();
-    final nonAddedUsers =
-        matchingUsers.where((u) => !existingNames.contains(u.name.toLowerCase())).toList();
+    final existingNames = displayedContacts.map((c) => c.name.toLowerCase().trim()).toSet();
+    final existingHandles = displayedContacts.map((c) => c.handle.toLowerCase().replaceAll('@', '').trim()).toSet();
+    final existingIds = displayedContacts.map((c) => c.id.trim()).toSet();
+
+    final nonAddedUsers = matchingUsers.where((u) {
+      final uHandleClean = u.handle.toLowerCase().replaceAll('@', '').trim();
+      final uNameLower = u.name.toLowerCase().trim();
+      final isSelf = (myId.isNotEmpty && u.id == myId) ||
+          (myHandleClean.isNotEmpty && uHandleClean == myHandleClean) ||
+          (myNameLower.isNotEmpty && uNameLower == myNameLower);
+      if (isSelf) return false;
+      if (existingIds.contains(u.id)) return false;
+      if (existingHandles.contains(uHandleClean)) return false;
+      if (existingNames.contains(uNameLower)) return false;
+      return true;
+    }).toList();
 
     if (nonAddedUsers.isEmpty) return const SizedBox.shrink();
 
