@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/models/dws_media.dart';
+import '../../../core/models/moe_object.dart';
 import '../../../core/services/formula_engine.dart';
 import '../../../core/services/real_media_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -8,6 +9,10 @@ import '../../viewers/document_viewer_screen.dart';
 import '../../viewers/image_viewer_screen.dart';
 import '../../viewers/video_player_screen.dart';
 import 'scientific_components_renderer.dart';
+import 'moe_interactive_table_widget.dart';
+import 'moe_interactive_chart_widget.dart';
+import 'moe_interactive_diagram_widget.dart';
+import 'moe_object_code_modal.dart';
 
 /// Sanitizes untrusted HTML/SVG inputs to strictly prevent script injection, active elements or unsafe attributes.
 String sanitizeHtml(String input) {
@@ -72,6 +77,9 @@ class GroupNoteRenderer extends StatelessWidget {
   final Map<String, DwsMedia>? mediaRegistry;
   final void Function(DwsMedia media)? onConfigureMedia;
   final bool isFinalRenderMode;
+  final Map<String, MoeObject>? moeObjects;
+  final ValueChanged<MoeObject>? onUpdateMoeObject;
+  final ValueChanged<MoeObject>? onOpenMoeCodeModal;
 
   const GroupNoteRenderer({
     super.key,
@@ -86,6 +94,9 @@ class GroupNoteRenderer extends StatelessWidget {
     this.mediaRegistry,
     this.onConfigureMedia,
     this.isFinalRenderMode = false,
+    this.moeObjects,
+    this.onUpdateMoeObject,
+    this.onOpenMoeCodeModal,
   });
 
   @override
@@ -103,6 +114,11 @@ class GroupNoteRenderer extends StatelessWidget {
 
     // 2. Resolve component macros, inter-document variables, and calculator formulas
     final scientificWidgets = <String, Widget>{};
+    final extractedMoe = MoeEngine.extractObjects(content, existingLegacyComponents: components);
+    if (moeObjects != null) {
+      extractedMoe.addAll(moeObjects!);
+    }
+
     final resolvedContent = _resolveAllVariablesAndMacros(
       content,
       components,
@@ -112,13 +128,14 @@ class GroupNoteRenderer extends StatelessWidget {
       mediaReg: mediaRegistry,
       isFinalRender: isFinalRenderMode,
       scientificWidgets: scientificWidgets,
+      extractedMoe: extractedMoe,
     );
 
     // 3. Sanitize safely
     final safeContent = sanitizeHtml(resolvedContent);
 
     // 4. Parse into visual content blocks
-    final blocks = _parseBlocks(safeContent, computedVars, scientificWidgets);
+    final blocks = _parseBlocks(safeContent, computedVars, scientificWidgets, extractedMoe);
 
     return ListView.builder(
       shrinkWrap: true,
@@ -461,9 +478,31 @@ class GroupNoteRenderer extends StatelessWidget {
     Map<String, DwsMedia>? mediaReg,
     bool isFinalRender = false,
     Map<String, Widget>? scientificWidgets,
+    Map<String, MoeObject>? extractedMoe,
   }) {
     var result = text;
     final comps = Map<String, String>.from(compsInput);
+
+    // Register any MOE objects (Tables {M[5,4]}, Curves {C:courbe}, Diagrams {D:diagramme})
+    if (extractedMoe != null) {
+      for (final moeEntry in extractedMoe.entries) {
+        comps[moeEntry.key] = '<dws-moe id="${moeEntry.key}"/>';
+      }
+
+      // Replace standalone MOE object declarations: {M[5,4]} or {C:courbe} or {D:diagramme}
+      final moeDeclPattern = RegExp(r'\{([a-zA-Z0-9_]+)\[\s*[0-9]+,\s*[0-9]+\s*\]\}|\{([a-zA-Z0-9_]+)\s*:\s*[a-zA-Z0-9_]+(?:\([^)]*\))?\}');
+      result = result.replaceAllMapped(moeDeclPattern, (m) {
+        final name = m.group(1) ?? m.group(2);
+        if (name != null && extractedMoe.containsKey(name)) {
+          return '\n<!-- macro:$name -->\n<dws-moe id="$name"/>\n<!-- endmacro -->\n';
+        }
+        return m.group(0)!;
+      });
+
+      // Remove MOE property & cell assignments from document body text so they don't leak as raw text
+      final moePropPattern = RegExp(r'\{[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+|\[\s*[0-9]+\s*,\s*[0-9]+\s*\])\s*=\s*(?:"[^"]*"|\[[^\]]*\]|[^}]+)\}\n?');
+      result = result.replaceAll(moePropPattern, '');
+    }
 
     // Pre-parse any components passed in compsInput
     for (final entry in comps.entries) {
@@ -641,6 +680,14 @@ class GroupNoteRenderer extends StatelessWidget {
     return result;
   }
 
+  MoeObject? _getMoe(String? name) {
+    if (name == null) return null;
+    if (moeObjects != null && moeObjects!.containsKey(name)) {
+      return moeObjects![name];
+    }
+    return null;
+  }
+
   Widget _buildBlock(BuildContext context, _ContentBlock block, Map<String, double> vars) {
     Widget child;
 
@@ -683,11 +730,31 @@ class GroupNoteRenderer extends StatelessWidget {
         break;
 
       case _BlockType.table:
-        child = _buildTableCard(block.tableData!, block.macroName);
+        final moe = _getMoe(block.macroName);
+        if (moe != null && moe.type == MoeObjectType.table) {
+          child = MoeInteractiveTableWidget(
+            object: moe,
+            isReadOnly: isFinalRenderMode,
+            onChanged: onUpdateMoeObject,
+            onOpenCodeModal: onOpenMoeCodeModal != null ? () => onOpenMoeCodeModal!(moe) : null,
+          );
+        } else {
+          child = _buildTableCard(block.tableData!, block.macroName);
+        }
         break;
 
       case _BlockType.diagram:
-        child = _buildFlowchartDiagram(block.text, block.macroName);
+        final moe = _getMoe(block.macroName);
+        if (moe != null && moe.type == MoeObjectType.diagram) {
+          child = MoeInteractiveDiagramWidget(
+            object: moe,
+            isReadOnly: isFinalRenderMode,
+            onChanged: onUpdateMoeObject,
+            onOpenCodeModal: onOpenMoeCodeModal != null ? () => onOpenMoeCodeModal!(moe) : null,
+          );
+        } else {
+          child = _buildFlowchartDiagram(block.text, block.macroName);
+        }
         break;
 
       case _BlockType.graph:
@@ -2512,7 +2579,12 @@ class GroupNoteRenderer extends StatelessWidget {
     );
   }
 
-  List<_ContentBlock> _parseBlocks(String input, Map<String, double> vars, [Map<String, Widget>? scientificWidgets]) {
+  List<_ContentBlock> _parseBlocks(
+    String input,
+    Map<String, double> vars, [
+    Map<String, Widget>? scientificWidgets,
+    Map<String, MoeObject>? extractedMoe,
+  ]) {
     final blocks = <_ContentBlock>[];
     final lines = input.split('\n');
 
@@ -2558,6 +2630,52 @@ class GroupNoteRenderer extends StatelessWidget {
         currentMacroName = null;
         i++;
         continue;
+      }
+
+      // MOE Interactive Object detection: <dws-moe id="..."/>
+      if (line.startsWith('<dws-moe')) {
+        final id = RegExp(r'id="([^"]+)"').firstMatch(line)?.group(1);
+        if (id != null) {
+          final moeObj = (moeObjects != null && moeObjects!.containsKey(id))
+              ? moeObjects![id]!
+              : (extractedMoe != null ? extractedMoe[id] : null);
+          if (moeObj != null) {
+            Widget? moeWidget;
+            if (moeObj.type == MoeObjectType.table) {
+              moeWidget = MoeInteractiveTableWidget(
+                object: moeObj,
+                isReadOnly: isFinalRenderMode,
+                onChanged: onUpdateMoeObject,
+                onOpenCodeModal: onOpenMoeCodeModal != null ? () => onOpenMoeCodeModal!(moeObj) : null,
+              );
+            } else if (moeObj.type == MoeObjectType.curve || moeObj.type == MoeObjectType.chart) {
+              moeWidget = MoeInteractiveChartWidget(
+                object: moeObj,
+                isReadOnly: isFinalRenderMode,
+                onChanged: onUpdateMoeObject,
+                onOpenCodeModal: onOpenMoeCodeModal != null ? () => onOpenMoeCodeModal!(moeObj) : null,
+              );
+            } else if (moeObj.type == MoeObjectType.diagram) {
+              moeWidget = MoeInteractiveDiagramWidget(
+                object: moeObj,
+                isReadOnly: isFinalRenderMode,
+                onChanged: onUpdateMoeObject,
+                onOpenCodeModal: onOpenMoeCodeModal != null ? () => onOpenMoeCodeModal!(moeObj) : null,
+              );
+            }
+
+            if (moeWidget != null) {
+              blocks.add(_ContentBlock(
+                type: _BlockType.customWidget,
+                text: '',
+                macroName: currentMacroName ?? id,
+                customWidget: moeWidget,
+              ));
+              i++;
+              continue;
+            }
+          }
+        }
       }
 
       // Scientific component detection: <dws-scientific id="..."/>

@@ -16,6 +16,8 @@ import '../../core/services/real_media_service.dart';
 import '../../core/theme/app_theme.dart';
 import 'controllers/word_rich_text_controller.dart';
 import 'widgets/group_note_renderer.dart';
+import '../../core/models/moe_object.dart';
+import 'widgets/moe_object_code_modal.dart';
 
 class GroupNotepadScreen extends StatefulWidget {
   final Conversation conversation;
@@ -84,6 +86,9 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
   // Active paragraph alignment at cursor for Word editor
   TextAlign _currentWordAlign = TextAlign.left;
 
+  // MRixk Object Engine (MOE) interactive objects map
+  Map<String, MoeObject> _moeObjects = {};
+
   @override
   void initState() {
     super.initState();
@@ -111,13 +116,46 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
     _lineSpacing = _currentNote.lineSpacing;
     _paragraphSpacing = _currentNote.paragraphSpacing;
 
+    _moeObjects = MoeEngine.extractObjects(_currentNote.content, existingLegacyComponents: _components);
+
     _textController.addListener(_onWordTextChanged);
     _codeController.addListener(_onCodeTextChanged);
     _titleController.addListener(_onTextChanged);
   }
 
+  void _openMoeCodeModal(MoeObject obj) {
+    MoeObjectCodeModal.show(context, obj, _onMoeObjectUpdated);
+  }
+
+  void _onMoeObjectUpdated(MoeObject updated) {
+    setState(() {
+      _moeObjects[updated.name] = updated;
+    });
+
+    final objCode = updated.toMrixkCode();
+
+    if (_components.containsKey(updated.name)) {
+      _components[updated.name] = updated.rawMrixkCode.isNotEmpty ? updated.rawMrixkCode : objCode;
+    } else {
+      final text = _textController.toMarkdown();
+      final objPattern = RegExp('\\{${RegExp.escape(updated.name)}\\[[0-9]+,\\s*[0-9]+\\]\\}|\\{${RegExp.escape(updated.name)}\\s*:\\s*[a-zA-Z0-9_]+(?:\\([^)]*\\))?\\}');
+      if (objPattern.hasMatch(text)) {
+        final propLinesPattern = RegExp('\\{${RegExp.escape(updated.name)}(?:\\.[a-zA-Z0-9_]+|\\[\\s*[0-9]+\\s*,\\s*[0-9]+\\s*\\])\\s*=\\s*(?:"[^"]*"|\\[[^\\]]*\\]|[^}]+)\\}\\n?');
+        var newText = text.replaceAll(propLinesPattern, '');
+        newText = newText.replaceFirst(objPattern, objCode);
+        _textController.loadMarkdown(newText);
+      } else {
+        _textController.loadMarkdown('$text\n\n$objCode\n');
+      }
+    }
+
+    _codeController.text = _buildCombinedCodeSource(_textController.toMarkdown(), _components);
+    _onTextChanged();
+  }
+
   void _onWordTextChanged() {
     _onTextChanged();
+    _moeObjects = MoeEngine.extractObjects(_textController.toMarkdown(), existingLegacyComponents: _components);
     final text = _textController.text;
     final sel = _textController.selection;
 
@@ -175,6 +213,7 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
   void _onCodeTextChanged() {
     if (_editSubMode != 'code') return;
     _onTextChanged();
+    _moeObjects = MoeEngine.extractObjects(_codeController.text, existingLegacyComponents: _components);
     _syncFromCodeToWord(_codeController.text);
     _scheduleLiveInstantSync();
   }
@@ -2176,7 +2215,10 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
                 externalDocumentsVariables: extVars,
                 currentDocumentId: _currentNote.id,
                 mediaRegistry: mediaRegistry,
-                isFinalRenderMode: true,
+                isFinalRenderMode: false,
+                moeObjects: _moeObjects,
+                onUpdateMoeObject: _onMoeObjectUpdated,
+                onOpenMoeCodeModal: _openMoeCodeModal,
                 onConfigureMedia: (media) => _showMediaPropertiesSheet(media),
                 onStartEditing: () {
                   setState(() => _activeCompartment = 1);
@@ -2448,6 +2490,75 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
               icon: const Icon(Icons.perm_media_rounded, size: 15),
               label: const Text('Média', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
             ),
+
+            const VerticalDivider(width: 16, thickness: 1, color: Color(0xFFE2E8F0)),
+
+            // Insert Interactive MOE Objects: Tableau, Courbe, Diagramme
+            PopupMenuButton<String>(
+              tooltip: 'Insérer un Objet Interactif MRixk',
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              onSelected: (val) {
+                switch (val) {
+                  case 'table':
+                    _insertTextAtCursor('\n{M[5,4]}\n');
+                    break;
+                  case 'curve':
+                    _insertTextAtCursor('\n{C:courbe}\n{C.formule="A*sin(2*pi*f*t)"}\n{C.A=2}\n{C.f=50}\n');
+                    break;
+                  case 'diagram':
+                    _insertTextAtCursor('\n{D:diagramme(flowchart)}\n[1. Source] -> [2. Traitement] -> [3. Sortie]\n');
+                    break;
+                }
+              },
+              itemBuilder: (ctx) => [
+                const PopupMenuItem(
+                  value: 'table',
+                  child: Row(
+                    children: [
+                      Icon(Icons.table_chart_rounded, size: 16, color: AppTheme.primary),
+                      SizedBox(width: 8),
+                      Text('Tableau {M[5,4]}', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'curve',
+                  child: Row(
+                    children: [
+                      Icon(Icons.show_chart_rounded, size: 16, color: Color(0xFF0284C7)),
+                      SizedBox(width: 8),
+                      Text('Courbe {C:courbe}', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'diagram',
+                  child: Row(
+                    children: [
+                      Icon(Icons.account_tree_rounded, size: 16, color: Color(0xFF10B981)),
+                      SizedBox(width: 8),
+                      Text('Diagramme {D:diagramme}', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ),
+              ],
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF0FDF4),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFF86EFAC)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: const [
+                    Icon(Icons.add_circle_outline_rounded, size: 15, color: Color(0xFF15803D)),
+                    SizedBox(width: 4),
+                    Text('+ Objet', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF15803D))),
+                  ],
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -2563,6 +2674,50 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
             ),
           ),
         ),
+        if (_moeObjects.isNotEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
+            color: const Color(0xFFF1F5F9),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  const Icon(Icons.widgets_outlined, size: 14, color: Color(0xFF64748B)),
+                  const SizedBox(width: 6),
+                  const Text(
+                    'Objets actifs :',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF64748B)),
+                  ),
+                  const SizedBox(width: 8),
+                  ..._moeObjects.values.map((obj) => Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: ActionChip(
+                          avatar: Icon(
+                            switch (obj.type) {
+                              MoeObjectType.table => Icons.table_chart_rounded,
+                              MoeObjectType.chart => Icons.show_chart_rounded,
+                              MoeObjectType.diagram => Icons.account_tree_rounded,
+                              _ => Icons.widgets_rounded,
+                            },
+                            size: 13,
+                            color: const Color(0xFF2563EB),
+                          ),
+                          label: Text(
+                            '${obj.name} (${obj.type.name})',
+                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                          ),
+                          backgroundColor: Colors.white,
+                          side: const BorderSide(color: Color(0xFFCBD5E1)),
+                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
+                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          onPressed: () => _openMoeCodeModal(obj),
+                        ),
+                      )),
+                ],
+              ),
+            ),
+          ),
         const Divider(height: 1, color: Color(0xFFE2E8F0)),
 
         // Main Word Text Area (Powered by WordRichTextController)
@@ -2660,6 +2815,12 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
+                  _codeSnippetChip('+ Objet Tableau', '{M[5,4]}\n{M[0,0]="Nom"}\n{M[0,1]="Note"}\n'),
+                  const SizedBox(width: 6),
+                  _codeSnippetChip('+ Objet Courbe', '{C:courbe}\n{C.formule="A*sin(2*pi*f*t)"}\n{C.A=2}\n{C.f=50}\n{C.domain=[-0.05, 0.05]}\n'),
+                  const SizedBox(width: 6),
+                  _codeSnippetChip('+ Objet Diagramme', '{D:diagramme(flowchart)}\n[1. Saisie] -> [2. Traitement] -> [3. Sortie]\n'),
+                  const SizedBox(width: 6),
                   _codeSnippetChip('+ Variable int', 'int prix = 1500;\n'),
                   const SizedBox(width: 6),
                   _codeSnippetChip('+ Variable float', 'float taux = 0.20;\n'),
