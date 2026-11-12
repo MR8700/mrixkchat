@@ -17,6 +17,21 @@ import 'package:mrixk_client/features/discussions/conversation_detail_screen.dar
 void main() {
   group('Sécurité de l\'annuaire souverain : uniquement les utilisateurs enregistrés', () {
     test('Les utilisateurs officiels sont trouvés et les inconnus strictement rejetés', () {
+      IdentityDirectoryService.registerUser(const SovereignUser(
+        id: 'usr_aug',
+        name: 'Augustin MARE',
+        handle: '@mareaugustin',
+        avatarUrl: '',
+        statusText: 'Certifié',
+      ));
+      IdentityDirectoryService.registerUser(const SovereignUser(
+        id: 'usr_isa',
+        name: 'Isabelle',
+        handle: '@isabelle',
+        avatarUrl: '',
+        statusText: 'Certifié',
+      ));
+
       final aug = IdentityDirectoryService.findUser('@mareaugustin');
       expect(aug, isNotNull);
       expect(aug!.handle, equals('@mareaugustin'));

@@ -118,9 +118,41 @@ class LocalDatabase {
     }
   }
 
-  /// Automatically sanitizes production data by removing legacy test entries (such as Sarah Connor and mock text data).
+  /// Automatically sanitizes production data by removing legacy test entries and purging all sessions/users.
   void _sanitizeProductionData() {
     bool mutated = false;
+
+    // Total wipe of all legacy users, sessions, contacts, messages, moments & identifiers
+    final settings = _tables['settings'];
+    if (settings == null || settings['production_full_reset_v3'] == null) {
+      _tables['users']?.clear();
+      _tables['contacts']?.clear();
+      _tables['conversations']?.clear();
+      _tables['messages']?.clear();
+      _tables['moments']?.clear();
+      _tables['call_logs']?.clear();
+      _tables['group_notes']?.clear();
+      _tables['group_documents']?.clear();
+      _tables['memory_items']?.clear();
+
+      _tables['settings']?.remove('identity_configured');
+      _ensureTable('settings');
+      _tables['settings']!['production_full_reset_v3'] = {'value': true};
+
+      _ensureTable('devices');
+      _tables['devices']!.clear();
+      final defaultDev = {
+        'id': 'dev_1',
+        'name': 'Téléphone Principal (Cet appareil)',
+        'platform': 'Android',
+        'status': 'ACTIVE',
+        'lastSeenText': "En cours d'utilisation",
+        'isCurrentDevice': true,
+        'iconType': 'phone',
+      };
+      _tables['devices']!['dev_1'] = defaultDev;
+      mutated = true;
+    }
 
     // 1. Purge Sarah Connor from contacts
     final contacts = _tables['contacts'];
@@ -254,7 +286,6 @@ class LocalDatabase {
     }
 
     // 6. Purge legacy test texts & mock conversations from production
-    final settings = _tables['settings'];
     if (settings != null && settings['production_clean_purged'] == null) {
       final legacyContactIds = {
         'contact_amine',
