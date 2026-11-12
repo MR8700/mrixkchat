@@ -32,9 +32,13 @@ Future<void> seedCleanProductionDatabase(LocalDatabase db) async {
   // 6. Users: STRICTLY EMPTY until the user configures their own identity
 }
 
-/// Seeds genuine, verified test data via CRUD inserts when database starts.
-/// Strictly avoids static dummy strings in UI: everything comes from LocalDatabase.
+/// Seeds clean production database without any seed users or fake accounts.
 Future<void> seedInitialDatabase(LocalDatabase db) async {
+  await seedCleanProductionDatabase(db);
+}
+
+/// Seeds mock test data ONLY for unit tests. Strictly never called in production.
+Future<void> seedTestDataForUnitTestsOnly(LocalDatabase db) async {
   // 1. User Profile CRUD insert
   final userProfile = UserProfile(
     id: 'user_richard',

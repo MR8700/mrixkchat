@@ -487,6 +487,24 @@ class _ContactsScreenState extends State<ContactsScreen> {
                   ],
                 ),
                 actions: [
+                  // Bouton permanent d'ajout de contact dans l'en-tête (ne disparaît jamais)
+                  IconButton(
+                    icon: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: const BoxDecoration(
+                        color: AppTheme.primary,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.person_add_rounded,
+                        size: 19,
+                        color: Colors.white,
+                      ),
+                    ),
+                    tooltip: 'Ajouter un contact',
+                    onPressed: _openAddContact,
+                  ),
                   IconButton(
                     icon: Container(
                       width: 36,
@@ -599,7 +617,14 @@ class _ContactsScreenState extends State<ContactsScreen> {
                     ),
                     child: TextField(
                       controller: _searchController,
-                      onChanged: (val) => setState(() => _searchQuery = val),
+                      onChanged: (val) {
+                        setState(() => _searchQuery = val);
+                        if (val.trim().isNotEmpty) {
+                          IdentityDirectoryService.searchUsersOnline(val).then((_) {
+                            if (mounted) setState(() {});
+                          });
+                        }
+                      },
                       decoration: InputDecoration(
                         hintText: 'Rechercher un contact, @handle, statut...',
                         hintStyle: const TextStyle(fontSize: 13, color: AppTheme.onSurfaceVariant),
@@ -676,26 +701,25 @@ class _ContactsScreenState extends State<ContactsScreen> {
             ],
           ),
 
-          // DRAGGABLE FLOATING ACTION BUTTON (Deplaçable à la main)
+          // FLOATING ACTION BUTTON PERMANENT (Toujours visible et accessible au-dessus de la barre)
           Positioned(
-            left: _fabOffset.dx.clamp(16.0, (screenSize.width - 76.0).clamp(16.0, 9999.0)),
-            top: _fabOffset.dy.clamp(60.0, (screenSize.height - 120.0).clamp(60.0, 9999.0)),
-            child: GestureDetector(
-              onPanUpdate: (details) {
-                setState(() {
-                  _fabOffset = Offset(
-                    _fabOffset.dx + details.delta.dx,
-                    _fabOffset.dy + details.delta.dy,
-                  );
-                });
-              },
-              child: Tooltip(
-                message: 'Bouton déplaçable • Nouveau contact',
-                child: FloatingActionButton(
-                  backgroundColor: AppTheme.primary,
-                  elevation: 6,
-                  onPressed: _openAddContact,
-                  child: const Icon(Icons.person_add, color: Colors.white),
+            right: 20,
+            bottom: 96,
+            child: Tooltip(
+              message: 'Ajouter un contact souverain',
+              child: FloatingActionButton.extended(
+                heroTag: 'fab_add_contact_permanent',
+                backgroundColor: AppTheme.primary,
+                elevation: 6,
+                onPressed: _openAddContact,
+                icon: const Icon(Icons.person_add_rounded, color: Colors.white, size: 20),
+                label: const Text(
+                  'Ajouter',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
                 ),
               ),
             ),

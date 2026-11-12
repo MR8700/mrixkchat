@@ -36,20 +36,32 @@ func NewService(repo *database.MemoryRepository) *Service {
 
 // Register registers a new user with unique handle and optional public recovery key.
 func (s *Service) Register(handle, password, recoveryPubKey, displayName string) (*database.User, error) {
+	return s.RegisterWithDetails(handle, password, recoveryPubKey, "", displayName, "", "")
+}
+
+// RegisterWithDetails registers a new sovereign user with complete profile data and recovery code.
+func (s *Service) RegisterWithDetails(handle, password, recoveryPubKey, recoveryCode, displayName, avatarRef, statusMessage string) (*database.User, error) {
 	cleanHandle := strings.TrimSpace(handle)
 	if !strings.HasPrefix(cleanHandle, "@") {
 		cleanHandle = "@" + cleanHandle
 	}
 
-	if len(cleanHandle) < 4 || len(cleanHandle) > 32 {
+	if len(cleanHandle) < 3 || len(cleanHandle) > 32 {
 		return nil, ErrInvalidHandle
 	}
-	if len(password) < 8 {
+	if password == "" {
+		password = generateSovereignToken()
+	} else if len(password) < 8 {
 		return nil, ErrInvalidPassword
 	}
 
 	if displayName == "" {
 		displayName = strings.TrimPrefix(cleanHandle, "@")
+	}
+
+	cleanRecoveryCode := strings.ToUpper(strings.TrimSpace(recoveryCode))
+	if cleanRecoveryCode == "" {
+		cleanRecoveryCode = generateSovereignRecoveryCode()
 	}
 
 	pwdHash := hashPassword(password)
@@ -58,7 +70,10 @@ func (s *Service) Register(handle, password, recoveryPubKey, displayName string)
 		Handle:            cleanHandle,
 		PasswordHash:      pwdHash,
 		RecoveryPublicKey: recoveryPubKey,
+		RecoveryCode:      cleanRecoveryCode,
 		DisplayName:       displayName,
+		AvatarRef:         avatarRef,
+		StatusMessage:     statusMessage,
 		CreatedAt:         time.Now(),
 		UpdatedAt:         time.Now(),
 	}
@@ -76,6 +91,26 @@ func (s *Service) Register(handle, password, recoveryPubKey, displayName string)
 	})
 
 	return user, nil
+}
+
+func generateSovereignToken() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+func generateSovereignRecoveryCode() string {
+	const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	part := func() string {
+		b := make([]byte, 4)
+		_, _ = rand.Read(b)
+		res := make([]byte, 4)
+		for i := 0; i < 4; i++ {
+			res[i] = chars[int(b[i])%len(chars)]
+		}
+		return string(res)
+	}
+	return fmt.Sprintf("MRX-%s-%s", part(), part())
 }
 
 // Authenticate verifies credentials and returns the user object.

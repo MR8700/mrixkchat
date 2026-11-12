@@ -8,10 +8,29 @@ class ApiClient {
   ApiClient._internal();
 
   String baseUrl = 'https://mrixk-backend.onrender.com/api/v1';
+  static const String localFallbackUrl = 'http://localhost:8080/api/v1';
   String? _sessionToken;
 
   void setSessionToken(String token) {
     _sessionToken = token;
+  }
+
+  /// Automatically resolves the active backend server (local or production).
+  Future<String> getActiveBaseUrl() async {
+    try {
+      final res = await http.get(Uri.parse('$localFallbackUrl/health')).timeout(const Duration(milliseconds: 600));
+      if (res.statusCode == 200) {
+        baseUrl = localFallbackUrl;
+        return baseUrl;
+      }
+    } catch (_) {}
+
+    try {
+      final res = await http.get(Uri.parse('$baseUrl/health')).timeout(const Duration(milliseconds: 1500));
+      if (res.statusCode == 200) return baseUrl;
+    } catch (_) {}
+
+    return baseUrl;
   }
 
   Map<String, String> _headers({String? contentType = 'application/json'}) {
@@ -28,31 +47,147 @@ class ApiClient {
   /// Checks if backend server is online and healthy.
   Future<bool> checkHealth() async {
     try {
-      final res = await http.get(Uri.parse('$baseUrl/health')).timeout(const Duration(seconds: 2));
+      final targetUrl = await getActiveBaseUrl();
+      final res = await http.get(Uri.parse('$targetUrl/health')).timeout(const Duration(seconds: 2));
       return res.statusCode == 200;
     } catch (_) {
       return false;
     }
   }
 
-  /// Registers a new sovereign account on the server.
+  /// Registers a new sovereign account on the server online FIRST.
   Future<Map<String, dynamic>?> register({
     required String handle,
-    required String password,
     required String displayName,
+    String? recoveryCode,
+    String? avatarUrl,
+    String? statusMessage,
+    String? password,
   }) async {
+    final targetUrl = await getActiveBaseUrl();
     try {
       final res = await http.post(
-        Uri.parse('$baseUrl/auth/register'),
+        Uri.parse('$targetUrl/auth/register'),
         headers: _headers(),
         body: jsonEncode({
           'handle': handle,
-          'password': password,
           'display_name': displayName,
+          if (recoveryCode != null && recoveryCode.isNotEmpty) 'recovery_code': recoveryCode,
+          if (avatarUrl != null && avatarUrl.isNotEmpty) 'avatar_url': avatarUrl,
+          if (statusMessage != null && statusMessage.isNotEmpty) 'status_message': statusMessage,
+          if (password != null && password.isNotEmpty) 'password': password,
         }),
-      );
-      if (res.statusCode == 201) {
+      ).timeout(const Duration(seconds: 8));
+
+      if (res.statusCode == 201 || res.statusCode == 200) {
         return jsonDecode(res.body) as Map<String, dynamic>;
+      } else if (res.statusCode == 409) {
+        throw Exception('Cet identifiant unique est déjà enregistré sur le serveur.');
+      } else {
+        try {
+          final err = jsonDecode(res.body) as Map<String, dynamic>;
+          throw Exception(err['error'] ?? 'Échec de l\'enregistrement sur le serveur.');
+        } catch (e) {
+          if (e is Exception) rethrow;
+          throw Exception('Erreur serveur lors de l\'enregistrement (${res.statusCode}).');
+        }
+      }
+    } catch (e) {
+      if (e is Exception) rethrow;
+      throw Exception('Impossible de contacter le serveur en ligne : $e');
+    }
+  }
+
+  /// Recovers an existing account by recovery code from the server online FIRST.
+  Future<Map<String, dynamic>?> recover({
+    required String recoveryCode,
+    String? preferredName,
+    String? preferredHandle,
+  }) async {
+    final targetUrl = await getActiveBaseUrl();
+    try {
+      final res = await http.post(
+        Uri.parse('$targetUrl/auth/recover'),
+        headers: _headers(),
+        body: jsonEncode({
+          'recovery_code': recoveryCode.trim(),
+          if (preferredName != null && preferredName.isNotEmpty) 'preferred_name': preferredName.trim(),
+          if (preferredHandle != null && preferredHandle.isNotEmpty) 'preferred_handle': preferredHandle.trim(),
+        }),
+      ).timeout(const Duration(seconds: 8));
+
+      if (res.statusCode == 200) {
+        return jsonDecode(res.body) as Map<String, dynamic>;
+      } else {
+        try {
+          final err = jsonDecode(res.body) as Map<String, dynamic>;
+          throw Exception(err['error'] ?? 'Identifiant ou code de récupération introuvable.');
+        } catch (e) {
+          if (e is Exception) rethrow;
+          throw Exception('Identifiant ou code introuvable sur le serveur.');
+        }
+      }
+    } catch (e) {
+      if (e is Exception) rethrow;
+      throw Exception('Erreur de connexion au serveur : $e');
+    }
+  }
+
+  /// Searches genuine registered users on the server.
+  Future<List<Map<String, dynamic>>> searchUsers(String query) async {
+    final targetUrl = await getActiveBaseUrl();
+    try {
+      final encoded = Uri.encodeComponent(query.trim());
+      final res = await http.get(
+        Uri.parse('$targetUrl/users/search?q=$encoded'),
+        headers: _headers(),
+      ).timeout(const Duration(seconds: 5));
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        final list = data['users'] as List<dynamic>?;
+        if (list != null) {
+          return list.map((item) => Map<String, dynamic>.from(item as Map)).toList();
+        }
+      }
+      return [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Verifies if an identifier (user_id or @handle) exists on the server.
+  Future<Map<String, dynamic>?> verifyContact(String identifier) async {
+    final targetUrl = await getActiveBaseUrl();
+    try {
+      final res = await http.post(
+        Uri.parse('$targetUrl/contacts/verify'),
+        headers: _headers(),
+        body: jsonEncode({'identifier': identifier.trim()}),
+      ).timeout(const Duration(seconds: 5));
+
+      if (res.statusCode == 200) {
+        return jsonDecode(res.body) as Map<String, dynamic>;
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Looks up a user by ID or handle from the server.
+  Future<Map<String, dynamic>?> getUser(String idOrHandle) async {
+    final targetUrl = await getActiveBaseUrl();
+    try {
+      final encoded = Uri.encodeComponent(idOrHandle.trim());
+      final res = await http.get(
+        Uri.parse('$targetUrl/users/$encoded'),
+        headers: _headers(),
+      ).timeout(const Duration(seconds: 5));
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        return data['user'] as Map<String, dynamic>?;
       }
       return null;
     } catch (_) {

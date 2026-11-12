@@ -918,7 +918,14 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                 Expanded(
                   child: TextField(
                     controller: _searchController,
-                    onChanged: (val) => setState(() => _searchQuery = val),
+                    onChanged: (val) {
+                      setState(() => _searchQuery = val);
+                      if (val.trim().isNotEmpty) {
+                        IdentityDirectoryService.searchUsersOnline(val).then((_) {
+                          if (mounted) setState(() {});
+                        });
+                      }
+                    },
                     decoration: const InputDecoration(
                       hintText: 'Rechercher un message, un proche...',
                       hintStyle: TextStyle(fontSize: 13, color: Colors.grey),

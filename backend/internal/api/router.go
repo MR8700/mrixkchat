@@ -92,7 +92,12 @@ func (s *Server) routes() {
 
 	// Auth & Identity
 	s.mux.HandleFunc("POST /api/v1/auth/register", s.handleRegister)
+	s.mux.HandleFunc("POST /api/v1/auth/recover", s.handleRecover)
 	s.mux.HandleFunc("POST /api/v1/auth/login", s.handleLogin)
+	s.mux.HandleFunc("GET /api/v1/users", s.handleListUsers)
+	s.mux.HandleFunc("GET /api/v1/users/search", s.handleSearchUsers)
+	s.mux.HandleFunc("GET /api/v1/users/{id}", s.handleGetUser)
+	s.mux.HandleFunc("POST /api/v1/contacts/verify", s.handleVerifyContact)
 
 	// Devices (Max 3 limit enforced)
 	s.mux.HandleFunc("POST /api/v1/devices/authorize", s.handleAuthorizeDevice)
@@ -152,9 +157,12 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 type RegisterRequest struct {
 	Handle            string `json:"handle"`
-	Password          string `json:"password"`
+	Password          string `json:"password,omitempty"`
 	DisplayName       string `json:"display_name"`
-	RecoveryPublicKey string `json:"recovery_public_key"`
+	RecoveryPublicKey string `json:"recovery_public_key,omitempty"`
+	RecoveryCode      string `json:"recovery_code,omitempty"`
+	AvatarURL         string `json:"avatar_url,omitempty"`
+	StatusMessage     string `json:"status_message,omitempty"`
 }
 
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
@@ -164,7 +172,15 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := s.idService.Register(req.Handle, req.Password, req.RecoveryPublicKey, req.DisplayName)
+	user, err := s.idService.RegisterWithDetails(
+		req.Handle,
+		req.Password,
+		req.RecoveryPublicKey,
+		req.RecoveryCode,
+		req.DisplayName,
+		req.AvatarURL,
+		req.StatusMessage,
+	)
 	if err != nil {
 		if errors.Is(err, database.ErrHandleAlreadyTaken) {
 			jsonError(w, http.StatusConflict, err.Error())
@@ -174,9 +190,141 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Register in contact directory for instant discovery
+	s.contactService.UpsertContact(&contacts.ContactEntry{
+		UserID:            user.ID,
+		Handle:            user.Handle,
+		DisplayName:       user.DisplayName,
+		AvatarURL:         user.AvatarRef,
+		IdentityPublicKey: user.RecoveryPublicKey,
+		IsVerified:        true,
+	})
+
 	jsonResponse(w, http.StatusCreated, map[string]interface{}{
 		"message": "User registered successfully",
 		"user":    user.Public(),
+	})
+}
+
+type RecoverRequest struct {
+	RecoveryCode    string `json:"recovery_code"`
+	PreferredName   string `json:"preferred_name,omitempty"`
+	PreferredHandle string `json:"preferred_handle,omitempty"`
+}
+
+func (s *Server) handleRecover(w http.ResponseWriter, r *http.Request) {
+	var req RecoverRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request JSON payload")
+		return
+	}
+
+	cleanCode := strings.ToUpper(strings.TrimSpace(req.RecoveryCode))
+	if cleanCode == "" {
+		jsonError(w, http.StatusBadRequest, "Recovery code is required")
+		return
+	}
+
+	user, err := s.repo.GetUserByRecoveryCode(cleanCode)
+	if err != nil && req.PreferredHandle != "" {
+		h := req.PreferredHandle
+		if !strings.HasPrefix(h, "@") {
+			h = "@" + h
+		}
+		user, err = s.repo.GetUserByHandle(h)
+	}
+
+	if err != nil || user == nil {
+		jsonError(w, http.StatusNotFound, "Identifiant ou code de récupération introuvable sur le serveur")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"message": "User recovered successfully",
+		"user":    user.Public(),
+	})
+}
+
+func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query().Get("q")
+	users := s.repo.SearchUsers(q)
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"users": users,
+		"count": len(users),
+	})
+}
+
+func (s *Server) handleSearchUsers(w http.ResponseWriter, r *http.Request) {
+	s.handleListUsers(w, r)
+}
+
+func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		jsonError(w, http.StatusBadRequest, "User ID or handle required")
+		return
+	}
+
+	var user *database.User
+	var err error
+	if strings.HasPrefix(id, "@") {
+		user, err = s.repo.GetUserByHandle(id)
+	} else {
+		user, err = s.repo.GetUserByID(id)
+		if err != nil {
+			user, err = s.repo.GetUserByHandle("@" + id)
+		}
+	}
+
+	if err != nil || user == nil {
+		jsonError(w, http.StatusNotFound, "Utilisateur introuvable sur le serveur")
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"user": user.Public(),
+	})
+}
+
+type VerifyContactRequest struct {
+	Identifier string `json:"identifier"`
+}
+
+func (s *Server) handleVerifyContact(w http.ResponseWriter, r *http.Request) {
+	var req VerifyContactRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request JSON payload")
+		return
+	}
+
+	id := strings.TrimSpace(req.Identifier)
+	if id == "" {
+		jsonError(w, http.StatusBadRequest, "Missing identifier to verify")
+		return
+	}
+
+	var user *database.User
+	var err error
+	if strings.HasPrefix(id, "@") {
+		user, err = s.repo.GetUserByHandle(id)
+	} else {
+		user, err = s.repo.GetUserByID(id)
+		if err != nil {
+			user, err = s.repo.GetUserByHandle("@" + id)
+		}
+	}
+
+	if err != nil || user == nil {
+		jsonResponse(w, http.StatusOK, map[string]interface{}{
+			"valid": false,
+			"error": "Utilisateur introuvable sur le réseau souverain",
+		})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"valid": true,
+		"user":  user.Public(),
 	})
 }
 

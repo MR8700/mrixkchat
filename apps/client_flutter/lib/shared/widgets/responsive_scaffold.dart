@@ -80,12 +80,15 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
             left: 0,
             right: 0,
             bottom: 0,
-            child: FloatingBottomNav(
-              selectedIndex: _selectedIndex,
-              unreadCount: unreadTotal,
-              onItemSelected: (index) {
-                setState(() => _selectedIndex = index);
-              },
+            child: SafeArea(
+              top: false,
+              child: FloatingBottomNav(
+                selectedIndex: _selectedIndex,
+                unreadCount: unreadTotal,
+                onItemSelected: (index) {
+                  setState(() => _selectedIndex = index);
+                },
+              ),
             ),
           ),
         ],
@@ -143,7 +146,7 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
           // 2-pane split if discussions is selected
           if (_selectedIndex == 0) ...[
             SizedBox(
-              width: 360,
+              width: (MediaQuery.of(context).size.width * 0.38).clamp(280.0, 340.0),
               child: DiscussionsScreen(
                 onSelectConversationDesktop: (conv) {
                   setState(() => _selectedDesktopConversation = conv);

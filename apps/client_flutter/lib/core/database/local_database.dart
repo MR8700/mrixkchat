@@ -124,7 +124,7 @@ class LocalDatabase {
 
     // Total wipe of all legacy users, sessions, contacts, messages, moments & identifiers
     final settings = _tables['settings'];
-    if (settings == null || settings['production_full_reset_v3'] == null) {
+    if (settings == null || settings['production_full_reset_v4'] == null) {
       _tables['users']?.clear();
       _tables['contacts']?.clear();
       _tables['conversations']?.clear();
@@ -137,7 +137,7 @@ class LocalDatabase {
 
       _tables['settings']?.remove('identity_configured');
       _ensureTable('settings');
-      _tables['settings']!['production_full_reset_v3'] = {'value': true};
+      _tables['settings']!['production_full_reset_v4'] = {'value': true};
 
       _ensureTable('devices');
       _tables['devices']!.clear();
@@ -285,59 +285,87 @@ class LocalDatabase {
       }
     }
 
-    // 6. Purge legacy test texts & mock conversations from production
-    if (settings != null && settings['production_clean_purged'] == null) {
-      final legacyContactIds = {
-        'contact_amine',
-        'contact_aicha',
-        'contact_marc',
-        'contact_sophie',
-        'contact_kabore',
-        'contact_idriss',
-        'contact_sarah',
-      };
-      if (contacts != null) {
-        final toRemove = contacts.keys.where((k) => legacyContactIds.contains(k)).toList();
-        for (final k in toRemove) {
-          contacts.remove(k);
-          mutated = true;
-        }
-      }
+    // 6. Unconditionally purge legacy test seed users, contacts & mock conversations from production
+    final legacyUserAndContactIds = {
+      'user_richard',
+      'contact_amine',
+      'contact_aicha',
+      'contact_marc',
+      'contact_sophie',
+      'contact_kabore',
+      'contact_idriss',
+      'contact_sarah',
+      'contact_toto',
+    };
+    final legacyHandles = {
+      '@mrixk.richard',
+      '@amine.t',
+      '@aicha.o',
+      '@marc.d',
+      '@sophie.v',
+      '@dr.kabore',
+      '@idriss.t',
+      '@sarah.c',
+      '@toto',
+    };
 
-      final legacyConvIds = {
-        'conv_sophie',
-        'conv_group_mrixk',
-        'conv_idriss',
-        'conv_aicha',
-        'conv_marc',
-        'conv_sarah',
-      };
-      if (convs != null) {
-        final toRemove = convs.keys.where((k) => legacyConvIds.contains(k)).toList();
-        for (final k in toRemove) {
-          convs.remove(k);
-          mutated = true;
-        }
+    final users = _tables['users'];
+    if (users != null) {
+      final toRemove = users.entries
+          .where((e) =>
+              legacyUserAndContactIds.contains(e.key) ||
+              legacyHandles.contains((e.value['handle'] ?? '').toString().toLowerCase()))
+          .map((e) => e.key)
+          .toList();
+      for (final k in toRemove) {
+        users.remove(k);
+        mutated = true;
       }
+    }
 
-      if (callLogs != null) {
-        final toRemove = callLogs.keys.where((k) => k.startsWith('call_')).toList();
-        for (final k in toRemove) {
-          callLogs.remove(k);
-          mutated = true;
-        }
+    if (contacts != null) {
+      final toRemove = contacts.entries
+          .where((e) =>
+              legacyUserAndContactIds.contains(e.key) ||
+              legacyHandles.contains((e.value['handle'] ?? '').toString().toLowerCase()))
+          .map((e) => e.key)
+          .toList();
+      for (final k in toRemove) {
+        contacts.remove(k);
+        mutated = true;
       }
+    }
 
-      if (moments != null) {
-        final toRemove = moments.keys.where((k) => k.startsWith('moment_')).toList();
-        for (final k in toRemove) {
-          moments.remove(k);
-          mutated = true;
-        }
+    final legacyConvIds = {
+      'conv_sophie',
+      'conv_group_mrixk',
+      'conv_idriss',
+      'conv_aicha',
+      'conv_marc',
+      'conv_sarah',
+    };
+    if (convs != null) {
+      final toRemove = convs.keys.where((k) => legacyConvIds.contains(k)).toList();
+      for (final k in toRemove) {
+        convs.remove(k);
+        mutated = true;
       }
+    }
 
-      settings['production_clean_purged'] = {'value': true};
-      mutated = true;
+    if (callLogs != null) {
+      final toRemove = callLogs.keys.where((k) => k.startsWith('call_')).toList();
+      for (final k in toRemove) {
+        callLogs.remove(k);
+        mutated = true;
+      }
+    }
+
+    if (moments != null) {
+      final toRemove = moments.keys.where((k) => k.startsWith('moment_')).toList();
+      for (final k in toRemove) {
+        moments.remove(k);
+        mutated = true;
+      }
     }
 
     if (mutated) {

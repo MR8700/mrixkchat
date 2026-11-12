@@ -137,22 +137,31 @@ class _IdentitySetupScreenState extends State<IdentitySetupScreen> {
       _errorMessage = null;
     });
 
-    final profileRepo = context.read<ProfileRepository>();
-    final profile = await profileRepo.saveInitialIdentity(
-      displayName: name,
-      handle: handle,
-      avatarUrl: _avatarUrl,
-      statusMessage: _statusController.text.trim(),
-    );
+    try {
+      final profileRepo = context.read<ProfileRepository>();
+      final profile = await profileRepo.saveInitialIdentity(
+        displayName: name,
+        handle: handle,
+        avatarUrl: _avatarUrl,
+        statusMessage: _statusController.text.trim(),
+      );
 
-    if (mounted) {
-      if (profile.recoveryCode != null && profile.recoveryCode!.isNotEmpty) {
-        await _showCreatedRecoveryCodeDialog(context, profile.recoveryCode!);
-      }
       if (mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const ResponsiveScaffold()),
-        );
+        if (profile.recoveryCode != null && profile.recoveryCode!.isNotEmpty) {
+          await _showCreatedRecoveryCodeDialog(context, profile.recoveryCode!);
+        }
+        if (mounted) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const ResponsiveScaffold()),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = e.toString().replaceAll('Exception: ', '');
+        });
       }
     }
   }
@@ -243,26 +252,47 @@ class _IdentitySetupScreenState extends State<IdentitySetupScreen> {
     });
 
     final profileRepo = context.read<ProfileRepository>();
-    final profile = await profileRepo.restoreFromRecoveryCode(
-      recoveryCode: code,
-      preferredName: _recoveryNameController.text.trim(),
-    );
+    final input = _recoveryNameController.text.trim();
+    String? preferredHandle;
+    String? preferredName;
+    if (input.isNotEmpty) {
+      if (input.startsWith('@')) {
+        preferredHandle = input;
+      } else {
+        preferredName = input;
+      }
+    }
 
-    if (profile != null && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Identité souveraine restaurée : ${profile.displayName}'),
-          backgroundColor: AppTheme.primary,
-        ),
+    try {
+      final profile = await profileRepo.restoreFromRecoveryCode(
+        recoveryCode: code,
+        preferredName: preferredName,
+        preferredHandle: preferredHandle,
       );
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const ResponsiveScaffold()),
-      );
-    } else if (mounted) {
-      setState(() {
-        _isLoading = false;
-        _errorMessage = 'Code invalide. Veuillez vérifier le format (ex: MRX-XXXX-XXXX...)';
-      });
+
+      if (profile != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Identité souveraine restaurée : ${profile.displayName} (${profile.handle})'),
+            backgroundColor: AppTheme.primary,
+          ),
+        );
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const ResponsiveScaffold()),
+        );
+      } else if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'Code ou identifiant introuvable sur le serveur. Veuillez vérifier vos données.';
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = e.toString().replaceAll('Exception: ', '');
+        });
+      }
     }
   }
 
@@ -698,16 +728,16 @@ class _IdentitySetupScreenState extends State<IdentitySetupScreen> {
                           const SizedBox(height: 14),
 
                           const Text(
-                            'Nom ou identifiant (facultatif)',
+                            'Nom ou identifiant unique (@handle)',
                             style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.onSurface),
                           ),
                           const SizedBox(height: 6),
                           TextField(
                             controller: _recoveryNameController,
                             decoration: InputDecoration(
-                              hintText: 'Ex: Alex ou @alex.pro',
+                              hintText: 'Ex: Augustin MARE ou @mareaugustin',
                               prefixIcon: const Icon(Icons.person_outline, size: 20),
-                              helperText: 'Permet de personnaliser l\'affichage sur ce terminal.',
+                              helperText: 'Restaurera fidèlement vos informations d\'identité exactes.',
                               helperStyle: const TextStyle(fontSize: 11),
                               filled: true,
                               fillColor: const Color(0xFFF8FAFC),

@@ -1,4 +1,5 @@
 import '../database/local_database.dart';
+import '../network/api_client.dart';
 
 /// Directory of verified sovereign users on the MRixk network.
 /// ONLY genuine registered identities exist and can be discovered, added as contacts or opened as conversations.
@@ -57,16 +58,30 @@ class IdentityDirectoryService {
   /// Synchronizes registered users from genuine local database contacts and user profile
   static void syncFromDatabase(LocalDatabase db) {
     try {
+      const legacyHandles = {
+        '@mrixk.richard',
+        '@amine.t',
+        '@aicha.o',
+        '@marc.d',
+        '@sophie.v',
+        '@dr.kabore',
+        '@idriss.t',
+        '@sarah.c',
+        '@toto',
+      };
+      registeredUsers.removeWhere((u) => legacyHandles.contains(u.handle.toLowerCase()));
+
       final contacts = db.getAll('contacts');
       for (final c in contacts) {
         final id = (c['id'] ?? '').toString();
         final name = (c['name'] ?? '').toString();
         final handle = (c['handle'] ?? '').toString();
-        if (id.isNotEmpty && handle.isNotEmpty) {
+        final formattedHandle = handle.startsWith('@') ? handle : '@$handle';
+        if (id.isNotEmpty && handle.isNotEmpty && !legacyHandles.contains(formattedHandle.toLowerCase())) {
           registerUser(SovereignUser(
             id: id,
             name: name.isNotEmpty ? name : handle,
-            handle: handle.startsWith('@') ? handle : '@$handle',
+            handle: formattedHandle,
             avatarUrl: (c['avatarUrl'] ?? '').toString(),
             statusText: (c['statusText'] ?? 'Contact certifié').toString(),
             isVerified: c['isVerified'] == true,
@@ -80,11 +95,12 @@ class IdentityDirectoryService {
         final id = (u['id'] ?? '').toString();
         final name = (u['displayName'] ?? '').toString();
         final handle = (u['handle'] ?? '').toString();
-        if (id.isNotEmpty && handle.isNotEmpty) {
+        final formattedHandle = handle.startsWith('@') ? handle : '@$handle';
+        if (id.isNotEmpty && handle.isNotEmpty && !legacyHandles.contains(formattedHandle.toLowerCase())) {
           registerUser(SovereignUser(
             id: id,
             name: name.isNotEmpty ? name : handle,
-            handle: handle.startsWith('@') ? handle : '@$handle',
+            handle: formattedHandle,
             avatarUrl: (u['avatarUrl'] ?? '').toString(),
             statusText: (u['statusMessage'] ?? 'Disponible').toString(),
             isVerified: true,
@@ -147,5 +163,60 @@ class IdentityDirectoryService {
     }
 
     return results;
+  }
+
+  /// Discovers users online from the backend server in real-time.
+  /// Automatically registers discovered verified users into the directory.
+  static Future<List<SovereignUser>> searchUsersOnline(String query) async {
+    try {
+      final remoteUsers = await ApiClient().searchUsers(query);
+      for (final u in remoteUsers) {
+        final id = (u['id'] ?? '').toString();
+        final name = (u['display_name'] ?? '').toString();
+        final handle = (u['handle'] ?? '').toString();
+        final avatar = (u['avatar_ref'] ?? u['avatar_url'] ?? '').toString();
+        final status = (u['status_message'] ?? 'Membre du réseau souverain').toString();
+        if (id.isNotEmpty && handle.isNotEmpty) {
+          registerUser(SovereignUser(
+            id: id,
+            name: name.isNotEmpty ? name : handle,
+            handle: handle.startsWith('@') ? handle : '@$handle',
+            avatarUrl: avatar,
+            statusText: status,
+            isVerified: true,
+            isOnline: true,
+          ));
+        }
+      }
+    } catch (_) {}
+    return searchUsers(query);
+  }
+
+  /// Verifies a user against the backend server online before contact addition.
+  static Future<SovereignUser?> verifyUserOnline(String query) async {
+    // 1. Check local directory first
+    final local = findUser(query);
+    if (local != null) return local;
+
+    // 2. Query online server
+    try {
+      final res = await ApiClient().verifyContact(query);
+      if (res != null && res['valid'] == true && res['user'] != null) {
+        final u = res['user'] as Map<String, dynamic>;
+        final user = SovereignUser(
+          id: (u['id'] ?? '').toString(),
+          name: (u['display_name'] ?? '').toString(),
+          handle: (u['handle'] ?? '').toString(),
+          avatarUrl: (u['avatar_ref'] ?? u['avatar_url'] ?? '').toString(),
+          statusText: (u['status_message'] ?? 'Membre du réseau souverain').toString(),
+          isVerified: true,
+          isOnline: true,
+        );
+        registerUser(user);
+        return user;
+      }
+    } catch (_) {}
+
+    return null;
   }
 }

@@ -36,7 +36,7 @@ void main() {
     testWidgets('Issue 3: Message status checkmark displays single check when offline', (tester) async {
       final db = LocalDatabase();
       await db.initialize(onSeed: (database) async {
-        await seedInitialDatabase(database);
+        await seedTestDataForUnitTestsOnly(database);
       });
 
       final convRepo = ConversationRepository(db);

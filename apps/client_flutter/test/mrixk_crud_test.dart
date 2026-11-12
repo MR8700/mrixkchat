@@ -20,7 +20,7 @@ void main() {
     setUp(() async {
       db = LocalDatabase();
       await db.initialize(onSeed: (database) async {
-        await seedInitialDatabase(database);
+        await seedTestDataForUnitTestsOnly(database);
       });
     });
 

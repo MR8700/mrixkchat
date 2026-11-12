@@ -18,6 +18,22 @@ class _AddContactDialogState extends State<AddContactDialog> {
   final TextEditingController _queryController = TextEditingController();
   SovereignUser? _selectedUser;
   String? _errorMessage;
+  bool _isSearchingOnline = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _triggerOnlineSearch('');
+  }
+
+  void _triggerOnlineSearch(String q) {
+    setState(() => _isSearchingOnline = true);
+    IdentityDirectoryService.searchUsersOnline(q).then((_) {
+      if (mounted) setState(() => _isSearchingOnline = false);
+    }).catchError((_) {
+      if (mounted) setState(() => _isSearchingOnline = false);
+    });
+  }
 
   @override
   void dispose() {
@@ -25,7 +41,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
     super.dispose();
   }
 
-  void _validateAndSubmit() {
+  Future<void> _validateAndSubmit() async {
     final query = _queryController.text.trim();
     if (query.isEmpty) {
       setState(() => _errorMessage = 'Veuillez saisir un identifiant ou nom d\'utilisateur.');
@@ -42,13 +58,19 @@ class _AddContactDialogState extends State<AddContactDialog> {
       return;
     }
 
-    // Check if user exists in genuine sovereign identity directory
-    final verifiedUser = _selectedUser ?? IdentityDirectoryService.findUser(query);
+    setState(() => _isSearchingOnline = true);
+
+    // Verify against the online backend server first
+    final verifiedUser = _selectedUser ?? await IdentityDirectoryService.verifyUserOnline(query);
+    if (mounted) setState(() => _isSearchingOnline = false);
+
     if (verifiedUser == null) {
-      setState(() {
-        _errorMessage =
-            'Utilisateur introuvable : L\'identifiant « $query » n\'existe pas sur le réseau sécurisé.';
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage =
+              'Utilisateur introuvable : L\'identifiant « $query » n\'existe pas sur le serveur en ligne.';
+        });
+      }
       return;
     }
 
@@ -58,13 +80,15 @@ class _AddContactDialogState extends State<AddContactDialog> {
         c.id == verifiedUser.id ||
         c.name.toLowerCase() == verifiedUser.name.toLowerCase() ||
         c.handle.toLowerCase() == verifiedUser.handle.toLowerCase())) {
-      setState(() {
-        _errorMessage = '${verifiedUser.name} est déjà présent dans vos contacts.';
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = '${verifiedUser.name} est déjà présent dans vos contacts.';
+        });
+      }
       return;
     }
 
-    final firstLetter = verifiedUser.name[0].toUpperCase();
+    final firstLetter = verifiedUser.name.isNotEmpty ? verifiedUser.name[0].toUpperCase() : 'U';
     final newContact = Contact(
       id: verifiedUser.id,
       name: verifiedUser.name,
@@ -76,14 +100,16 @@ class _AddContactDialogState extends State<AddContactDialog> {
     );
 
     context.read<ContactRepository>().createContact(newContact);
-    Navigator.of(context).pop();
+    if (mounted) {
+      Navigator.of(context).pop();
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: const Color(0xFF059669),
-        content: Text('${verifiedUser.name} a été ajouté avec succès à vos contacts de confiance.'),
-      ),
-    );
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: const Color(0xFF059669),
+          content: Text('${verifiedUser.name} (${verifiedUser.handle}) a été vérifié sur le serveur et ajouté à vos contacts.'),
+        ),
+      );
+    }
   }
 
   @override
@@ -159,6 +185,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
                     _selectedUser = null;
                     _errorMessage = null;
                   });
+                  _triggerOnlineSearch(val);
                 },
               ),
               const SizedBox(height: 12),

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -27,10 +28,12 @@ type User struct {
 	ID                string    `json:"id"`
 	Handle            string    `json:"handle"`
 	PasswordHash      string    `json:"password_hash,omitempty"`
-	RecoveryPublicKey string    `json:"recovery_public_key"`
+	RecoveryPublicKey string    `json:"recovery_public_key,omitempty"`
+	RecoveryCode      string    `json:"recovery_code,omitempty"`
 	DisplayName       string    `json:"display_name"`
 	AvatarRef         string    `json:"avatar_ref,omitempty"`
 	Bio               string    `json:"bio,omitempty"`
+	StatusMessage     string    `json:"status_message,omitempty"`
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
 }
@@ -39,9 +42,11 @@ type UserPublic struct {
 	ID                string    `json:"id"`
 	Handle            string    `json:"handle"`
 	RecoveryPublicKey string    `json:"recovery_public_key,omitempty"`
+	RecoveryCode      string    `json:"recovery_code,omitempty"`
 	DisplayName       string    `json:"display_name"`
 	AvatarRef         string    `json:"avatar_ref,omitempty"`
 	Bio               string    `json:"bio,omitempty"`
+	StatusMessage     string    `json:"status_message,omitempty"`
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
 }
@@ -55,9 +60,11 @@ func (u *User) Public() *UserPublic {
 		ID:                u.ID,
 		Handle:            u.Handle,
 		RecoveryPublicKey: u.RecoveryPublicKey,
+		RecoveryCode:      u.RecoveryCode,
 		DisplayName:       u.DisplayName,
 		AvatarRef:         u.AvatarRef,
 		Bio:               u.Bio,
+		StatusMessage:     u.StatusMessage,
 		CreatedAt:         u.CreatedAt,
 		UpdatedAt:         u.UpdatedAt,
 	}
@@ -144,18 +151,19 @@ type SecurityEvent struct {
 
 // MemoryRepository provides a fast, thread-safe in-memory store matching PostgreSQL behavior.
 type MemoryRepository struct {
-	users         map[string]*User
-	usersByHandle map[string]*User
-	devices       map[string]*Device
-	sessions      map[string]*DeviceSession // sessionTokenHash -> DeviceSession
-	keyPackages   map[string][]*KeyPackage  // deviceID -> list of packages
-	conversations map[string]*Conversation
-	messages      map[string]*EncryptedMessageEnvelope
-	syncEvents    []*SyncEvent
-	securityLogs  []*SecurityEvent
-	storagePath   string
-	mu            sync.RWMutex
-	maxDevices    int
+	users               map[string]*User
+	usersByHandle       map[string]*User
+	usersByRecoveryCode map[string]*User
+	devices             map[string]*Device
+	sessions            map[string]*DeviceSession // sessionTokenHash -> DeviceSession
+	keyPackages         map[string][]*KeyPackage  // deviceID -> list of packages
+	conversations       map[string]*Conversation
+	messages            map[string]*EncryptedMessageEnvelope
+	syncEvents          []*SyncEvent
+	securityLogs        []*SecurityEvent
+	storagePath         string
+	mu                  sync.RWMutex
+	maxDevices          int
 }
 
 // SnapshotData represents the serializable state of the repository for durable persistence.
@@ -237,8 +245,12 @@ func (r *MemoryRepository) LoadFromFile(path string) error {
 	if snap.Users != nil {
 		r.users = snap.Users
 		r.usersByHandle = make(map[string]*User)
+		r.usersByRecoveryCode = make(map[string]*User)
 		for _, u := range r.users {
 			r.usersByHandle[u.Handle] = u
+			if u.RecoveryCode != "" {
+				r.usersByRecoveryCode[u.RecoveryCode] = u
+			}
 		}
 	}
 	if snap.Devices != nil {
@@ -266,16 +278,17 @@ func NewMemoryRepository(maxDevices int) *MemoryRepository {
 		maxDevices = 3
 	}
 	return &MemoryRepository{
-		users:         make(map[string]*User),
-		usersByHandle: make(map[string]*User),
-		devices:       make(map[string]*Device),
-		sessions:      make(map[string]*DeviceSession),
-		keyPackages:   make(map[string][]*KeyPackage),
-		conversations: make(map[string]*Conversation),
-		messages:      make(map[string]*EncryptedMessageEnvelope),
-		syncEvents:    make([]*SyncEvent, 0),
-		securityLogs:  make([]*SecurityEvent, 0),
-		maxDevices:    maxDevices,
+		users:               make(map[string]*User),
+		usersByHandle:       make(map[string]*User),
+		usersByRecoveryCode: make(map[string]*User),
+		devices:             make(map[string]*Device),
+		sessions:            make(map[string]*DeviceSession),
+		keyPackages:         make(map[string][]*KeyPackage),
+		conversations:       make(map[string]*Conversation),
+		messages:            make(map[string]*EncryptedMessageEnvelope),
+		syncEvents:          make([]*SyncEvent, 0),
+		securityLogs:        make([]*SecurityEvent, 0),
+		maxDevices:          maxDevices,
 	}
 }
 
@@ -290,6 +303,9 @@ func (r *MemoryRepository) CreateUser(u *User) error {
 	}
 	r.users[u.ID] = u
 	r.usersByHandle[u.Handle] = u
+	if u.RecoveryCode != "" {
+		r.usersByRecoveryCode[u.RecoveryCode] = u
+	}
 	return nil
 }
 
@@ -315,6 +331,79 @@ func (r *MemoryRepository) GetUserByID(id string) (*User, error) {
 		return nil, ErrUserNotFound
 	}
 	return u, nil
+}
+
+// GetUserByRecoveryCode looks up a user by recovery code.
+func (r *MemoryRepository) GetUserByRecoveryCode(code string) (*User, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	cleanCode := strings.ToUpper(strings.TrimSpace(code))
+	if cleanCode == "" {
+		return nil, ErrUserNotFound
+	}
+	for _, u := range r.users {
+		if strings.ToUpper(strings.TrimSpace(u.RecoveryCode)) == cleanCode {
+			return u, nil
+		}
+	}
+	return nil, ErrUserNotFound
+}
+
+// SearchUsers searches users by handle, display name, or user ID.
+func (r *MemoryRepository) SearchUsers(query string) []*UserPublic {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	clean := strings.ToLower(strings.TrimSpace(query))
+	cleanWithoutAt := strings.TrimPrefix(clean, "@")
+
+	var results []*UserPublic
+	for _, u := range r.users {
+		if clean == "" {
+			results = append(results, u.Public())
+			continue
+		}
+		uHandle := strings.ToLower(u.Handle)
+		uHandleNoAt := strings.TrimPrefix(uHandle, "@")
+		uName := strings.ToLower(u.DisplayName)
+		uID := strings.ToLower(u.ID)
+
+		if strings.Contains(uHandle, clean) ||
+			strings.Contains(uHandleNoAt, cleanWithoutAt) ||
+			strings.Contains(uName, clean) ||
+			strings.Contains(uID, clean) {
+			results = append(results, u.Public())
+		}
+	}
+	return results
+}
+
+// GetAllUsers returns all users in public format.
+func (r *MemoryRepository) GetAllUsers() []*UserPublic {
+	return r.SearchUsers("")
+}
+
+// UpdateUser updates user profile data.
+func (r *MemoryRepository) UpdateUser(u *User) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	defer r.saveIfConfigured()
+
+	existing, exists := r.users[u.ID]
+	if !exists {
+		return ErrUserNotFound
+	}
+	u.UpdatedAt = time.Now()
+	r.users[u.ID] = u
+	if u.Handle != existing.Handle {
+		delete(r.usersByHandle, existing.Handle)
+		r.usersByHandle[u.Handle] = u
+	}
+	if u.RecoveryCode != "" {
+		r.usersByRecoveryCode[u.RecoveryCode] = u
+	}
+	return nil
 }
 
 // RegisterDevice registers a device enforcing the strict 3-device limit.
