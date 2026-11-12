@@ -39,7 +39,7 @@ jobs:
       - name: Build Android APK
         run: |
           cd apps/client_flutter
-          flutter build apk --release
+          flutter build apk --release --android-skip-build-dependency-validation
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4

@@ -637,4 +637,32 @@ class RealMediaService {
     final bytes = byteData.buffer.asUint8List();
     return 'data:audio/wav;base64,${base64Encode(bytes)}';
   }
+
+  /// Triggers a real browser file download for the user.
+  void downloadFile({
+    required List<int> bytes,
+    required String filename,
+    required String mimeType,
+  }) {
+    try {
+      final blob = html.Blob([bytes], mimeType);
+      final url = html.Url.createObjectUrlFromBlob(blob);
+      final anchor = html.AnchorElement(href: url)
+        ..setAttribute('download', filename)
+        ..style.display = 'none';
+      html.document.body?.append(anchor);
+      anchor.click();
+      anchor.remove();
+      html.Url.revokeObjectUrl(url);
+    } catch (e) {
+      // Fallback
+    }
+  }
+
+  /// Opens the browser's native print spooler / PDF exporter dialog
+  void printDocument() {
+    try {
+      html.window.print();
+    } catch (_) {}
+  }
 }

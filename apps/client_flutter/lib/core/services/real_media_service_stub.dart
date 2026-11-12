@@ -176,4 +176,18 @@ class RealMediaService {
     final bytes = byteData.buffer.asUint8List();
     return 'data:audio/wav;base64,${base64Encode(bytes)}';
   }
+
+  /// Downloads a file to the user's storage/device
+  void downloadFile({
+    required List<int> bytes,
+    required String filename,
+    required String mimeType,
+  }) {
+    // Stub for VM environments
+  }
+
+  /// Triggers document printing
+  void printDocument() {
+    // Stub for VM environments
+  }
 }

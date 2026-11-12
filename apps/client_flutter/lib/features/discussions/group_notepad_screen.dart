@@ -13,6 +13,7 @@ import '../../core/repositories/message_repository.dart';
 import '../../core/repositories/profile_repository.dart';
 import '../../core/services/formula_engine.dart';
 import '../../core/services/real_media_service.dart';
+import '../../core/services/document_export_service.dart';
 import '../../core/theme/app_theme.dart';
 import 'controllers/word_rich_text_controller.dart';
 import 'widgets/group_note_renderer.dart';
@@ -857,11 +858,107 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
   }
 
   void _downloadDocument() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Document "${_currentNote.title}" téléchargé avec succès (.md)'),
-        backgroundColor: AppTheme.secondary,
-        behavior: SnackBarBehavior.floating,
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: const [
+            Icon(Icons.download_rounded, color: AppTheme.primary),
+            SizedBox(width: 8),
+            Text('Télécharger le bloc-note', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Sélectionnez le format de fichier pour enregistrer ce document sur votre appareil :',
+              style: TextStyle(fontSize: 12.5, color: Color(0xFF475569)),
+            ),
+            const SizedBox(height: 14),
+            ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(color: const Color(0xFFEFF6FF), borderRadius: BorderRadius.circular(8)),
+                child: const Icon(Icons.description_rounded, color: Color(0xFF2563EB)),
+              ),
+              title: const Text('Microsoft Word (.doc)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5)),
+              subtitle: const Text('Styles, polices, couleurs et tableaux pour Word / Docs.', style: TextStyle(fontSize: 11)),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                final filename = DocumentExportService.instance.exportWord(
+                  title: _titleController.text.isNotEmpty ? _titleController.text : _currentNote.title,
+                  content: _textController.toMarkdown(),
+                );
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Document Word "$filename" téléchargé avec succès.'),
+                    backgroundColor: AppTheme.secondary,
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              },
+            ),
+            const Divider(height: 1),
+            ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(color: const Color(0xFFFEF2F2), borderRadius: BorderRadius.circular(8)),
+                child: const Icon(Icons.picture_as_pdf_rounded, color: Color(0xFFDC2626)),
+              ),
+              title: const Text('Document PDF (.pdf)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5)),
+              subtitle: const Text('Document vectoriel certifié, prêt pour impression.', style: TextStyle(fontSize: 11)),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                final filename = DocumentExportService.instance.exportPdf(
+                  title: _titleController.text.isNotEmpty ? _titleController.text : _currentNote.title,
+                  content: _textController.toMarkdown(),
+                );
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Document PDF "$filename" téléchargé avec succès.'),
+                    backgroundColor: AppTheme.secondary,
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              },
+            ),
+            const Divider(height: 1),
+            ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(8)),
+                child: const Icon(Icons.code_rounded, color: Color(0xFF475569)),
+              ),
+              title: const Text('Source Markdown (.md)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5)),
+              subtitle: const Text('Code source brut, formules MRixk et variables.', style: TextStyle(fontSize: 11)),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                final filename = DocumentExportService.instance.exportMarkdown(
+                  title: _titleController.text.isNotEmpty ? _titleController.text : _currentNote.title,
+                  content: _textController.toMarkdown(),
+                );
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Document Markdown "$filename" téléchargé avec succès.'),
+                    backgroundColor: AppTheme.secondary,
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Fermer'),
+          ),
+        ],
       ),
     );
   }
@@ -1777,8 +1874,9 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
             label: const Text('Lancer l\'impression'),
             onPressed: () {
               Navigator.of(ctx).pop();
+              DocumentExportService.instance.printDocument();
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Impression du document envoyée au spouleur système.')),
+                const SnackBar(content: Text('Boîte d\'impression et enregistrement PDF ouverte.')),
               );
             },
           ),
@@ -1842,8 +1940,16 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
             label: const Text('Générer & Télécharger PDF'),
             onPressed: () {
               Navigator.of(ctx).pop();
+              final filename = DocumentExportService.instance.exportPdf(
+                title: _titleController.text.isNotEmpty ? _titleController.text : _currentNote.title,
+                content: _textController.toMarkdown(),
+              );
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Document PDF généré et téléchargé avec succès.')),
+                SnackBar(
+                  content: Text('Document PDF "$filename" généré et téléchargé dans vos Téléchargements.'),
+                  backgroundColor: AppTheme.secondary,
+                  behavior: SnackBarBehavior.floating,
+                ),
               );
             },
           ),
