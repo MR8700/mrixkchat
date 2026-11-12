@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 /// Production-ready, offline-first API Client for the MRixk Go Backend.
@@ -7,8 +8,9 @@ class ApiClient {
   factory ApiClient() => _instance;
   ApiClient._internal();
 
-  String baseUrl = 'https://mrixk-backend.onrender.com/api/v1';
+  static const String prodRemoteUrl = 'https://mrixk-backend.onrender.com/api/v1';
   static const String localFallbackUrl = 'http://localhost:8080/api/v1';
+  String baseUrl = prodRemoteUrl;
   String? _sessionToken;
 
   void setSessionToken(String token) {
@@ -17,6 +19,15 @@ class ApiClient {
 
   /// Automatically resolves the active backend server (local or production).
   Future<String> getActiveBaseUrl() async {
+    if (kIsWeb) {
+      // In web browser: if served over HTTPS or on GitHub Pages / remote domain,
+      // Mixed Content rules strictly forbid connecting to insecure http://localhost.
+      if (Uri.base.scheme == 'https' || !Uri.base.host.contains('localhost')) {
+        baseUrl = prodRemoteUrl;
+        return baseUrl;
+      }
+    }
+
     try {
       final res = await http.get(Uri.parse('$localFallbackUrl/health')).timeout(const Duration(milliseconds: 600));
       if (res.statusCode == 200) {
@@ -26,8 +37,11 @@ class ApiClient {
     } catch (_) {}
 
     try {
-      final res = await http.get(Uri.parse('$baseUrl/health')).timeout(const Duration(milliseconds: 1500));
-      if (res.statusCode == 200) return baseUrl;
+      final res = await http.get(Uri.parse('$prodRemoteUrl/health')).timeout(const Duration(milliseconds: 1500));
+      if (res.statusCode == 200) {
+        baseUrl = prodRemoteUrl;
+        return baseUrl;
+      }
     } catch (_) {}
 
     return baseUrl;
@@ -104,32 +118,61 @@ class ApiClient {
     String? preferredName,
     String? preferredHandle,
   }) async {
+    final cleanCode = recoveryCode.trim().toUpperCase();
+    final targetUrl = await getActiveBaseUrl();
+    final serversToTry = [
+      targetUrl,
+      if (targetUrl != prodRemoteUrl) prodRemoteUrl,
+      if (targetUrl != localFallbackUrl && !kIsWeb) localFallbackUrl,
+    ];
+
+    Exception? lastException;
+    for (final server in serversToTry) {
+      try {
+        final res = await http.post(
+          Uri.parse('$server/auth/recover'),
+          headers: _headers(),
+          body: jsonEncode({
+            'recovery_code': cleanCode,
+            if (preferredName != null && preferredName.isNotEmpty) 'preferred_name': preferredName.trim(),
+            if (preferredHandle != null && preferredHandle.isNotEmpty) 'preferred_handle': preferredHandle.trim(),
+          }),
+        ).timeout(const Duration(seconds: 6));
+
+        if (res.statusCode == 200) {
+          return jsonDecode(res.body) as Map<String, dynamic>;
+        }
+      } catch (e) {
+        if (e is Exception) lastException = e;
+      }
+    }
+
+    if (lastException != null) throw lastException;
+    throw Exception('Identifiant ou code de secours introuvable sur le serveur.');
+  }
+
+  /// Synchronizes profile updates to the server.
+  /// Note: The sovereign handle (@handle) is strictly immutable and cannot be changed.
+  Future<bool> updateProfile({
+    required String userId,
+    String? displayName,
+    String? avatarUrl,
+    String? statusMessage,
+  }) async {
     final targetUrl = await getActiveBaseUrl();
     try {
-      final res = await http.post(
-        Uri.parse('$targetUrl/auth/recover'),
+      final res = await http.put(
+        Uri.parse('$targetUrl/users/$userId'),
         headers: _headers(),
         body: jsonEncode({
-          'recovery_code': recoveryCode.trim(),
-          if (preferredName != null && preferredName.isNotEmpty) 'preferred_name': preferredName.trim(),
-          if (preferredHandle != null && preferredHandle.isNotEmpty) 'preferred_handle': preferredHandle.trim(),
+          if (displayName != null) 'display_name': displayName,
+          if (avatarUrl != null) 'avatar_url': avatarUrl,
+          if (statusMessage != null) 'status_message': statusMessage,
         }),
-      ).timeout(const Duration(seconds: 8));
-
-      if (res.statusCode == 200) {
-        return jsonDecode(res.body) as Map<String, dynamic>;
-      } else {
-        try {
-          final err = jsonDecode(res.body) as Map<String, dynamic>;
-          throw Exception(err['error'] ?? 'Identifiant ou code de récupération introuvable.');
-        } catch (e) {
-          if (e is Exception) rethrow;
-          throw Exception('Identifiant ou code introuvable sur le serveur.');
-        }
-      }
-    } catch (e) {
-      if (e is Exception) rethrow;
-      throw Exception('Erreur de connexion au serveur : $e');
+      ).timeout(const Duration(seconds: 5));
+      return res.statusCode == 200;
+    } catch (_) {
+      return false;
     }
   }
 

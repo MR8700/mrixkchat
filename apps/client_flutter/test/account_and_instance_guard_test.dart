@@ -72,16 +72,16 @@ void main() {
 
       expect(find.text('Modifier mes informations'), findsOneWidget);
       expect(find.text('Nom ou Pseudonyme'), findsOneWidget);
-      expect(find.text('Identifiant souverain'), findsOneWidget);
+      expect(find.text('Identifiant souverain (Non modifiable)'), findsOneWidget);
       expect(find.text('Statut / Pensée'), findsOneWidget);
 
-      // Enter new values
+      final originalHandle = profileRepo.getProfile().handle;
+
+      // Enter new values (handle is read-only)
       final nameField = find.widgetWithText(TextField, 'Nom ou Pseudonyme');
-      final handleField = find.widgetWithText(TextField, 'Identifiant souverain');
       final statusField = find.widgetWithText(TextField, 'Statut / Pensée');
 
       await tester.enterText(nameField, 'Souverain Testeur');
-      await tester.enterText(handleField, 'souverain_test');
       await tester.enterText(statusField, 'Nouveau statut crypté');
       await tester.pumpAndSettle();
 
@@ -89,10 +89,10 @@ void main() {
       await tester.tap(find.text('Enregistrer'));
       await tester.pumpAndSettle();
 
-      // Verify repository was updated
+      // Verify repository was updated (handle strictly preserved and immutable)
       final updated = profileRepo.getProfile();
       expect(updated.displayName, equals('Souverain Testeur'));
-      expect(updated.handle, equals('@souverain_test'));
+      expect(updated.handle, equals(originalHandle));
       expect(updated.statusMessage, equals('Nouveau statut crypté'));
       expect(find.text('Informations personnelles mises à jour avec succès'), findsOneWidget);
     });

@@ -244,19 +244,21 @@ class ProfileScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 14),
 
-                      // Sovereign handle
+                      // Sovereign handle (STRICTLY READ-ONLY / IMMUTABLE)
                       TextField(
                         controller: handleController,
+                        readOnly: true,
                         decoration: InputDecoration(
-                          labelText: 'Identifiant souverain',
+                          labelText: 'Identifiant souverain (Non modifiable)',
                           prefixText: '@',
-                          hintText: 'mon_pseudo',
                           prefixIcon:
-                              const Icon(Icons.alternate_email, size: 20),
+                              const Icon(Icons.lock_outline_rounded, size: 20, color: Color(0xFF64748B)),
+                          helperText: 'L\'identifiant souverain avec @ est unique et non modifiable.',
+                          helperStyle: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
                           border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(14)),
                           filled: true,
-                          fillColor: AppTheme.surfaceWarm,
+                          fillColor: const Color(0xFFF1F5F9),
                         ),
                       ),
                       const SizedBox(height: 14),
@@ -298,19 +300,13 @@ class ProfileScreen extends StatelessWidget {
                   ),
                   onPressed: () async {
                     final trimmedName = nameController.text.trim();
-                    final rawHandle = handleController.text.trim();
-                    final cleanHandle = rawHandle.isEmpty
-                        ? profile.handle
-                        : (rawHandle.startsWith('@')
-                            ? rawHandle
-                            : '@$rawHandle');
                     final trimmedStatus = statusController.text.trim();
 
                     final updated = profile.copyWith(
                       displayName: trimmedName.isNotEmpty
                           ? trimmedName
                           : profile.displayName,
-                      handle: cleanHandle,
+                      handle: profile.handle,
                       statusMessage: trimmedStatus.isNotEmpty
                           ? trimmedStatus
                           : profile.statusMessage,

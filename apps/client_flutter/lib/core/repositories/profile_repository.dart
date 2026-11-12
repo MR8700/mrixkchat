@@ -148,6 +148,8 @@ class ProfileRepository extends ChangeNotifier {
     final cleanCode = recoveryCode.trim().toUpperCase();
     if (cleanCode.length < 6) return null;
 
+    Exception? onlineError;
+
     // 1. ONLINE-FIRST: Verify against backend server online
     try {
       final res = await ApiClient().recover(
@@ -159,10 +161,10 @@ class ProfileRepository extends ChangeNotifier {
         final u = res['user'] as Map<String, dynamic>;
         final profile = UserProfile(
           id: (u['id'] ?? 'usr_${DateTime.now().millisecondsSinceEpoch}').toString(),
-          displayName: (u['display_name'] ?? preferredName ?? 'Utilisateur').toString(),
-          handle: (u['handle'] ?? preferredHandle ?? '@utilisateur').toString(),
+          displayName: (u['display_name'] ?? preferredName ?? '').toString(),
+          handle: (u['handle'] ?? preferredHandle ?? '').toString(),
           avatarUrl: (u['avatar_ref'] ?? u['avatar_url'] ?? '').toString(),
-          statusMessage: (u['status_message'] ?? 'Session restaurée par code souverain').toString(),
+          statusMessage: (u['status_message'] ?? 'Disponible').toString(),
           isOnline: true,
           deviceQuotaMax: 3,
           notificationsEnabled: true,
@@ -171,16 +173,59 @@ class ProfileRepository extends ChangeNotifier {
           recoveryCode: cleanCode,
         );
 
+        if (profile.displayName.isNotEmpty && profile.handle.isNotEmpty) {
+          await _db.insert('users', profile.id, profile.toJson());
+          await _db.insert('settings', 'identity_configured', {'value': true});
+          await _db.insert('recovery_keys', cleanCode, {
+            'id': profile.id,
+            'displayName': profile.displayName,
+            'handle': profile.handle,
+            'avatarUrl': profile.avatarUrl,
+            'statusMessage': profile.statusMessage,
+            'recoveryCode': cleanCode,
+          });
+          await _db.saveState();
+          IdentityDirectoryService.registerUser(SovereignUser(
+            id: profile.id,
+            name: profile.displayName,
+            handle: profile.handle,
+            avatarUrl: profile.avatarUrl,
+            statusText: profile.statusMessage,
+            isVerified: true,
+            isOnline: true,
+          ));
+          notifyListeners();
+          return profile;
+        }
+      }
+    } catch (e) {
+      if (e is Exception) onlineError = e;
+    }
+
+    // 2. Local fallback if previously stored on this exact terminal
+    final keyRecord = _db.get('recovery_keys', cleanCode);
+    if (keyRecord != null) {
+      final name = (keyRecord['displayName'] ?? '').toString();
+      final handle = (keyRecord['handle'] ?? '').toString();
+      final avatar = (keyRecord['avatarUrl'] ?? '').toString();
+      final status = (keyRecord['statusMessage'] ?? 'Disponible').toString();
+
+      if (name.isNotEmpty && handle.isNotEmpty && handle != '@utilisateur') {
+        final profile = UserProfile(
+          id: (keyRecord['id'] ?? 'usr_rec_${DateTime.now().millisecondsSinceEpoch}').toString(),
+          displayName: name,
+          handle: handle,
+          avatarUrl: avatar,
+          statusMessage: status,
+          isOnline: true,
+          deviceQuotaMax: 3,
+          notificationsEnabled: true,
+          themeMode: 'Ivoire',
+          storageUsed: '0 Mo',
+          recoveryCode: cleanCode,
+        );
         await _db.insert('users', profile.id, profile.toJson());
         await _db.insert('settings', 'identity_configured', {'value': true});
-        await _db.insert('recovery_keys', cleanCode, {
-          'id': profile.id,
-          'displayName': profile.displayName,
-          'handle': profile.handle,
-          'avatarUrl': profile.avatarUrl,
-          'statusMessage': profile.statusMessage,
-          'recoveryCode': cleanCode,
-        });
         await _db.saveState();
         IdentityDirectoryService.registerUser(SovereignUser(
           id: profile.id,
@@ -194,43 +239,6 @@ class ProfileRepository extends ChangeNotifier {
         notifyListeners();
         return profile;
       }
-    } catch (_) {}
-
-    // 2. Check local recovery_keys table
-    final keyRecord = _db.get('recovery_keys', cleanCode);
-    if (keyRecord != null) {
-      final name = (keyRecord['displayName'] ?? '').toString();
-      final handle = (keyRecord['handle'] ?? '').toString();
-      final avatar = (keyRecord['avatarUrl'] ?? '').toString();
-      final status = (keyRecord['statusMessage'] ?? 'Disponible sur MRixk').toString();
-
-      final profile = UserProfile(
-        id: (keyRecord['id'] ?? 'user_rec_${DateTime.now().millisecondsSinceEpoch}').toString(),
-        displayName: name.isNotEmpty ? name : (preferredName?.trim().isNotEmpty == true ? preferredName!.trim() : 'Utilisateur'),
-        handle: handle.isNotEmpty ? handle : (preferredHandle?.trim().isNotEmpty == true ? preferredHandle!.trim() : '@utilisateur'),
-        avatarUrl: avatar,
-        statusMessage: status,
-        isOnline: true,
-        deviceQuotaMax: 3,
-        notificationsEnabled: true,
-        themeMode: 'Ivoire',
-        storageUsed: '0 Mo',
-        recoveryCode: cleanCode,
-      );
-      await _db.insert('users', profile.id, profile.toJson());
-      await _db.insert('settings', 'identity_configured', {'value': true});
-      await _db.saveState();
-      IdentityDirectoryService.registerUser(SovereignUser(
-        id: profile.id,
-        name: profile.displayName,
-        handle: profile.handle,
-        avatarUrl: profile.avatarUrl,
-        statusText: profile.statusMessage,
-        isVerified: true,
-        isOnline: true,
-      ));
-      notifyListeners();
-      return profile;
     }
 
     // 3. Check users table
@@ -239,99 +247,54 @@ class ProfileRepository extends ChangeNotifier {
       final code = (u['recoveryCode'] as String? ?? '').trim().toUpperCase();
       if (code.isNotEmpty && (code == cleanCode || cleanCode.contains(code))) {
         final profile = UserProfile.fromJson(u).copyWith(isOnline: true);
-        await _db.update('users', profile.id, profile.toJson());
-        await _db.insert('settings', 'identity_configured', {'value': true});
-        await _db.saveState();
-        IdentityDirectoryService.registerUser(SovereignUser(
-          id: profile.id,
-          name: profile.displayName,
-          handle: profile.handle,
-          avatarUrl: profile.avatarUrl,
-          statusText: profile.statusMessage,
-          isVerified: true,
-          isOnline: true,
-        ));
-        notifyListeners();
-        return profile;
+        if (profile.handle != '@utilisateur') {
+          await _db.update('users', profile.id, profile.toJson());
+          await _db.insert('settings', 'identity_configured', {'value': true});
+          await _db.saveState();
+          IdentityDirectoryService.registerUser(SovereignUser(
+            id: profile.id,
+            name: profile.displayName,
+            handle: profile.handle,
+            avatarUrl: profile.avatarUrl,
+            statusText: profile.statusMessage,
+            isVerified: true,
+            isOnline: true,
+          ));
+          notifyListeners();
+          return profile;
+        }
       }
     }
 
-    // 4. Fallback from input parameters if online and local both unavailable
-    String name = (preferredName ?? '').trim();
-    String handle = (preferredHandle ?? '').trim();
-
-    if (name.isNotEmpty && handle.isEmpty) {
-      if (name.startsWith('@')) {
-        handle = name;
-        final raw = name.substring(1);
-        name = raw.contains('.')
-            ? raw.split('.').map((p) => p.isNotEmpty ? '${p[0].toUpperCase()}${p.substring(1)}' : '').join(' ')
-            : (raw.isNotEmpty ? '${raw[0].toUpperCase()}${raw.substring(1)}' : 'Membre');
-      } else {
-        handle = '@${name.toLowerCase().replaceAll(' ', '.')}';
-      }
-    } else if (handle.isNotEmpty && name.isEmpty) {
-      final raw = handle.startsWith('@') ? handle.substring(1) : handle;
-      name = raw.contains('.')
-          ? raw.split('.').map((p) => p.isNotEmpty ? '${p[0].toUpperCase()}${p.substring(1)}' : '').join(' ')
-          : (raw.isNotEmpty ? '${raw[0].toUpperCase()}${raw.substring(1)}' : 'Membre');
-    }
-
-    if (handle.isEmpty && name.isEmpty) {
-      return null;
-    }
-
-    if (!handle.startsWith('@')) handle = '@$handle';
-
-    final profile = UserProfile(
-      id: 'usr_rec_${DateTime.now().millisecondsSinceEpoch}',
-      displayName: name,
-      handle: handle,
-      avatarUrl: '',
-      statusMessage: "Session restaurée par code souverain",
-      isOnline: true,
-      deviceQuotaMax: 3,
-      notificationsEnabled: true,
-      themeMode: 'Ivoire',
-      storageUsed: '0 Mo',
-      recoveryCode: cleanCode,
-    );
-    await _db.insert('users', profile.id, profile.toJson());
-    await _db.insert('recovery_keys', cleanCode, {
-      'id': profile.id,
-      'displayName': profile.displayName,
-      'handle': profile.handle,
-      'avatarUrl': profile.avatarUrl,
-      'statusMessage': profile.statusMessage,
-      'recoveryCode': cleanCode,
-    });
-    await _db.insert('settings', 'identity_configured', {'value': true});
-    await _db.saveState();
-    IdentityDirectoryService.registerUser(SovereignUser(
-      id: profile.id,
-      name: profile.displayName,
-      handle: profile.handle,
-      avatarUrl: profile.avatarUrl,
-      statusText: profile.statusMessage,
-      isVerified: true,
-      isOnline: true,
-    ));
-    notifyListeners();
-    return profile;
+    // STRICTLY NEVER invent dummy '@utilisateur' or 'Utilisateur'!
+    if (onlineError != null) throw onlineError;
+    throw Exception('Code de secours introuvable sur le serveur ($cleanCode).');
   }
 
-  // --- CRUD: UPDATE ---
+  // --- CRUD: UPDATE (Handle is strictly immutable) ---
   Future<void> updateProfile(UserProfile profile) async {
-    await _db.update('users', profile.id, profile.toJson());
+    final current = getProfile();
+    // Enforce that the sovereign handle with @ can NEVER be modified!
+    final safeProfile = profile.copyWith(handle: current.handle);
+    await _db.update('users', safeProfile.id, safeProfile.toJson());
     IdentityDirectoryService.registerUser(SovereignUser(
-      id: profile.id,
-      name: profile.displayName,
-      handle: profile.handle,
-      avatarUrl: profile.avatarUrl,
-      statusText: profile.statusMessage,
+      id: safeProfile.id,
+      name: safeProfile.displayName,
+      handle: safeProfile.handle,
+      avatarUrl: safeProfile.avatarUrl,
+      statusText: safeProfile.statusMessage,
       isVerified: true,
       isOnline: true,
     ));
+
+    // Synchronize to the backend server so all devices of this user are identical
+    ApiClient().updateProfile(
+      userId: safeProfile.id,
+      displayName: safeProfile.displayName,
+      avatarUrl: safeProfile.avatarUrl,
+      statusMessage: safeProfile.statusMessage,
+    );
+
     notifyListeners();
   }
 

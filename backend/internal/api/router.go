@@ -97,6 +97,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/users", s.handleListUsers)
 	s.mux.HandleFunc("GET /api/v1/users/search", s.handleSearchUsers)
 	s.mux.HandleFunc("GET /api/v1/users/{id}", s.handleGetUser)
+	s.mux.HandleFunc("PUT /api/v1/users/{id}", s.handleUpdateUser)
+	s.mux.HandleFunc("POST /api/v1/users/{id}", s.handleUpdateUser)
 	s.mux.HandleFunc("POST /api/v1/contacts/verify", s.handleVerifyContact)
 
 	// Devices (Max 3 limit enforced)
@@ -283,6 +285,73 @@ func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"user": user.Public(),
+	})
+}
+
+type UpdateUserRequest struct {
+	DisplayName   string `json:"display_name"`
+	AvatarURL     string `json:"avatar_url"`
+	StatusMessage string `json:"status_message"`
+}
+
+func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		jsonError(w, http.StatusBadRequest, "User ID required in path")
+		return
+	}
+
+	var req UpdateUserRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request JSON payload")
+		return
+	}
+
+	var user *database.User
+	var err error
+	if strings.HasPrefix(id, "@") {
+		user, err = s.repo.GetUserByHandle(id)
+	} else {
+		user, err = s.repo.GetUserByID(id)
+		if err != nil {
+			user, err = s.repo.GetUserByHandle("@" + id)
+		}
+	}
+
+	if err != nil || user == nil {
+		jsonError(w, http.StatusNotFound, "Utilisateur introuvable")
+		return
+	}
+
+	// Sovereign handle is strictly immutable! Cannot be modified.
+	if req.DisplayName != "" {
+		user.DisplayName = strings.TrimSpace(req.DisplayName)
+	}
+	if req.AvatarURL != "" {
+		user.AvatarRef = req.AvatarURL
+	}
+	if req.StatusMessage != "" {
+		user.StatusMessage = req.StatusMessage
+	}
+	user.UpdatedAt = time.Now()
+
+	if err := s.repo.UpdateUser(user); err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	s.contactService.UpsertContact(&contacts.ContactEntry{
+		UserID:            user.ID,
+		Handle:            user.Handle,
+		DisplayName:       user.DisplayName,
+		AvatarURL:         user.AvatarRef,
+		IdentityPublicKey: user.RecoveryPublicKey,
+		IsVerified:        true,
+	})
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"message": "User updated successfully",
+		"user":    user.Public(),
 	})
 }
 

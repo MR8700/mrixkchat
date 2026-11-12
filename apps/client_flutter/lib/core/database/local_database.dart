@@ -307,6 +307,8 @@ class LocalDatabase {
       '@idriss.t',
       '@sarah.c',
       '@toto',
+      '@utilisateur',
+      '@membre.recupere',
     };
 
     final users = _tables['users'];
