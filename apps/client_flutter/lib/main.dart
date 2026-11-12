@@ -13,6 +13,7 @@ import 'core/repositories/group_note_repository.dart';
 import 'core/repositories/message_repository.dart';
 import 'core/repositories/moment_repository.dart';
 import 'core/repositories/profile_repository.dart';
+import 'core/services/identity_directory_service.dart';
 import 'core/theme/app_theme.dart';
 import 'features/onboarding/splash_screen.dart';
 import 'shared/widgets/single_instance_guard.dart';
@@ -28,6 +29,7 @@ void main() async {
       await seedCleanProductionDatabase(db);
     },
   );
+  IdentityDirectoryService.syncFromDatabase(localDb);
 
   runApp(
     MultiProvider(

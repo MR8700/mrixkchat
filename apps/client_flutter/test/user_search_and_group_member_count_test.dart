@@ -15,12 +15,12 @@ import 'package:mrixk_client/features/discussions/conversation_info_screen.dart'
 import 'package:mrixk_client/features/discussions/conversation_detail_screen.dart';
 
 void main() {
-  group('Recherche de contact dynamique (@mareaugustin, @isabelle)', () {
-    test('IdentityDirectoryService résout dynamiquement les handles saisis', () {
+  group('Sécurité de l\'annuaire souverain : uniquement les utilisateurs enregistrés', () {
+    test('Les utilisateurs officiels sont trouvés et les inconnus strictement rejetés', () {
       final aug = IdentityDirectoryService.findUser('@mareaugustin');
       expect(aug, isNotNull);
       expect(aug!.handle, equals('@mareaugustin'));
-      expect(aug.name, equals('Mareaugustin'));
+      expect(aug.name, equals('Augustin MARE'));
       expect(aug.isVerified, isTrue);
 
       final isa = IdentityDirectoryService.findUser('@isabelle');
@@ -31,6 +31,16 @@ void main() {
 
       final results = IdentityDirectoryService.searchUsers('isabelle');
       expect(results.any((u) => u.handle == '@isabelle'), isTrue);
+
+      // Sécurité critique : les utilisateurs non enregistrés doivent impérativement renvoyer null et ne jamais être ajoutés
+      final fake1 = IdentityDirectoryService.findUser('@toto');
+      expect(fake1, isNull);
+
+      final fake2 = IdentityDirectoryService.findUser('@utilisateur_inconnu');
+      expect(fake2, isNull);
+
+      final searchFake = IdentityDirectoryService.searchUsers('utilisateur_inconnu_xyz');
+      expect(searchFake, isEmpty);
     });
   });
 
