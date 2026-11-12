@@ -19,6 +19,9 @@ import 'controllers/word_rich_text_controller.dart';
 import 'widgets/group_note_renderer.dart';
 import '../../core/models/moe_object.dart';
 import 'widgets/moe_object_code_modal.dart';
+import 'widgets/moe_interactive_table_widget.dart';
+import 'widgets/moe_interactive_chart_widget.dart';
+import 'widgets/moe_interactive_diagram_widget.dart';
 
 class GroupNotepadScreen extends StatefulWidget {
   final Conversation conversation;
@@ -87,8 +90,10 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
   // Active paragraph alignment at cursor for Word editor
   TextAlign _currentWordAlign = TextAlign.left;
 
-  // MRixk Object Engine (MOE) interactive objects map
+  // MRixk Object Engine (MOE) interactive objects map & Word in-place visual mode
   Map<String, MoeObject> _moeObjects = {};
+  bool _wordVisualMode = true;
+  final Map<int, WordRichTextController> _segmentTextControllers = {};
 
   @override
   void initState() {
@@ -131,6 +136,7 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
   void _onMoeObjectUpdated(MoeObject updated) {
     setState(() {
       _moeObjects[updated.name] = updated;
+      _segmentTextControllers.clear();
     });
 
     final objCode = updated.toMrixkCode();
@@ -300,6 +306,10 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
     _textController.dispose();
     _codeController.dispose();
     _titleController.dispose();
+    for (final ctrl in _segmentTextControllers.values) {
+      ctrl.dispose();
+    }
+    _segmentTextControllers.clear();
     super.dispose();
   }
 
@@ -2321,7 +2331,7 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
                 externalDocumentsVariables: extVars,
                 currentDocumentId: _currentNote.id,
                 mediaRegistry: mediaRegistry,
-                isFinalRenderMode: false,
+                isFinalRenderMode: true,
                 moeObjects: _moeObjects,
                 onUpdateMoeObject: _onMoeObjectUpdated,
                 onOpenMoeCodeModal: _openMoeCodeModal,
@@ -2722,7 +2732,252 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
     );
   }
 
+  void _deleteMoeObject(String name) {
+    setState(() {
+      _moeObjects.remove(name);
+      _components.remove(name);
+      _segmentTextControllers.clear();
+
+      final text = _textController.toMarkdown();
+      final escaped = RegExp.escape(name);
+      final pattern = RegExp(
+        r'(\{' + escaped + r'\[[0-9]+,\s*[0-9]+\]\}|' +
+        r'\{' + escaped + r'\[\s*[0-9]+\s*,\s*[0-9]+\s*\]\s*=\s*(?:"[^"]*"|[^}]+)\}|' +
+        r'\{' + escaped + r'\s*:\s*[a-zA-Z0-9_]+(?:\([^)]*\))?\}|' +
+        r'\{' + escaped + r'\.[a-zA-Z0-9_]+\s*=\s*(?:"[^"]*"|\[[^\]]*\]|[^}]+)\}|' +
+        r'\{\{id="' + escaped + r'";[\s\S]*?\}\})\n?',
+      );
+      final newText = text.replaceAll(pattern, '').trim();
+      _textController.loadMarkdown(newText);
+      _codeController.text = _buildCombinedCodeSource(newText, _components);
+    });
+    _onTextChanged();
+  }
+
+  List<_WordEditorSegment> _computeDocumentSegments(String fullText, Map<String, MoeObject> moeObjects) {
+    if (moeObjects.isEmpty) {
+      return [_WordEditorSegment.text(fullText)];
+    }
+
+    final ranges = <_MoeRange>[];
+
+    for (final obj in moeObjects.values) {
+      final name = RegExp.escape(obj.name);
+      final pattern = RegExp(
+        r'(\{' + name + r'\[[0-9]+,\s*[0-9]+\]\}|' +
+        r'\{' + name + r'\[\s*[0-9]+\s*,\s*[0-9]+\s*\]\s*=\s*(?:"[^"]*"|[^}]+)\}|' +
+        r'\{' + name + r'\s*:\s*[a-zA-Z0-9_]+(?:\([^)]*\))?\}|' +
+        r'\{' + name + r'\.[a-zA-Z0-9_]+\s*=\s*(?:"[^"]*"|\[[^\]]*\]|[^}]+)\}|' +
+        r'\{\{id="' + name + r'";[\s\S]*?\}\})\n?',
+      );
+
+      final matches = pattern.allMatches(fullText).toList();
+      if (matches.isNotEmpty) {
+        final start = matches.first.start;
+        final end = matches.last.end;
+        ranges.add(_MoeRange(obj, start, end));
+      }
+    }
+
+    if (ranges.isEmpty) {
+      return [_WordEditorSegment.text(fullText)];
+    }
+
+    ranges.sort((a, b) => a.start.compareTo(b.start));
+
+    final segments = <_WordEditorSegment>[];
+    int current = 0;
+
+    for (final r in ranges) {
+      if (r.start > current) {
+        final textSlice = fullText.substring(current, r.start);
+        segments.add(_WordEditorSegment.text(textSlice));
+      }
+      segments.add(_WordEditorSegment.moe(r.object));
+      current = r.end;
+    }
+
+    if (current < fullText.length) {
+      segments.add(_WordEditorSegment.text(fullText.substring(current)));
+    } else {
+      segments.add(_WordEditorSegment.text(''));
+    }
+
+    return segments;
+  }
+
+  WordRichTextController _getOrCreateSegmentController(int index, String initialText) {
+    var ctrl = _segmentTextControllers[index];
+    if (ctrl == null) {
+      ctrl = WordRichTextController(text: initialText);
+      _segmentTextControllers[index] = ctrl;
+    } else if (ctrl.toMarkdown() != initialText && !ctrl.selection.isValid) {
+      ctrl.loadMarkdown(initialText);
+    }
+    return ctrl;
+  }
+
+  void _onSegmentTextChanged(List<_WordEditorSegment> segments, int changedIndex, String newText) {
+    final buf = StringBuffer();
+    for (int i = 0; i < segments.length; i++) {
+      final seg = segments[i];
+      if (seg.isMoe) {
+        buf.writeln();
+        buf.writeln(seg.moeObject!.toMrixkCode());
+        buf.writeln();
+      } else {
+        final t = (i == changedIndex) ? newText : (_segmentTextControllers[i]?.toMarkdown() ?? seg.text);
+        if (t.isNotEmpty) {
+          buf.writeln(t);
+        }
+      }
+    }
+
+    final newFullText = buf.toString().trim();
+    _textController.removeListener(_onWordTextChanged);
+    _textController.loadMarkdown(newFullText);
+    _textController.addListener(_onWordTextChanged);
+
+    _codeController.text = _buildCombinedCodeSource(newFullText, _components);
+    final previousCount = _moeObjects.length;
+    _moeObjects = MoeEngine.extractObjects(newFullText, existingLegacyComponents: _components);
+    _onTextChanged();
+
+    if (_moeObjects.length != previousCount) {
+      _segmentTextControllers.clear();
+      setState(() {});
+    }
+  }
+
+  Widget _buildWordSegmentedEditor(bool canEdit) {
+    final segments = _computeDocumentSegments(_textController.toMarkdown(), _moeObjects);
+
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      itemCount: segments.length,
+      itemBuilder: (ctx, i) {
+        final seg = segments[i];
+        if (seg.isMoe) {
+          final obj = seg.moeObject!;
+          Widget moeWidget;
+          if (obj.type == MoeObjectType.table) {
+            moeWidget = MoeInteractiveTableWidget(
+              object: obj,
+              isReadOnly: !canEdit,
+              onChanged: _onMoeObjectUpdated,
+              onOpenCodeModal: () => _openMoeCodeModal(obj),
+            );
+          } else if (obj.type == MoeObjectType.curve || obj.type == MoeObjectType.chart) {
+            moeWidget = MoeInteractiveChartWidget(
+              object: obj,
+              isReadOnly: !canEdit,
+              onChanged: _onMoeObjectUpdated,
+              onOpenCodeModal: () => _openMoeCodeModal(obj),
+            );
+          } else if (obj.type == MoeObjectType.diagram) {
+            moeWidget = MoeInteractiveDiagramWidget(
+              object: obj,
+              isReadOnly: !canEdit,
+              onChanged: _onMoeObjectUpdated,
+              onOpenCodeModal: () => _openMoeCodeModal(obj),
+            );
+          } else {
+            moeWidget = const SizedBox.shrink();
+          }
+
+          return Container(
+            margin: const EdgeInsets.symmetric(vertical: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (canEdit)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF1F5F9),
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          switch (obj.type) {
+                            MoeObjectType.table => Icons.table_chart_rounded,
+                            MoeObjectType.curve => Icons.show_chart_rounded,
+                            MoeObjectType.diagram => Icons.account_tree_rounded,
+                            _ => Icons.widgets_rounded,
+                          },
+                          size: 13,
+                          color: const Color(0xFF2563EB),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Objet ${obj.name} (${obj.type.name}) — Modifiable sur place',
+                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF334155)),
+                        ),
+                        const Spacer(),
+                        InkWell(
+                          onTap: () => _openMoeCodeModal(obj),
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            child: Row(
+                              children: [
+                                Icon(Icons.code_rounded, size: 12, color: Color(0xFF0284C7)),
+                                SizedBox(width: 3),
+                                Text('Code', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF0284C7))),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        InkWell(
+                          onTap: () => _deleteMoeObject(obj.name),
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                            child: Icon(Icons.delete_outline_rounded, size: 14, color: Color(0xFFEF4444)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                moeWidget,
+              ],
+            ),
+          );
+        } else {
+          final ctrl = _getOrCreateSegmentController(i, seg.text);
+          return Container(
+            margin: const EdgeInsets.symmetric(vertical: 4),
+            child: TextField(
+              controller: ctrl,
+              enabled: canEdit,
+              textAlign: _currentWordAlign,
+              maxLines: null,
+              keyboardType: TextInputType.multiline,
+              textInputAction: TextInputAction.newline,
+              style: TextStyle(
+                fontSize: 14.5,
+                color: const Color(0xFF1E293B),
+                height: _lineSpacing,
+              ),
+              decoration: InputDecoration(
+                hintText: i == 0 ? 'Rédigez le texte avant l\'objet...' : 'Continuez la rédaction après l\'objet...',
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(vertical: 4),
+              ),
+              onChanged: (val) {
+                _onSegmentTextChanged(segments, i, val);
+              },
+            ),
+          );
+        }
+      },
+    );
+  }
+
   Widget _buildWordEditorBody(bool canEdit) {
+    final hasObjects = _moeObjects.isNotEmpty;
+
     return Column(
       children: [
         // Title Input
@@ -2756,7 +3011,41 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
                   'Édition visuelle Word • Styles rendus en direct',
                   style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: Color(0xFF475569)),
                 ),
-                const SizedBox(width: 16),
+                const SizedBox(width: 12),
+                if (hasObjects) ...[
+                  InkWell(
+                    onTap: () => setState(() => _wordVisualMode = !_wordVisualMode),
+                    borderRadius: BorderRadius.circular(6),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: _wordVisualMode ? const Color(0xFFE0F2FE) : const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: _wordVisualMode ? const Color(0xFFBAE6FD) : const Color(0xFFCBD5E1)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _wordVisualMode ? Icons.widgets_rounded : Icons.code_rounded,
+                            size: 13,
+                            color: _wordVisualMode ? const Color(0xFF0369A1) : const Color(0xFF475569),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            _wordVisualMode ? 'Mode Visuel Actif' : 'Mode Texte Brut',
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.bold,
+                              color: _wordVisualMode ? const Color(0xFF0369A1) : const Color(0xFF475569),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                ],
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
@@ -2780,7 +3069,7 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
             ),
           ),
         ),
-        if (_moeObjects.isNotEmpty)
+        if (hasObjects)
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
@@ -2826,30 +3115,32 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
           ),
         const Divider(height: 1, color: Color(0xFFE2E8F0)),
 
-        // Main Word Text Area (Powered by WordRichTextController)
+        // Main Word Area: Segmented in-place interactive editor or master TextField
         Expanded(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: TextField(
-              controller: _textController,
-              enabled: canEdit,
-              textAlign: _currentWordAlign,
-              maxLines: null,
-              expands: true,
-              keyboardType: TextInputType.multiline,
-              textInputAction: TextInputAction.newline,
-              style: TextStyle(
-                fontSize: 14.5,
-                color: const Color(0xFF1E293B),
-                height: _lineSpacing,
-              ),
-              decoration: const InputDecoration(
-                hintText:
-                    'Rédigez visuellement comme sous Word.\n\nLes styles appliqués (Gras, Italique, Souligné, Polices, Couleurs) sont rendus directement sans balises.\nLes déclarations {variable = valeur} et évaluations {{=calcul}} restent brutes avec leur fond de mise en valeur.',
-                border: InputBorder.none,
-              ),
-            ),
-          ),
+          child: (_wordVisualMode && hasObjects)
+              ? _buildWordSegmentedEditor(canEdit)
+              : Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: TextField(
+                    controller: _textController,
+                    enabled: canEdit,
+                    textAlign: _currentWordAlign,
+                    maxLines: null,
+                    expands: true,
+                    keyboardType: TextInputType.multiline,
+                    textInputAction: TextInputAction.newline,
+                    style: TextStyle(
+                      fontSize: 14.5,
+                      color: const Color(0xFF1E293B),
+                      height: _lineSpacing,
+                    ),
+                    decoration: const InputDecoration(
+                      hintText:
+                          'Rédigez visuellement comme sous Word.\n\nLes styles appliqués (Gras, Italique, Souligné, Polices, Couleurs) sont rendus directement sans balises.\nDéclarez un tableau avec {M[5,4]} ou une courbe avec {C:courbe} pour le voir apparaître instantanément !',
+                      border: InputBorder.none,
+                    ),
+                  ),
+                ),
         ),
       ],
     );
@@ -2990,3 +3281,20 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
     );
   }
 }
+
+class _WordEditorSegment {
+  final bool isMoe;
+  final String text;
+  final MoeObject? moeObject;
+
+  _WordEditorSegment.text(this.text) : isMoe = false, moeObject = null;
+  _WordEditorSegment.moe(this.moeObject) : isMoe = true, text = '';
+}
+
+class _MoeRange {
+  final MoeObject object;
+  final int start;
+  final int end;
+  _MoeRange(this.object, this.start, this.end);
+}
+

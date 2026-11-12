@@ -109,7 +109,7 @@ class _MoeInteractiveChartWidgetState extends State<MoeInteractiveChartWidget> {
                       Text(
                         formula != null
                             ? 'f(t) = $formula'
-                            : 'Objet MOE : {${widget.object.name}:${widget.object.type.name}}',
+                            : (widget.isReadOnly ? 'Courbe mathématique' : 'Objet MOE : {${widget.object.name}:${widget.object.type.name}}'),
                         style: const TextStyle(fontSize: 11, color: Color(0xFF64748B), fontFamily: 'monospace'),
                       ),
                     ],
@@ -136,7 +136,7 @@ class _MoeInteractiveChartWidgetState extends State<MoeInteractiveChartWidget> {
                   ),
                 const SizedBox(width: 8),
                 // Code button
-                if (widget.onOpenCodeModal != null)
+                if (widget.onOpenCodeModal != null && !widget.isReadOnly)
                   InkWell(
                     onTap: widget.onOpenCodeModal,
                     borderRadius: BorderRadius.circular(8),

@@ -154,14 +154,16 @@ class _MoeInteractiveDiagramWidgetState extends State<MoeInteractiveDiagramWidge
                         style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                       ),
                       Text(
-                        'Objet MOE : {${widget.object.name}:diagramme} • ${_nodes.length} nœuds',
-                        style: const TextStyle(fontSize: 10.5, color: Color(0xFF64748B), fontFamily: 'monospace'),
+                        widget.isReadOnly
+                            ? 'Organigramme séquentiel • ${_nodes.length} étapes'
+                            : 'Objet MOE : {${widget.object.name}:diagramme} • ${_nodes.length} nœuds',
+                        style: const TextStyle(fontSize: 10.5, color: Color(0xFF64748B)),
                       ),
                     ],
                   ),
                 ),
                 // Code button
-                if (widget.onOpenCodeModal != null)
+                if (widget.onOpenCodeModal != null && !widget.isReadOnly)
                   InkWell(
                     onTap: widget.onOpenCodeModal,
                     borderRadius: BorderRadius.circular(8),

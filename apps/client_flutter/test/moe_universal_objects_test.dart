@@ -325,5 +325,41 @@ Fin du rapport.
       expect(find.text('99.9%'), findsOneWidget);
       expect(find.text('Fin du rapport.'), findsOneWidget);
     });
+
+    testWidgets('renders MOE table in Document Rendu (isFinalRenderMode=true) as final polished table', (tester) async {
+      const noteContent = '''
+# Document Final
+
+{M[3,2]}
+{M[0,0]="Article"}
+{M[0,1]="Prix"}
+{M[1,0]="Clavier"}
+{M[1,1]="50€"}
+''';
+
+      final moeMap = MoeEngine.extractObjects(noteContent);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: GroupNoteRenderer(
+              content: noteContent,
+              moeObjects: moeMap,
+              isFinalRenderMode: true,
+            ),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      expect(find.text('Document Final'), findsOneWidget);
+      expect(find.text('Article'), findsOneWidget);
+      expect(find.text('Prix'), findsOneWidget);
+      expect(find.text('Clavier'), findsOneWidget);
+      expect(find.text('50€'), findsOneWidget);
+      // Braces are never shown in final rendered document
+      expect(find.textContaining('{M['), findsNothing);
+    });
   });
 }
