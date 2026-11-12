@@ -1423,7 +1423,7 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                       const SizedBox(width: 4),
                       Text(
                         currentConv.isGroup
-                            ? '${currentConv.groupMembers.isNotEmpty ? currentConv.groupMembers.length : (currentConv.groupMembersCount)} membres • Chiffré'
+                            ? '${currentConv.totalUserAccountsCount} ${currentConv.totalUserAccountsCount <= 1 ? "membre" : "membres"} • Chiffré'
                             : (currentConv.isOnline
                                 ? 'En ligne'
                                 : 'Vu récemment'),

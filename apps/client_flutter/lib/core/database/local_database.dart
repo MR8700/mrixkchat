@@ -173,18 +173,40 @@ class LocalDatabase {
           continue;
         }
         if (val['groupMembers'] is List) {
-          final members = List<dynamic>.from(val['groupMembers'] as List);
-          final initialLen = members.length;
-          members.removeWhere((m) {
+          final rawMembers = List<dynamic>.from(val['groupMembers'] as List);
+          final seenUserIds = <String>{};
+          final dedupedMembers = <dynamic>[];
+          for (final m in rawMembers) {
             if (m is Map) {
-              final id = (m['id'] ?? '').toString();
+              final id = (m['user_id'] ?? m['id'] ?? '').toString();
               final name = (m['name'] ?? '').toString().toLowerCase();
-              return id == 'contact_sarah' || name.contains('sarah');
+              if (id == 'contact_sarah' || name.contains('sarah')) {
+                continue;
+              }
+              if (id.isNotEmpty) {
+                if (!seenUserIds.contains(id)) {
+                  seenUserIds.add(id);
+                  dedupedMembers.add(m);
+                }
+              } else {
+                dedupedMembers.add(m);
+              }
             }
-            return false;
-          });
-          if (members.length != initialLen) {
-            val['groupMembers'] = members;
+          }
+          if (dedupedMembers.length != rawMembers.length) {
+            val['groupMembers'] = dedupedMembers;
+            mutated = true;
+          }
+          if (dedupedMembers.isNotEmpty) {
+            if (val['groupMembersCount'] != dedupedMembers.length) {
+              val['groupMembersCount'] = dedupedMembers.length;
+              mutated = true;
+            }
+          }
+        }
+        if (val['isGroup'] == true && (val['groupMembers'] == null || (val['groupMembers'] is List && (val['groupMembers'] as List).isEmpty))) {
+          if (val['groupMembersCount'] == null || val['groupMembersCount'] is! int || (val['groupMembersCount'] as int) < 1) {
+            val['groupMembersCount'] = 1;
             mutated = true;
           }
         }

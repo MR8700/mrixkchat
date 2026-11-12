@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import '../database/database_seed.dart';
 import '../database/local_database.dart';
 import '../models/user_profile.dart';
+import '../services/identity_directory_service.dart';
 
 class ProfileRepository extends ChangeNotifier {
   final LocalDatabase _db;
@@ -89,6 +90,15 @@ class ProfileRepository extends ChangeNotifier {
     // Save user profile and mark identity as configured
     await _db.insert('users', profile.id, profile.toJson());
     await _db.insert('settings', 'identity_configured', {'value': true});
+    IdentityDirectoryService.registerUser(SovereignUser(
+      id: profile.id,
+      name: profile.displayName,
+      handle: profile.handle,
+      avatarUrl: profile.avatarUrl,
+      statusText: profile.statusMessage,
+      isVerified: true,
+      isOnline: true,
+    ));
     await _db.saveState();
     notifyListeners();
     return profile;
@@ -153,6 +163,15 @@ class ProfileRepository extends ChangeNotifier {
   // --- CRUD: UPDATE ---
   Future<void> updateProfile(UserProfile profile) async {
     await _db.update('users', profile.id, profile.toJson());
+    IdentityDirectoryService.registerUser(SovereignUser(
+      id: profile.id,
+      name: profile.displayName,
+      handle: profile.handle,
+      avatarUrl: profile.avatarUrl,
+      statusText: profile.statusMessage,
+      isVerified: true,
+      isOnline: true,
+    ));
     notifyListeners();
   }
 

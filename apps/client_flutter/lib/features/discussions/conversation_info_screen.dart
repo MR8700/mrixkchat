@@ -389,7 +389,7 @@ class _ConversationInfoScreenState extends State<ConversationInfoScreen> {
           const SizedBox(height: 4),
           Text(
             _conv.isGroup
-                ? '${_conv.groupMembers.isNotEmpty ? _conv.groupMembers.length : _conv.groupMembersCount} membres sécurisés'
+                ? '${_conv.totalUserAccountsCount} ${_conv.totalUserAccountsCount <= 1 ? "membre sécurisé" : "membres sécurisés"}'
                 : '@${_conv.title.toLowerCase().replaceAll(' ', '.')}',
             style: const TextStyle(fontSize: 13, color: AppTheme.primary, fontWeight: FontWeight.w600),
           ),

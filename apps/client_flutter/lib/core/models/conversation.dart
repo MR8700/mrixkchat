@@ -140,7 +140,17 @@ class Conversation {
   });
 
   /// Total count of unique user accounts in the group (based strictly on user_id)
-  int get totalUserAccountsCount => groupMembers.isNotEmpty ? groupMembers.length : (isGroup ? 1 : 1);
+  int get totalUserAccountsCount {
+    if (groupMembers.isEmpty) return (isGroup ? (groupMembersCount > 0 ? groupMembersCount : 1) : 1);
+    final uniqueIds = <String>{};
+    for (final m in groupMembers) {
+      final uid = m.userId.isNotEmpty ? m.userId : m.id;
+      if (uid.isNotEmpty) {
+        uniqueIds.add(uid);
+      }
+    }
+    return uniqueIds.isNotEmpty ? uniqueIds.length : (isGroup ? (groupMembersCount > 0 ? groupMembersCount : 1) : 1);
+  }
 
   /// Total count of all connected devices across all members
   int get totalConnectedDevicesCount {
@@ -246,34 +256,57 @@ class Conversation {
     'groupMembers': groupMembers.map((m) => m.toJson()).toList(),
   };
 
-  factory Conversation.fromJson(Map<String, dynamic> json) => Conversation(
-    id: json['id'] as String,
-    title: json['title'] as String,
-    peerAvatar: json['peerAvatar'] as String,
-    isGroup: json['isGroup'] as bool? ?? false,
-    groupMembersCount: json['groupMembersCount'] as int? ?? 1,
-    isOnline: json['isOnline'] as bool? ?? false,
-    isVerified: json['isVerified'] as bool? ?? false,
-    lastMessage: json['lastMessage'] as String,
-    lastMessageTime: json['lastMessageTime'] as String,
-    unreadCount: json['unreadCount'] as int? ?? 0,
-    hasVoiceNote: json['hasVoiceNote'] as bool? ?? false,
-    voiceNoteDuration: json['voiceNoteDuration'] as String?,
-    hasDocument: json['hasDocument'] as bool? ?? false,
-    tagText: json['tagText'] as String?,
-    isFavorite: json['isFavorite'] as bool? ?? false,
-    isPinned: json['isPinned'] as bool? ?? false,
-    isArchived: json['isArchived'] as bool? ?? false,
-    isBlocked: json['isBlocked'] as bool? ?? false,
-    blockedMessage: json['blockedMessage'] as String?,
-    description: json['description'] as String?,
-    onlyAdminsCanSendMessages: json['onlyAdminsCanSendMessages'] as bool? ?? false,
-    onlyAdminsCanEditGroupInfo: json['onlyAdminsCanEditGroupInfo'] as bool? ?? false,
-    onlyAdminsCanAddMembers: json['onlyAdminsCanAddMembers'] as bool? ?? false,
-    onlyAdminsCanEditNotes: json['onlyAdminsCanEditNotes'] as bool? ?? false,
-    groupMembers: (json['groupMembers'] as List<dynamic>?)
+  factory Conversation.fromJson(Map<String, dynamic> json) {
+    final rawMembers = (json['groupMembers'] as List<dynamic>?)
             ?.map((m) => GroupMember.fromJson(m as Map<String, dynamic>))
             .toList() ??
-        const [],
-  );
+        const [];
+    final seenIds = <String>{};
+    final dedupedMembers = <GroupMember>[];
+    for (final m in rawMembers) {
+      final uid = m.userId.isNotEmpty ? m.userId : m.id;
+      if (uid.isNotEmpty) {
+        if (!seenIds.contains(uid)) {
+          seenIds.add(uid);
+          dedupedMembers.add(m);
+        }
+      } else {
+        dedupedMembers.add(m);
+      }
+    }
+
+    final isGroup = json['isGroup'] as bool? ?? false;
+    final rawCount = json['groupMembersCount'] as int? ?? 1;
+    final memberCount = dedupedMembers.isNotEmpty
+        ? dedupedMembers.length
+        : (isGroup ? (rawCount > 0 ? rawCount : 1) : 1);
+
+    return Conversation(
+      id: json['id'] as String,
+      title: json['title'] as String,
+      peerAvatar: json['peerAvatar'] as String,
+      isGroup: isGroup,
+      groupMembersCount: memberCount,
+      isOnline: json['isOnline'] as bool? ?? false,
+      isVerified: json['isVerified'] as bool? ?? false,
+      lastMessage: json['lastMessage'] as String,
+      lastMessageTime: json['lastMessageTime'] as String,
+      unreadCount: json['unreadCount'] as int? ?? 0,
+      hasVoiceNote: json['hasVoiceNote'] as bool? ?? false,
+      voiceNoteDuration: json['voiceNoteDuration'] as String?,
+      hasDocument: json['hasDocument'] as bool? ?? false,
+      tagText: json['tagText'] as String?,
+      isFavorite: json['isFavorite'] as bool? ?? false,
+      isPinned: json['isPinned'] as bool? ?? false,
+      isArchived: json['isArchived'] as bool? ?? false,
+      isBlocked: json['isBlocked'] as bool? ?? false,
+      blockedMessage: json['blockedMessage'] as String?,
+      description: json['description'] as String?,
+      onlyAdminsCanSendMessages: json['onlyAdminsCanSendMessages'] as bool? ?? false,
+      onlyAdminsCanEditGroupInfo: json['onlyAdminsCanEditGroupInfo'] as bool? ?? false,
+      onlyAdminsCanAddMembers: json['onlyAdminsCanAddMembers'] as bool? ?? false,
+      onlyAdminsCanEditNotes: json['onlyAdminsCanEditNotes'] as bool? ?? false,
+      groupMembers: dedupedMembers,
+    );
+  }
 }

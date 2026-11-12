@@ -1450,7 +1450,7 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
-                        '${conv.groupMembersCount}',
+                        '${conv.totalUserAccountsCount}',
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 9,
