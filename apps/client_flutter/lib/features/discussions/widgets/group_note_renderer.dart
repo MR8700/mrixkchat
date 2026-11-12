@@ -575,11 +575,27 @@ class GroupNoteRenderer extends StatelessWidget {
         }
       }
     }
+    // Helper to find matching component with typo and naming tolerance
+    String? findComp(String key) {
+      final trimmed = key.trim();
+      if (comps.containsKey(trimmed)) return trimmed;
+      final clean = trimmed.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+      for (final k in comps.keys) {
+        final kClean = k.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+        if (clean == kClean) return k;
+        // Typo tolerance: spetre <-> spectre, etc.
+        if (clean.replaceAll('spetre', 'spectre') == kClean.replaceAll('spetre', 'spectre')) return k;
+        if (clean.length > 5 && (clean.contains(kClean) || kClean.contains(clean))) return k;
+      }
+      return null;
+    }
+
     // Remove component declaration blocks from document body text if referenced, or render in place if not
     result = result.replaceAllMapped(compDeclRegex, (match) {
       final compId = match.group(1)!;
       final rest = text.replaceAll(match.group(0)!, '');
-      final hasRef = RegExp('\\{${RegExp.escape(compId)}\\}|\\{\\{${RegExp.escape(compId)}\\}\\}').hasMatch(rest);
+      final hasRef = RegExp('\\{${RegExp.escape(compId)}\\}|\\{\\{${RegExp.escape(compId)}\\}\\}|\\(${RegExp.escape(compId)}\\)').hasMatch(rest) ||
+                     (findComp(compId) != null && rest.contains(compId));
       if (hasRef) {
         return '';
       } else {
@@ -594,8 +610,9 @@ class GroupNoteRenderer extends StatelessWidget {
     final macroRegex = RegExp(r'\{\{([a-zA-Z0-9_\-\s]+)\}\}');
     result = result.replaceAllMapped(macroRegex, (match) {
       final rawName = match.group(1)?.trim();
-      if (rawName != null && comps.containsKey(rawName)) {
-        return '\n<!-- macro:$rawName -->\n${comps[rawName]}\n<!-- endmacro -->\n';
+      final matchedKey = rawName != null ? findComp(rawName) : null;
+      if (matchedKey != null && comps.containsKey(matchedKey)) {
+        return '\n<!-- macro:$matchedKey -->\n${comps[matchedKey]}\n<!-- endmacro -->\n';
       }
       if (rawName != null && mediaReg != null && mediaReg.containsKey(rawName)) {
         final media = mediaReg[rawName]!;
@@ -604,16 +621,19 @@ class GroupNoteRenderer extends StatelessWidget {
       return match.group(0) ?? '';
     });
 
-    // 7. Resolve single curly {Titre du tableau} or {schema_reseau}
-    final singleBraceRegex = RegExp(r'\{([^{}]+)\}');
-    result = result.replaceAllMapped(singleBraceRegex, (match) {
+    // 7. Resolve single curly {Titre du tableau} or {schema_reseau} or flexible ((...)} or (macro)
+    final flexibleBraceRegex = RegExp(r'(?:\{\{|\{|(?:\(\()|\()([a-zA-Z0-9_\-\s]+)(?:\}\}|\}|(?:\)\))|\))');
+    result = result.replaceAllMapped(flexibleBraceRegex, (match) {
       final inner = match.group(1)?.trim();
-      if (inner != null && comps.containsKey(inner)) {
-        return '\n<!-- macro:$inner -->\n${comps[inner]}\n<!-- endmacro -->\n';
-      }
-      if (inner != null && mediaReg != null && mediaReg.containsKey(inner)) {
-        final media = mediaReg[inner]!;
-        return '\n<dws-media id="${media.id}" type="${media.type.name}" source="${media.source}" slug="${media.slug}" fileName="${media.fileName}" fileSize="${media.fileSize}" duration="${media.duration}" caption="${media.caption}" alt="${media.alt}" width="${media.widthPercent}" align="${media.align}" wrap="${media.wrap}" role="${media.role.name}"/>\n';
+      if (inner != null && inner.isNotEmpty) {
+        final matchedKey = findComp(inner);
+        if (matchedKey != null && comps.containsKey(matchedKey)) {
+          return '\n<!-- macro:$matchedKey -->\n${comps[matchedKey]}\n<!-- endmacro -->\n';
+        }
+        if (mediaReg != null && mediaReg.containsKey(inner)) {
+          final media = mediaReg[inner]!;
+          return '\n<dws-media id="${media.id}" type="${media.type.name}" source="${media.source}" slug="${media.slug}" fileName="${media.fileName}" fileSize="${media.fileSize}" duration="${media.duration}" caption="${media.caption}" alt="${media.alt}" width="${media.widthPercent}" align="${media.align}" wrap="${media.wrap}" role="${media.role.name}"/>\n';
+        }
       }
       return match.group(0) ?? '';
     });
@@ -1338,23 +1358,112 @@ class GroupNoteRenderer extends StatelessWidget {
       return '${m.group(1)}<sup val="${m.group(2)}"/>';
     });
 
-    // Replace fractions: {{(a+b)/(a-b)}}
-    text = text.replaceAllMapped(RegExp(r'\{\{\((.*?)\)\/\((.*?)\)\}\}'), (m) {
+    // Shannon-Nyquist condition: {(fe>=2*fmax)} or {{fe >= 2 * fmax}}
+    text = text.replaceAllMapped(
+      RegExp(r'\{?\(?(?:fe\s*>=\s*2\s*\*?\s*fmax|fe\s*≥\s*2\s*·?\s*fmax)\)?\}?', caseSensitive: false),
+      (m) => '<b><i>f</i><sub>e</sub> ≥ 2 · <i>f</i><sub>max</sub></b>',
+    );
+
+    // Replace fractions: {{(a+b)/(a-b)}} or {(a+b)/(a-b)}
+    text = text.replaceAllMapped(RegExp(r'\{?\{?\((.*?)\)\/\((.*?)\)\}?\}?'), (m) {
       return '<frac num="${m.group(1)}" den="${m.group(2)}"/>';
     });
 
-    // Replace integrals: {{integral(1:2)(2x^2 dx)}}
-    text = text.replaceAllMapped(RegExp(r'\{\{integral\((.*?):(.*?)\)\((.*?)\)\}\}'), (m) {
-      return '<integral from="${m.group(1)}" to="${m.group(2)}" expr="${m.group(3)}"/>';
-    });
+    // Replace integrals with balanced parentheses: {{integral(from:to)(expr)}} or {(integral...)}
+    while (text.contains('integral(')) {
+      final intIdx = text.indexOf('integral(');
+      int start = intIdx;
+      if (start >= 2 && text.substring(start - 2, start) == '{{') {
+        start -= 2;
+      } else if (start >= 2 && text.substring(start - 2, start) == '{(') {
+        start -= 2;
+      } else if (start >= 1 && text[start - 1] == '{') {
+        start -= 1;
+      }
 
-    // Replace sums: {{sigma(k=1:n)(k^2)}} or {{sum(1:n)(x)}}
-    text = text.replaceAllMapped(RegExp(r'\{\{(sigma|sum)\((.*?):(.*?)\)\((.*?)\)\}\}'), (m) {
-      return '<sigma from="${m.group(2)}" to="${m.group(3)}" expr="${m.group(4)}"/>';
-    });
+      final firstParen = intIdx + 'integral'.length;
+      final closeFirst = text.indexOf(')', firstParen);
+      if (closeFirst != -1 && text.substring(firstParen + 1, closeFirst).contains(':')) {
+        final bounds = text.substring(firstParen + 1, closeFirst).split(':');
+        var from = bounds[0].trim().replaceAll(r'-\infty', '-∞').replaceAll('-00', '-∞').replaceAll('-inf', '-∞');
+        var to = bounds[1].trim().replaceAll(r'+\infty', '+∞').replaceAll('+00', '+∞').replaceAll('+inf', '+∞').replaceAll(r'\infty', '∞').replaceAll('00', '∞');
 
-    // Replace square roots: {{sqrt(x+1)}}
-    text = text.replaceAllMapped(RegExp(r'\{\{sqrt\((.*?)\)\}\}'), (m) {
+        final secondParen = text.indexOf('(', closeFirst);
+        if (secondParen != -1 && secondParen < closeFirst + 4) {
+          int depth = 1;
+          int p = secondParen + 1;
+          while (p < text.length && depth > 0) {
+            if (text[p] == '(') depth++;
+            else if (text[p] == ')') depth--;
+            p++;
+          }
+          if (depth == 0) {
+            var expr = text.substring(secondParen + 1, p - 1).trim();
+            expr = expr.replaceAll(r'\pi', 'π')
+                       .replaceAll(r'\infty', '∞')
+                       .replaceAll('*', ' · ');
+
+            int end = p;
+            while (end < text.length && (text[end] == '}' || text[end] == ')')) {
+              end++;
+            }
+
+            final rep = '<integral from="$from" to="$to" expr="$expr"/>';
+            text = text.substring(0, start) + rep + text.substring(end);
+            continue;
+          }
+        }
+      }
+      break;
+    }
+
+    // Replace sums with balanced parentheses: {{sigma(from:to)(expr)}} or {{sum(from:to)(expr)}}
+    while (text.contains(RegExp(r'(?:sigma|sum)\('))) {
+      final match = RegExp(r'(?:sigma|sum)\(').firstMatch(text);
+      if (match == null) break;
+      final sIdx = match.start;
+      int start = sIdx;
+      if (start >= 2 && text.substring(start - 2, start) == '{{') {
+        start -= 2;
+      } else if (start >= 2 && text.substring(start - 2, start) == '{(') {
+        start -= 2;
+      } else if (start >= 1 && text[start - 1] == '{') {
+        start -= 1;
+      }
+
+      final firstParen = match.end - 1;
+      final closeFirst = text.indexOf(')', firstParen);
+      if (closeFirst != -1 && text.substring(firstParen + 1, closeFirst).contains(':')) {
+        final bounds = text.substring(firstParen + 1, closeFirst).split(':');
+        final from = bounds[0].trim();
+        final to = bounds[1].trim();
+
+        final secondParen = text.indexOf('(', closeFirst);
+        if (secondParen != -1 && secondParen < closeFirst + 4) {
+          int depth = 1;
+          int p = secondParen + 1;
+          while (p < text.length && depth > 0) {
+            if (text[p] == '(') depth++;
+            else if (text[p] == ')') depth--;
+            p++;
+          }
+          if (depth == 0) {
+            final expr = text.substring(secondParen + 1, p - 1).trim().replaceAll('*', ' · ');
+            int end = p;
+            while (end < text.length && (text[end] == '}' || text[end] == ')')) {
+              end++;
+            }
+            final rep = '<sigma from="$from" to="$to" expr="$expr"/>';
+            text = text.substring(0, start) + rep + text.substring(end);
+            continue;
+          }
+        }
+      }
+      break;
+    }
+
+    // Replace square roots: {{sqrt(x+1)}} or {sqrt(x+1)}
+    text = text.replaceAllMapped(RegExp(r'\{?\{?sqrt\((.*?)\)\}?\}?'), (m) {
       return '<sqrt expr="${m.group(1)}"/>';
     });
 
@@ -1421,28 +1530,46 @@ class GroupNoteRenderer extends StatelessWidget {
       }
 
       final content = match.group(1)!;
-      if (content.startsWith('{{')) {
-        // Soft indigo badge for expressions / evaluations
+      if (isFinalRenderMode) {
+        // In final rendered view, clean braces completely! Never show raw { or }!
+        var clean = content.replaceAll(RegExp(r'^\{\{|\}\}$|^\{|\}$'), '').trim();
+        if (clean.startsWith('(') && clean.endsWith(')')) {
+          clean = clean.substring(1, clean.length - 1).trim();
+        }
+        clean = clean.replaceAll('>=', '≥')
+                     .replaceAll('<=', '≤')
+                     .replaceAll('*', ' · ');
         spans.add(TextSpan(
-          text: content,
+          text: clean,
           style: style.copyWith(
-            backgroundColor: const Color(0xFFEEF2FF),
-            color: const Color(0xFF4338CA),
-            fontFamily: 'monospace',
             fontWeight: FontWeight.w600,
+            fontFamily: clean.contains('≥') || clean.contains('≤') ? null : 'monospace',
           ),
         ));
       } else {
-        // Warm amber badge for declarations / variables
-        spans.add(TextSpan(
-          text: content,
-          style: style.copyWith(
-            backgroundColor: const Color(0xFFFEF3C7),
-            color: const Color(0xFF92400E),
-            fontFamily: 'monospace',
-            fontWeight: FontWeight.w600,
-          ),
-        ));
+        if (content.startsWith('{{')) {
+          // Soft indigo badge for expressions / evaluations
+          spans.add(TextSpan(
+            text: content,
+            style: style.copyWith(
+              backgroundColor: const Color(0xFFEEF2FF),
+              color: const Color(0xFF4338CA),
+              fontFamily: 'monospace',
+              fontWeight: FontWeight.w600,
+            ),
+          ));
+        } else {
+          // Warm amber badge for declarations / variables
+          spans.add(TextSpan(
+            text: content,
+            style: style.copyWith(
+              backgroundColor: const Color(0xFFFEF3C7),
+              color: const Color(0xFF92400E),
+              fontFamily: 'monospace',
+              fontWeight: FontWeight.w600,
+            ),
+          ));
+        }
       }
       lastIndex = match.end;
     }
@@ -2187,69 +2314,199 @@ class GroupNoteRenderer extends StatelessWidget {
   }
 
   Widget _buildBarGraph(String title, List<MapEntry<String, double>> items, String? macroName) {
+    if (items.isEmpty) return const SizedBox.shrink();
+
+    // Determine max value for scaling (default to 100.0 or max in items)
+    final maxVal = items.fold<double>(100.0, (prev, e) => e.value > prev ? e.value : prev);
+
     return Container(
+      margin: const EdgeInsets.symmetric(vertical: 8),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: const Color(0xFF0F172A), // Dark oscilloscope laboratory theme
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: const [BoxShadow(color: Color(0x06000000), blurRadius: 4, offset: Offset(0, 2))],
+        border: Border.all(color: const Color(0xFF1E293B)),
+        boxShadow: const [BoxShadow(color: Color(0x22000000), blurRadius: 8, offset: Offset(0, 3))],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Header Bar
           Row(
             children: [
-              const Icon(Icons.bar_chart_rounded, size: 18, color: AppTheme.secondary),
-              const SizedBox(width: 8),
-              Text(
-                macroName != null ? '$title ($macroName)' : title,
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E293B),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.graphic_eq_rounded, size: 18, color: Color(0xFF38BDF8)),
               ),
-              const Spacer(),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title.isNotEmpty ? title : 'Spectre Fréquentiel & Métriques',
+                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                    Text(
+                      macroName != null
+                          ? 'Composant : $macroName • Axe X : Fréquence f • Axe Y : Puissance'
+                          : 'Axe X : Fréquence f • Axe Y : Puissance / Amplitude',
+                      style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8), fontFamily: 'monospace'),
+                    ),
+                  ],
+                ),
+              ),
               if (macroName != null && onEditComponent != null)
                 InkWell(
                   onTap: () => onEditComponent!(macroName),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFFFFBEB),
+                      color: const Color(0xFF1E293B),
                       borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: const Color(0xFF38BDF8).withOpacity(0.5)),
                     ),
-                    child: const Text('Modifier', style: TextStyle(fontSize: 10, color: Color(0xFFB45309), fontWeight: FontWeight.bold)),
+                    child: const Text('Modifier', style: TextStyle(fontSize: 11, color: Color(0xFF38BDF8), fontWeight: FontWeight.bold)),
                   ),
                 ),
             ],
           ),
-          const SizedBox(height: 14),
-          ...items.map((item) {
-            final percentage = (item.value / 100.0).clamp(0.0, 1.0);
-            return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 6),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+          const SizedBox(height: 16),
+
+          // Spectral Chart Area (Y-axis on left, horizontal scrollable X-axis for frequency bars)
+          SizedBox(
+            height: 200,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Y-Axis Scale
+                SizedBox(
+                  width: 42,
+                  child: Column(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Text(item.key, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF334155))),
-                      Text('${item.value.toInt()}%', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.primary)),
+                      Text('${maxVal.toInt()}%', style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8), fontFamily: 'monospace')),
+                      Text('${(maxVal * 0.75).toInt()}%', style: const TextStyle(fontSize: 10, color: Color(0xFF64748B), fontFamily: 'monospace')),
+                      Text('${(maxVal * 0.50).toInt()}%', style: const TextStyle(fontSize: 10, color: Color(0xFF64748B), fontFamily: 'monospace')),
+                      Text('${(maxVal * 0.25).toInt()}%', style: const TextStyle(fontSize: 10, color: Color(0xFF64748B), fontFamily: 'monospace')),
+                      const Text('0%', style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8), fontFamily: 'monospace')),
+                      const SizedBox(height: 48), // Padding matching X-axis label height
                     ],
                   ),
-                  const SizedBox(height: 5),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(6),
-                    child: LinearProgressIndicator(
-                      value: percentage,
-                      minHeight: 8,
-                      backgroundColor: const Color(0xFFF1F5F9),
-                      valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.primary),
+                ),
+                const SizedBox(width: 8),
+
+                // Y-Axis vertical divider
+                Container(width: 1.5, color: const Color(0xFF334155)),
+
+                // Horizontal X-Axis with Vertical Spectral Bars
+                Expanded(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: items.map((item) {
+                        final ratio = (item.value / maxVal).clamp(0.0, 1.0);
+                        final isPeak = item.value >= (items.fold<double>(0.0, (m, e) => e.value > m ? e.value : m));
+                        final isCarrier = item.key.toLowerCase().contains('porteuse') || item.key.toLowerCase().contains('fc');
+
+                        final barColor = isCarrier
+                            ? const Color(0xFF10B981) // Emerald for RF carrier
+                            : (isPeak ? const Color(0xFF38BDF8) : const Color(0xFF60A5FA)); // Cyan/Sky blue for sidebands
+
+                        return Container(
+                          width: 88,
+                          margin: const EdgeInsets.symmetric(horizontal: 4),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              // Amplitude value on top of bar
+                              Text(
+                                '${item.value.toInt()}%',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: isCarrier ? const Color(0xFF34D399) : const Color(0xFF38BDF8),
+                                  fontFamily: 'monospace',
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+
+                              // Vertical Spectral Bar (Height proportional to value)
+                              Container(
+                                height: (120 * ratio).clamp(4.0, 120.0),
+                                width: 28,
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: [
+                                      barColor,
+                                      barColor.withOpacity(0.4),
+                                    ],
+                                  ),
+                                  borderRadius: const BorderRadius.vertical(top: Radius.circular(5)),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: barColor.withOpacity(0.3),
+                                      blurRadius: 6,
+                                      offset: const Offset(0, -2),
+                                    ),
+                                  ],
+                                ),
+                              ),
+
+                              // Horizontal baseline tick
+                              Container(
+                                height: 2,
+                                width: double.infinity,
+                                color: const Color(0xFF334155),
+                              ),
+                              const SizedBox(height: 6),
+
+                              // Frequency label along the horizontal X-Axis
+                              SizedBox(
+                                height: 44,
+                                child: Text(
+                                  item.key,
+                                  textAlign: TextAlign.center,
+                                  maxLines: 3,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    height: 1.15,
+                                    fontWeight: isCarrier ? FontWeight.bold : FontWeight.normal,
+                                    color: isCarrier ? Colors.white : const Color(0xFFCBD5E1),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
                     ),
                   ),
-                ],
-              ),
-            );
-          }),
+                ),
+              ],
+            ),
+          ),
+
+          // Bottom axis legend
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: const [
+              Text('◄ Spectre BF', style: TextStyle(color: Color(0xFF64748B), fontSize: 10, fontFamily: 'monospace')),
+              Text('Axe X : Fréquence f (MHz)', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 10, fontWeight: FontWeight.bold)),
+              Text('Spectre HF ►', style: TextStyle(color: Color(0xFF64748B), fontSize: 10, fontFamily: 'monospace')),
+            ],
+          ),
         ],
       ),
     );
@@ -2670,12 +2927,37 @@ class GroupNoteRenderer extends StatelessWidget {
 
   List<MapEntry<String, double>> _parseGraph(String content) {
     final entries = <MapEntry<String, double>>[];
-    for (final line in content.split('\n')) {
-      final parts = line.split(':');
-      if (parts.length >= 2) {
+    final lines = content.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
+
+    int i = 0;
+    while (i < lines.length) {
+      final line = lines[i];
+      if (line.contains(':')) {
+        final parts = line.split(':');
         final key = parts[0].trim();
-        final val = double.tryParse(parts[1].trim()) ?? 0.0;
+        final valStr = parts.sublist(1).join(':').replaceAll('%', '').trim();
+        final val = double.tryParse(valStr) ?? 0.0;
         entries.add(MapEntry(key, val));
+        i++;
+      } else {
+        // Check if next line is a number or percentage
+        if (i + 1 < lines.length) {
+          final nextStr = lines[i + 1].replaceAll('%', '').trim();
+          final nextVal = double.tryParse(nextStr);
+          if (nextVal != null) {
+            entries.add(MapEntry(line, nextVal));
+            i += 2;
+            continue;
+          }
+        }
+        // Check if line ends with a number or percentage: e.g. "Porteuse fc (100.0 MHz) 88%"
+        final endNumMatch = RegExp(r'^(.*?)[\s\t]+([0-9.]+)%?$').firstMatch(line);
+        if (endNumMatch != null) {
+          final key = endNumMatch.group(1)!.trim();
+          final val = double.tryParse(endNumMatch.group(2)!) ?? 0.0;
+          entries.add(MapEntry(key, val));
+        }
+        i++;
       }
     }
     return entries;

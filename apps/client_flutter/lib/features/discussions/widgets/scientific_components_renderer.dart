@@ -202,12 +202,12 @@ class DwsScientificChart extends StatelessWidget {
     }
 
     return Container(
-      height: 180,
+      height: 210,
       width: double.infinity,
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
+        color: const Color(0xFF0F172A), // Dark oscilloscope laboratory theme
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
+        border: Border.all(color: const Color(0xFF1E293B)),
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
@@ -216,6 +216,8 @@ class DwsScientificChart extends StatelessWidget {
             points: points,
             minY: minY,
             maxY: maxY,
+            minX: minX,
+            maxX: maxX,
             seriesNames: series,
           ),
         ),
@@ -362,12 +364,16 @@ class _FunctionPlotPainter extends CustomPainter {
   final List<Offset> points;
   final double minY;
   final double maxY;
+  final double minX;
+  final double maxX;
   final List<String>? seriesNames;
 
   _FunctionPlotPainter({
     required this.points,
     required this.minY,
     required this.maxY,
+    required this.minX,
+    required this.maxX,
     this.seriesNames,
   });
 
@@ -375,43 +381,87 @@ class _FunctionPlotPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (points.isEmpty) return;
 
-    // Draw Grid Lines
+    const leftPad = 40.0;
+    const rightPad = 16.0;
+    const topPad = 26.0;
+    const bottomPad = 24.0;
+
+    final plotRect = Rect.fromLTRB(leftPad, topPad, size.width - rightPad, size.height - bottomPad);
+
+    // 1. Draw Grid Lines
     final gridPaint = Paint()
-      ..color = const Color(0xFFE2E8F0)
+      ..color = const Color(0xFF1E293B)
       ..strokeWidth = 1.0;
 
-    for (int i = 1; i <= 4; i++) {
-      final y = size.height * (i / 5.0);
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
+    for (int i = 0; i <= 4; i++) {
+      final y = plotRect.top + plotRect.height * (i / 4.0);
+      canvas.drawLine(Offset(plotRect.left, y), Offset(plotRect.right, y), gridPaint);
+
+      // Y-axis tick label
+      final val = maxY - (i / 4.0) * (maxY - minY);
+      final textPainter = TextPainter(
+        text: TextSpan(
+          text: val.toStringAsFixed(1),
+          style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 9.5, fontFamily: 'monospace'),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      textPainter.paint(canvas, Offset(plotRect.left - textPainter.width - 6, y - textPainter.height / 2));
     }
 
-    // Zero Axis Line if within range
+    // 2. Vertical Grid Lines and X-axis Ticks
+    for (int i = 0; i <= 4; i++) {
+      final x = plotRect.left + plotRect.width * (i / 4.0);
+      canvas.drawLine(Offset(x, plotRect.top), Offset(x, plotRect.bottom), gridPaint);
+
+      // X-axis tick label
+      final xVal = minX + (i / 4.0) * (maxX - minX);
+      final textPainter = TextPainter(
+        text: TextSpan(
+          text: '${xVal.toStringAsFixed(1)}s',
+          style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 9.5, fontFamily: 'monospace'),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      textPainter.paint(canvas, Offset(x - textPainter.width / 2, plotRect.bottom + 5));
+    }
+
+    // 3. Zero Axis Line if within range
+    double? zeroY;
     if (minY < 0 && maxY > 0) {
-      final zeroY = size.height * (1.0 - (0.0 - minY) / (maxY - minY));
+      zeroY = plotRect.top + plotRect.height * (1.0 - (0.0 - minY) / (maxY - minY));
       final zeroPaint = Paint()
-        ..color = const Color(0xFFCBD5E1)
+        ..color = const Color(0xFF475569)
         ..strokeWidth = 1.5;
-      canvas.drawLine(Offset(0, zeroY), Offset(size.width, zeroY), zeroPaint);
+      canvas.drawLine(Offset(plotRect.left, zeroY), Offset(plotRect.right, zeroY), zeroPaint);
     }
 
-    // Plot Curve
+    // 4. Plot Curve
     final path = Path();
     final fillPath = Path();
 
+    int peakIndex = 0;
+    double highestY = -double.infinity;
+
     for (int i = 0; i < points.length; i++) {
-      final normX = (i / (points.length - 1)) * size.width;
-      final normY = size.height * (1.0 - ((points[i].dy - minY) / (maxY - minY)).clamp(0.0, 1.0));
+      final normX = plotRect.left + (i / (points.length - 1)) * plotRect.width;
+      final normY = plotRect.top + plotRect.height * (1.0 - ((points[i].dy - minY) / (maxY - minY)).clamp(0.0, 1.0));
+
+      if (points[i].dy > highestY) {
+        highestY = points[i].dy;
+        peakIndex = i;
+      }
 
       if (i == 0) {
         path.moveTo(normX, normY);
-        fillPath.moveTo(normX, size.height);
+        fillPath.moveTo(normX, zeroY ?? plotRect.bottom);
         fillPath.lineTo(normX, normY);
       } else {
         path.lineTo(normX, normY);
         fillPath.lineTo(normX, normY);
       }
     }
-    fillPath.lineTo(size.width, size.height);
+    fillPath.lineTo(plotRect.right, zeroY ?? plotRect.bottom);
     fillPath.close();
 
     // Fill Gradient
@@ -423,17 +473,51 @@ class _FunctionPlotPainter extends CustomPainter {
           const Color(0xFF38BDF8).withOpacity(0.35),
           const Color(0xFF38BDF8).withOpacity(0.0),
         ],
-      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
+      ).createShader(plotRect);
     canvas.drawPath(fillPath, fillPaint);
 
     // Stroke Curve
     final linePaint = Paint()
-      ..color = const Color(0xFF0284C7)
-      ..strokeWidth = 2.5
+      ..color = const Color(0xFF38BDF8)
+      ..strokeWidth = 2.8
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round;
     canvas.drawPath(path, linePaint);
+
+    // 5. Highlight Peak (e.g. sinc central maximum)
+    if (points.isNotEmpty && peakIndex < points.length) {
+      final peakX = plotRect.left + (peakIndex / (points.length - 1)) * plotRect.width;
+      final peakY = plotRect.top + plotRect.height * (1.0 - ((points[peakIndex].dy - minY) / (maxY - minY)).clamp(0.0, 1.0));
+
+      // Glow halo
+      final glowPaint = Paint()..color = const Color(0xFF38BDF8).withOpacity(0.3);
+      canvas.drawCircle(Offset(peakX, peakY), 8, glowPaint);
+
+      // Solid dot
+      final dotPaint = Paint()..color = const Color(0xFF38BDF8);
+      canvas.drawCircle(Offset(peakX, peakY), 4, dotPaint);
+
+      // White inner core
+      final corePaint = Paint()..color = Colors.white;
+      canvas.drawCircle(Offset(peakX, peakY), 2, corePaint);
+
+      // Callout text badge
+      final peakVal = points[peakIndex].dy;
+      final badgeText = TextPainter(
+        text: TextSpan(
+          text: 's(0) = ${peakVal.toStringAsFixed(1)} (Pic)',
+          style: const TextStyle(
+            color: Color(0xFF38BDF8),
+            fontSize: 10,
+            fontWeight: FontWeight.bold,
+            fontFamily: 'monospace',
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      badgeText.paint(canvas, Offset(peakX - badgeText.width / 2, peakY - 18));
+    }
   }
 
   @override
