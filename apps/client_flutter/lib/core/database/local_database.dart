@@ -53,12 +53,16 @@ class LocalDatabase {
         try {
           importJson(saved);
           hasRestoredFromDisk = true;
+          _sanitizeProductionData();
         } catch (_) {}
       }
     }
 
     if (!hasRestoredFromDisk && storagePath != null) {
       hasRestoredFromDisk = await loadFromFile(storagePath);
+      if (hasRestoredFromDisk) {
+        _sanitizeProductionData();
+      }
     }
 
     _isInitialized = true;
@@ -114,6 +118,180 @@ class LocalDatabase {
     }
   }
 
+  /// Automatically sanitizes production data by removing legacy test entries (such as Sarah Connor and mock text data).
+  void _sanitizeProductionData() {
+    bool mutated = false;
+
+    // 1. Purge Sarah Connor from contacts
+    final contacts = _tables['contacts'];
+    if (contacts != null) {
+      final keysToRemove = <String>[];
+      for (final entry in contacts.entries) {
+        final val = entry.value;
+        if (entry.key == 'contact_sarah') {
+          keysToRemove.add(entry.key);
+          continue;
+        }
+        final name = (val['name'] ?? '').toString().toLowerCase();
+        final handle = (val['handle'] ?? '').toString().toLowerCase();
+        if (name.contains('sarah') || handle.contains('sarah')) {
+          keysToRemove.add(entry.key);
+        }
+      }
+      for (final k in keysToRemove) {
+        contacts.remove(k);
+        mutated = true;
+      }
+    }
+
+    // 2. Purge Sarah Connor from call_logs
+    final callLogs = _tables['call_logs'];
+    if (callLogs != null) {
+      final keysToRemove = <String>[];
+      for (final entry in callLogs.entries) {
+        final val = entry.value;
+        final peerName = (val['peerName'] ?? '').toString().toLowerCase();
+        if (entry.key == 'call_3' || peerName.contains('sarah')) {
+          keysToRemove.add(entry.key);
+        }
+      }
+      for (final k in keysToRemove) {
+        callLogs.remove(k);
+        mutated = true;
+      }
+    }
+
+    // 3. Purge Sarah from conversations & group members
+    final convs = _tables['conversations'];
+    if (convs != null) {
+      final keysToRemove = <String>[];
+      for (final entry in convs.entries) {
+        final val = entry.value;
+        final title = (val['title'] ?? '').toString().toLowerCase();
+        if (entry.key == 'conv_sarah' || title.contains('sarah')) {
+          keysToRemove.add(entry.key);
+          continue;
+        }
+        if (val['groupMembers'] is List) {
+          final members = List<dynamic>.from(val['groupMembers'] as List);
+          final initialLen = members.length;
+          members.removeWhere((m) {
+            if (m is Map) {
+              final id = (m['id'] ?? '').toString();
+              final name = (m['name'] ?? '').toString().toLowerCase();
+              return id == 'contact_sarah' || name.contains('sarah');
+            }
+            return false;
+          });
+          if (members.length != initialLen) {
+            val['groupMembers'] = members;
+            mutated = true;
+          }
+        }
+      }
+      for (final k in keysToRemove) {
+        convs.remove(k);
+        mutated = true;
+      }
+    }
+
+    // 4. Purge Sarah from moments
+    final moments = _tables['moments'];
+    if (moments != null) {
+      final keysToRemove = <String>[];
+      for (final entry in moments.entries) {
+        final val = entry.value;
+        final authorName = (val['authorName'] ?? '').toString().toLowerCase();
+        final authorId = (val['authorId'] ?? '').toString();
+        if (authorId == 'contact_sarah' || authorName.contains('sarah')) {
+          keysToRemove.add(entry.key);
+        }
+      }
+      for (final k in keysToRemove) {
+        moments.remove(k);
+        mutated = true;
+      }
+    }
+
+    // 5. Purge Sarah from messages
+    final messages = _tables['messages'];
+    if (messages != null) {
+      final keysToRemove = <String>[];
+      for (final entry in messages.entries) {
+        final val = entry.value;
+        final senderId = (val['senderId'] ?? '').toString();
+        final senderName = (val['senderName'] ?? '').toString().toLowerCase();
+        if (senderId == 'contact_sarah' || senderName.contains('sarah')) {
+          keysToRemove.add(entry.key);
+        }
+      }
+      for (final k in keysToRemove) {
+        messages.remove(k);
+        mutated = true;
+      }
+    }
+
+    // 6. Purge legacy test texts & mock conversations from production
+    final settings = _tables['settings'];
+    if (settings != null && settings['production_clean_purged'] == null) {
+      final legacyContactIds = {
+        'contact_amine',
+        'contact_aicha',
+        'contact_marc',
+        'contact_sophie',
+        'contact_kabore',
+        'contact_idriss',
+        'contact_sarah',
+      };
+      if (contacts != null) {
+        final toRemove = contacts.keys.where((k) => legacyContactIds.contains(k)).toList();
+        for (final k in toRemove) {
+          contacts.remove(k);
+          mutated = true;
+        }
+      }
+
+      final legacyConvIds = {
+        'conv_sophie',
+        'conv_group_mrixk',
+        'conv_idriss',
+        'conv_aicha',
+        'conv_marc',
+        'conv_sarah',
+      };
+      if (convs != null) {
+        final toRemove = convs.keys.where((k) => legacyConvIds.contains(k)).toList();
+        for (final k in toRemove) {
+          convs.remove(k);
+          mutated = true;
+        }
+      }
+
+      if (callLogs != null) {
+        final toRemove = callLogs.keys.where((k) => k.startsWith('call_')).toList();
+        for (final k in toRemove) {
+          callLogs.remove(k);
+          mutated = true;
+        }
+      }
+
+      if (moments != null) {
+        final toRemove = moments.keys.where((k) => k.startsWith('moment_')).toList();
+        for (final k in toRemove) {
+          moments.remove(k);
+          mutated = true;
+        }
+      }
+
+      settings['production_clean_purged'] = {'value': true};
+      mutated = true;
+    }
+
+    if (mutated) {
+      _saveIfConfigured();
+    }
+  }
+
   /// Persists database state to an on-disk JSON file atomically.
   Future<bool> persistToFile(String path) async {
     try {
@@ -143,7 +321,25 @@ class LocalDatabase {
     }
   }
 
-  void _saveIfConfigured() {
+  Timer? _saveDebounceTimer;
+
+  void _saveIfConfigured({bool immediate = false}) {
+    if (!_usePlatformStorage && _storageFilePath == null) return;
+
+    if (immediate) {
+      _saveDebounceTimer?.cancel();
+      _saveDebounceTimer = null;
+      _performSave();
+      return;
+    }
+
+    _saveDebounceTimer?.cancel();
+    _saveDebounceTimer = Timer(const Duration(milliseconds: 150), () {
+      _performSave();
+    });
+  }
+
+  void _performSave() {
     if (_usePlatformStorage) {
       final jsonStr = exportJson();
       platformStorage.save(jsonStr);
@@ -151,6 +347,13 @@ class LocalDatabase {
     if (_storageFilePath != null) {
       persistToFile(_storageFilePath!);
     }
+  }
+
+  /// Flushes any pending debounced writes immediately.
+  Future<void> flush() async {
+    _saveDebounceTimer?.cancel();
+    _saveDebounceTimer = null;
+    await saveState();
   }
 
   // --- CRUD: CREATE ---

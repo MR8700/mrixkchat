@@ -11,8 +11,7 @@ import 'local_database.dart';
 
 /// Seeds clean production database: all test users, conversations & moments purged.
 /// Does NOT configure any pre-set user name: the user defines their own identity on first open.
-/// Contains strictly one single sovereign external contact who is offline (Dr. Sarah Connor),
-/// with whom no conversation or messages exist yet.
+/// Clean state with 0 contacts, 0 discussions, 0 messages, 0 moments.
 Future<void> seedCleanProductionDatabase(LocalDatabase db) async {
   // 1. Devices CRUD insert (Single Current Device)
   final device = Device(
@@ -26,19 +25,7 @@ Future<void> seedCleanProductionDatabase(LocalDatabase db) async {
   );
   await db.insert('devices', device.id, device.toJson());
 
-  // 2. Exactly one single contact who is verified (Dr. Sarah Connor)
-  final singleContact = Contact(
-    id: 'contact_sarah',
-    name: 'Dr. Sarah Connor',
-    handle: '@sarah.connor',
-    avatarUrl: '',
-    statusText: 'Recherche & IA 🧬 (En ligne)',
-    isOnline: true,
-    isVerified: true,
-    category: 'C',
-  );
-  await db.insert('contacts', singleContact.id, singleContact.toJson());
-
+  // 2. Contacts: STRICTLY EMPTY (No test contact)
   // 3. Conversations: STRICTLY EMPTY (No existing discussion)
   // 4. Messages: STRICTLY EMPTY (No existing messages)
   // 5. Moments: STRICTLY EMPTY (No existing moments)
@@ -496,15 +483,6 @@ Future<void> seedInitialDatabase(LocalDatabase db) async {
       direction: CallDirection.incoming,
       timestamp: 'Hier à 16:20',
       duration: '12:45',
-    ),
-    CallLog(
-      id: 'call_3',
-      peerName: 'Dr. Sarah Connor',
-      peerAvatar: '',
-      isVideo: false,
-      direction: CallDirection.missed,
-      timestamp: 'Hier à 11:05',
-      duration: 'Sans réponse',
     ),
   ];
   for (final log in initialCallLogs) {

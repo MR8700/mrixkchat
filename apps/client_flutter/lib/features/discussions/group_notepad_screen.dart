@@ -408,7 +408,7 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
       final hourMin =
           '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
       final shareText =
-          '📝 [Bloc-Note du Groupe] "${updated.title}" mis à jour par ${updated.lastModifiedBy}.\nConsultez les formules et composants actualisés dans le bloc-note.';
+          '📝 [Bloc-Note du Groupe: ${updated.id}] "${updated.title}" mis à jour par ${updated.lastModifiedBy}.\nConsultez les formules et composants actualisés dans le bloc-note.';
 
       final msg = Message(
         id: 'msg_${DateTime.now().millisecondsSinceEpoch}',
@@ -421,6 +421,7 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
         time: hourMin,
         isOutgoing: true,
         isRead: true,
+        fileName: '${updated.title}.dws',
       );
 
       context.read<MessageRepository>().sendMessage(msg);
@@ -2705,7 +2706,11 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
             backgroundColor: Colors.white,
             side: const BorderSide(color: Color(0xFF86EFAC)),
             avatar: const Icon(Icons.functions_rounded, size: 14, color: Color(0xFF16A34A)),
-            label: Text('${s.label} (${s.description})', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF15803D))),
+            label: Text(
+              s.label,
+              style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF15803D)),
+            ),
+            tooltip: s.description,
             onPressed: () {
               // Replace partial formula trigger with full template
               final text = _textController.text;
@@ -2961,7 +2966,7 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
                 height: _lineSpacing,
               ),
               decoration: InputDecoration(
-                hintText: i == 0 ? 'Rédigez le texte avant l\'objet...' : 'Continuez la rédaction après l\'objet...',
+                hintText: i == 0 ? 'Rédigez votre texte ici...' : 'Continuez la saisie ici...',
                 border: InputBorder.none,
                 contentPadding: const EdgeInsets.symmetric(vertical: 4),
               ),
@@ -3135,8 +3140,7 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
                       height: _lineSpacing,
                     ),
                     decoration: const InputDecoration(
-                      hintText:
-                          'Rédigez visuellement comme sous Word.\n\nLes styles appliqués (Gras, Italique, Souligné, Polices, Couleurs) sont rendus directement sans balises.\nDéclarez un tableau avec {M[5,4]} ou une courbe avec {C:courbe} pour le voir apparaître instantanément !',
+                      hintText: 'Rédigez votre note ici... Tapez { pour formules, tableaux {M[3,3]} et diagrammes.',
                       border: InputBorder.none,
                     ),
                   ),

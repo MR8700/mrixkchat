@@ -16,6 +16,9 @@ class FloatingBottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
       child: ClipRRect(
@@ -25,15 +28,21 @@ class FloatingBottomNav extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.92),
+              color: isDark
+                  ? theme.colorScheme.surface.withOpacity(0.92)
+                  : Colors.white.withOpacity(0.92),
               borderRadius: BorderRadius.circular(32),
               border: Border.all(
-                color: const Color(0xFFDFE4ED).withOpacity(0.9),
+                color: isDark
+                    ? theme.colorScheme.outline.withOpacity(0.3)
+                    : const Color(0xFFDFE4ED).withOpacity(0.9),
                 width: 1,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF111C2C).withOpacity(0.08),
+                  color: isDark
+                      ? Colors.black.withOpacity(0.35)
+                      : const Color(0xFF111C2C).withOpacity(0.08),
                   blurRadius: 24,
                   offset: const Offset(0, 8),
                 ),
@@ -43,28 +52,33 @@ class FloatingBottomNav extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
                 _buildNavItem(
+                  context: context,
                   index: 0,
                   icon: Icons.chat_bubble,
                   label: 'Discussions',
                   badgeCount: unreadCount,
                 ),
                 _buildNavItem(
+                  context: context,
                   index: 1,
                   icon: Icons.slow_motion_video,
                   label: 'Moments',
                 ),
                 _buildNavItem(
+                  context: context,
                   index: 2,
                   icon: Icons.contacts,
                   label: 'Contacts',
                 ),
                 _buildNavItem(
+                  context: context,
                   index: 3,
                   icon: Icons.auto_awesome,
                   label: 'Assistant',
                   hasDot: true,
                 ),
                 _buildNavItem(
+                  context: context,
                   index: 4,
                   icon: Icons.account_circle,
                   label: 'Profil',
@@ -78,13 +92,18 @@ class FloatingBottomNav extends StatelessWidget {
   }
 
   Widget _buildNavItem({
+    required BuildContext context,
     required int index,
     required IconData icon,
     required String label,
     int? badgeCount,
     bool hasDot = false,
   }) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final isSelected = selectedIndex == index;
+    final activeColor = isDark ? theme.colorScheme.primary : AppTheme.primary;
+    final inactiveColor = isDark ? theme.colorScheme.onSurfaceVariant : AppTheme.onSurfaceVariant;
 
     return GestureDetector(
       onTap: () => onItemSelected(index),
@@ -102,12 +121,14 @@ class FloatingBottomNav extends StatelessWidget {
                   width: 44,
                   height: 30,
                   decoration: BoxDecoration(
-                    color: isSelected ? AppTheme.primarySoft : Colors.transparent,
+                    color: isSelected
+                        ? (isDark ? theme.colorScheme.primary.withOpacity(0.2) : AppTheme.primarySoft)
+                        : Colors.transparent,
                     borderRadius: BorderRadius.circular(16),
                     boxShadow: isSelected
                         ? [
                             BoxShadow(
-                              color: AppTheme.primary.withOpacity(0.18),
+                              color: activeColor.withOpacity(0.18),
                               blurRadius: 8,
                               offset: const Offset(0, 2),
                             )
@@ -117,7 +138,7 @@ class FloatingBottomNav extends StatelessWidget {
                   child: Icon(
                     icon,
                     size: 20,
-                    color: isSelected ? AppTheme.primary : AppTheme.onSurfaceVariant,
+                    color: isSelected ? activeColor : inactiveColor,
                   ),
                 ),
                 if (badgeCount != null && badgeCount > 0)
@@ -127,7 +148,7 @@ class FloatingBottomNav extends StatelessWidget {
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                       decoration: BoxDecoration(
-                        color: AppTheme.primary,
+                        color: activeColor,
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Text(
@@ -150,7 +171,10 @@ class FloatingBottomNav extends StatelessWidget {
                       decoration: BoxDecoration(
                         color: AppTheme.secondaryGlow,
                         shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 1.5),
+                        border: Border.all(
+                          color: isDark ? theme.colorScheme.surface : Colors.white,
+                          width: 1.5,
+                        ),
                       ),
                     ),
                   ),
@@ -162,7 +186,7 @@ class FloatingBottomNav extends StatelessWidget {
               style: TextStyle(
                 fontSize: 10.5,
                 fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                color: isSelected ? AppTheme.primary : AppTheme.onSurfaceVariant,
+                color: isSelected ? activeColor : inactiveColor,
               ),
             ),
           ],

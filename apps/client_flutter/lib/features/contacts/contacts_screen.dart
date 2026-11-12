@@ -59,7 +59,10 @@ class _ContactsScreenState extends State<ContactsScreen> {
     Conversation? target;
 
     for (final c in allConvs) {
-      if (c.title.toLowerCase() == contact.name.toLowerCase()) {
+      if (!c.isGroup &&
+          (c.id == 'conv_${contact.id}' ||
+           c.title.toLowerCase() == contact.name.toLowerCase() ||
+           (contact.handle.isNotEmpty && c.title.toLowerCase() == contact.handle.toLowerCase()))) {
         target = c;
         break;
       }
@@ -70,7 +73,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
       final timeStr =
           '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
       target = Conversation(
-        id: 'conv_${DateTime.now().millisecondsSinceEpoch}',
+        id: 'conv_${contact.id}',
         title: contact.name,
         peerAvatar: contact.avatarUrl,
         isOnline: contact.isOnline,

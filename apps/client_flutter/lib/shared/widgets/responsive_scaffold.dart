@@ -69,7 +69,7 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
     ];
 
     return Scaffold(
-      backgroundColor: AppTheme.surfaceWarm,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: Stack(
         children: [
           IndexedStack(
@@ -95,13 +95,14 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
 
   // --- TABLET LAYOUT (768px - 1199px) ---
   Widget _buildTabletLayout(BuildContext context, int unreadTotal) {
+    final theme = Theme.of(context);
     return Scaffold(
-      backgroundColor: AppTheme.surfaceWarm,
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: Row(
         children: [
           // 72px Navigation Rail
           NavigationRail(
-            backgroundColor: Colors.white,
+            backgroundColor: theme.colorScheme.surface,
             selectedIndex: _selectedIndex,
             onDestinationSelected: (idx) => setState(() => _selectedIndex = idx),
             labelType: NavigationRailLabelType.all,
@@ -186,15 +187,16 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
   // --- DESKTOP 3-PANE LAYOUT (>= 1200px) ---
   Widget _buildDesktopLayout(BuildContext context, int unreadTotal) {
     final profile = context.watch<ProfileRepository>().getProfile();
+    final theme = Theme.of(context);
 
     return Scaffold(
-      backgroundColor: AppTheme.surfaceWarm,
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: Row(
         children: [
           // Pane 1: Master Navigation / Verified Nodes (260px fixed)
           Container(
             width: 260,
-            color: Colors.white,
+            color: theme.colorScheme.surface,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

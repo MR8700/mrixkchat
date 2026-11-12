@@ -65,6 +65,7 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
     MessageType type = MessageType.text,
     String? imageUri,
     bool isViewOnce = false,
+    String? fileName,
   }) {
     final text = textOverride ?? _textController.text.trim();
     if (text.isEmpty && type == MessageType.text && imageUri == null) return;
@@ -103,6 +104,7 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
       isRead: widget.conversation.isOnline,
       imageUri: imageUri,
       isViewOnce: willBeViewOnce,
+      fileName: fileName,
     );
 
     context.read<MessageRepository>().sendMessage(newMessage);
@@ -1857,7 +1859,10 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
           ),
           const SizedBox(height: 10),
           Text(
-            msg.content.replaceAll(RegExp(r'📝\s*\[Bloc-Note du Groupe\]\s*"[^"]*"\s*'), '').replaceAll('[Bloc-Note du Groupe]', '').trim(),
+            msg.content
+                .replaceAll(RegExp(r'📝\s*\[Bloc-Note du Groupe(?::\s*[^\]]+)?\]\s*"[^"]*"\s*'), '')
+                .replaceAll(RegExp(r'\[Bloc-Note du Groupe(?::\s*[^\]]+)?\]'), '')
+                .trim(),
             style: const TextStyle(fontSize: 13, color: Color(0xFF334155), height: 1.4),
           ),
           const SizedBox(height: 12),
@@ -1992,6 +1997,7 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
               _sendMessage(
                 textOverride: '📝 [Bloc-Note du Groupe: ${newNote.id}] "$title"\nEspace de travail collaboratif, variables et formules mathématiques.',
                 type: MessageType.document,
+                fileName: '$title.dws',
               );
 
               if (mounted) {
@@ -2009,7 +2015,7 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
     final effectiveConv = conv ?? widget.conversation;
     final isSelected = _selectedMessageIds.contains(msg.id);
 
-    if (msg.content.contains('[Bloc-Note du Groupe]')) {
+    if (msg.content.contains('[Bloc-Note du Groupe')) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),
         child: _buildGroupNoteInChatMessage(msg, effectiveConv),
@@ -2071,12 +2077,13 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                   ? _buildOutgoingMessage(msg)
                   : _buildIncomingMessage(msg),
             ),
-            IconButton(
-              icon: const Icon(Icons.delete_outline, size: 16, color: Color(0xFF94A3B8)),
-              tooltip: 'Supprimer ce message',
-              splashRadius: 18,
-              onPressed: () => _showDeleteDialog([msg.id]),
-            ),
+            if (_isSelectionMode)
+              IconButton(
+                icon: const Icon(Icons.delete_outline, size: 16, color: Color(0xFF94A3B8)),
+                tooltip: 'Supprimer ce message',
+                splashRadius: 18,
+                onPressed: () => _showDeleteDialog([msg.id]),
+              ),
           ],
         ),
       ),
@@ -2246,14 +2253,14 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                 Container(
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: Theme.of(context).colorScheme.surface,
                     borderRadius: const BorderRadius.only(
                       topLeft: Radius.circular(16),
                       topRight: Radius.circular(16),
                       bottomRight: Radius.circular(16),
                       bottomLeft: Radius.circular(4),
                     ),
-                    border: Border.all(color: const Color(0xFFDFE4ED)),
+                    border: Border.all(color: Theme.of(context).colorScheme.outline.withOpacity(0.5)),
                     boxShadow: [
                       BoxShadow(
                         color: const Color(0xFF111C2C).withOpacity(0.03),
@@ -2517,10 +2524,10 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                       ] else ...[
                         Text(
                           msg.content,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 14.5,
                             height: 1.4,
-                            color: AppTheme.onSurface,
+                            color: Theme.of(context).colorScheme.onSurface,
                           ),
                         ),
                       ],

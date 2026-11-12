@@ -1,18 +1,29 @@
-name: Build Android APK
+name: Build & Release Production Binaries
 
 on:
   push:
     branches: [ main ]
+    tags:
+      - 'v*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
-  build-apk:
-    name: Build Release APK
+  build-and-release:
+    name: Build & Release Binaries
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          check-latest: false
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -25,6 +36,12 @@ jobs:
         with:
           channel: 'stable'
           cache: true
+
+      - name: Build Backend Server Binary
+        run: |
+          mkdir -p release-assets
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o release-assets/mrixk-server-linux-amd64 ./backend/cmd/server
+          chmod +x release-assets/mrixk-server-linux-amd64
 
       - name: Get Flutter dependencies
         run: |
@@ -40,10 +57,62 @@ jobs:
         run: |
           cd apps/client_flutter
           flutter build apk --release --android-skip-build-dependency-validation
+          cp build/app/outputs/flutter-apk/app-release.apk ../../release-assets/mrixk-android-release.apk
 
-      - name: Upload APK Artifact
+      - name: Build Web Application Bundle
+        run: |
+          cd apps/client_flutter
+          flutter build web --release
+          cd build/web
+          zip -r ../../../../release-assets/mrixk-web-release.zip .
+          cd ../../../..
+
+      - name: Upload Android APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mrixk-release-apk
-          path: apps/client_flutter/build/app/outputs/flutter-apk/app-release.apk
+          name: mrixk-android-release-apk
+          path: release-assets/mrixk-android-release.apk
           if-no-files-found: error
+
+      - name: Upload Web Bundle Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mrixk-web-release-zip
+          path: release-assets/mrixk-web-release.zip
+          if-no-files-found: error
+
+      - name: Upload Server Binary Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mrixk-server-linux-amd64
+          path: release-assets/mrixk-server-linux-amd64
+          if-no-files-found: error
+
+      - name: Publish GitHub Production Release
+        uses: softprops/action-gh-release@v2
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v1.0.0-production' }}
+          name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'MRixk Production Release' }}
+          body: |
+            ## 🚀 Binaires Officiels de Production MRixk
+
+            Téléchargements directs des binaires prêts à l'emploi :
+
+            - 📱 **Application Android** : [`mrixk-android-release.apk`](https://github.com/${{ github.repository }}/releases/download/${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v1.0.0-production' }}/mrixk-android-release.apk)
+            - 🌐 **Bundle Web (HTML5/JS/Wasm)** : [`mrixk-web-release.zip`](https://github.com/${{ github.repository }}/releases/download/${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v1.0.0-production' }}/mrixk-web-release.zip)
+            - 🖥️ **Serveur Backend (Linux AMD64)** : [`mrixk-server-linux-amd64`](https://github.com/${{ github.repository }}/releases/download/${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v1.0.0-production' }}/mrixk-server-linux-amd64)
+
+            ### 🛡️ Détails de la version
+            - **Nettoyage de production** : Purge de l'utilisateur de test Dr. Sarah Connor et des données mock.
+            - **Bloc-Note Collaboratif** : Rendu visuel direct (élimination du fallback Document.pdf).
+            - **Assistance formules** : Textes de guidage brefs, précis et interactifs.
+            - **Architecture souveraine** : Chiffrement E2EE de bout en bout et isolation matérielle.
+          files: |
+            release-assets/mrixk-android-release.apk
+            release-assets/mrixk-web-release.zip
+            release-assets/mrixk-server-linux-amd64
+          prerelease: false
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

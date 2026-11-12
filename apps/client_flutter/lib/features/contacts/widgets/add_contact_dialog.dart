@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/models/contact.dart';
 import '../../../core/repositories/contact_repository.dart';
+import '../../../core/repositories/profile_repository.dart';
 import '../../../core/services/identity_directory_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/app_avatar.dart';
@@ -31,10 +32,12 @@ class _AddContactDialogState extends State<AddContactDialog> {
       return;
     }
 
+    final myProfile = context.read<ProfileRepository>().getProfile();
     final queryLower = query.toLowerCase();
-    if (queryLower == 'richard mare' ||
-        queryLower == '@richard.m' ||
-        queryLower.contains('richard')) {
+    if ((myProfile.displayName.isNotEmpty && queryLower == myProfile.displayName.toLowerCase()) ||
+        (myProfile.handle.isNotEmpty && (queryLower == myProfile.handle.toLowerCase() || queryLower == myProfile.handle.replaceAll('@', '').toLowerCase())) ||
+        queryLower == 'richard mare' ||
+        queryLower == '@richard.m') {
       setState(() => _errorMessage = 'Vous ne pouvez pas vous ajouter vous-même comme contact.');
       return;
     }

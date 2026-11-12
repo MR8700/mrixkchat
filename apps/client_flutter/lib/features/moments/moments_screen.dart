@@ -378,9 +378,9 @@ class MomentsScreen extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFCBD5E1), width: 1.2),
+        border: Border.all(color: Theme.of(context).colorScheme.outline.withOpacity(0.5), width: 1.2),
         boxShadow: [
           BoxShadow(
             color: const Color(0xFF0F172A).withOpacity(0.04),
@@ -469,6 +469,23 @@ class MomentsScreen extends StatelessWidget {
           // Content body based on type
           if (moment.type == MomentType.image && moment.mediaUrl != null) ...[
             GestureDetector(
+              onDoubleTap: () {
+                context.read<MomentRepository>().toggleReaction(moment.id, 'heart');
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.favorite, color: Colors.redAccent, size: 18),
+                        SizedBox(width: 8),
+                        Text('Vous avez aimé ce statut'),
+                      ],
+                    ),
+                    duration: Duration(milliseconds: 1000),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              },
               onTap: () {
                 Navigator.of(context).push(
                   MaterialPageRoute(

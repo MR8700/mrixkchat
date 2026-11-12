@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:mrixk_client/core/database/local_database.dart';
 import 'package:mrixk_client/core/models/conversation.dart';
+import 'package:mrixk_client/core/models/message.dart';
 import 'package:mrixk_client/core/models/user_profile.dart';
 import 'package:mrixk_client/core/repositories/call_history_repository.dart';
 import 'package:mrixk_client/core/repositories/contact_repository.dart';
@@ -291,7 +292,7 @@ x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}
         groupMembersCount: 2,
         groupMembers: const [
           GroupMember(id: 'user_richard', name: 'Richard MARE', role: 'creator'),
-          GroupMember(id: 'contact_sarah', name: 'Dr. Sarah Connor', role: 'admin'),
+          GroupMember(id: 'contact_elena', name: 'Elena Rostova', role: 'admin'),
         ],
         lastMessage: 'Session démarrée',
         lastMessageTime: '09:00',
@@ -331,6 +332,69 @@ x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}
       // Members list & badges
       expect(find.text('👑 Créateur'), findsOneWidget);
       expect(find.text('⭐ Admin'), findsOneWidget);
+    });
+
+    testWidgets('Group Bloc-Note renders as rich collaborative card and never as Document.pdf', (tester) async {
+      tester.view.physicalSize = const Size(1200, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final groupConv = Conversation(
+        id: 'conv_note_render_test',
+        title: 'Groupe R&D',
+        peerAvatar: '',
+        isGroup: true,
+        lastMessage: 'Note créée',
+        lastMessageTime: '10:00',
+      );
+      await convRepo.createConversation(groupConv);
+
+      final noteDoc = await noteRepo.createDocument(
+        groupConv.id,
+        title: 'Architecture 2026',
+        createdBy: 'Richard MARE (Membre)',
+      );
+
+      final noteMsg = Message(
+        id: 'msg_note_1',
+        conversationId: groupConv.id,
+        senderId: 'user_richard',
+        senderName: 'Richard MARE',
+        senderAvatar: '',
+        type: MessageType.document,
+        content: '📝 [Bloc-Note du Groupe: ${noteDoc.id}] "Architecture 2026"\nEspace de travail collaboratif, variables et formules mathématiques.',
+        time: '10:00',
+        isOutgoing: true,
+      );
+      messageRepo.sendMessage(noteMsg);
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider.value(value: convRepo),
+            ChangeNotifierProvider.value(value: noteRepo),
+            ChangeNotifierProvider.value(value: profileRepo),
+            ChangeNotifierProvider.value(value: contactRepo),
+            ChangeNotifierProvider.value(value: messageRepo),
+            ChangeNotifierProvider.value(value: deviceRepo),
+            ChangeNotifierProvider.value(value: callRepo),
+          ],
+          child: MaterialApp(
+            home: ConversationDetailScreen(conversation: groupConv),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      // Ensure the rich Bloc-Note Card is rendered
+      expect(find.text('Bloc-Notes du groupe • Collaboratif'), findsOneWidget);
+      expect(find.text('Architecture 2026'), findsWidgets);
+      expect(find.text('Ouvrir'), findsOneWidget);
+
+      // Verify that it is NEVER displayed as a fallback Document.pdf
+      expect(find.text('Document.pdf'), findsNothing);
     });
   });
 }

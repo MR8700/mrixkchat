@@ -30,7 +30,7 @@ void main() {
       // Add call log
       final log = CallLog(
         id: 'test_call_1',
-        peerName: 'Dr. Sarah Connor',
+        peerName: 'Dr. Elena Rostova',
         peerAvatar: '',
         isVideo: false,
         direction: CallDirection.outgoing,
@@ -40,12 +40,12 @@ void main() {
       await callRepo.addCallLog(log);
 
       expect(callRepo.getAllLogs().length, equals(1));
-      expect(callRepo.getAllLogs().first.peerName, equals('Dr. Sarah Connor'));
+      expect(callRepo.getAllLogs().first.peerName, equals('Dr. Elena Rostova'));
 
       // Add missed call
       final missed = CallLog(
         id: 'test_call_2',
-        peerName: 'Dr. Sarah Connor',
+        peerName: 'Dr. Elena Rostova',
         peerAvatar: '',
         isVideo: true,
         direction: CallDirection.missed,
@@ -88,8 +88,8 @@ void main() {
       // Add a log
       await callRepo.addCallLog(
         CallLog(
-          id: 'log_sarah',
-          peerName: 'Dr. Sarah Connor',
+          id: 'log_elena',
+          peerName: 'Dr. Elena Rostova',
           peerAvatar: '',
           isVideo: false,
           direction: CallDirection.outgoing,
@@ -99,7 +99,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Dr. Sarah Connor'), findsOneWidget);
+      expect(find.text('Dr. Elena Rostova'), findsOneWidget);
       expect(find.text('Aujourd\'hui à 11:20 • 05:12'), findsOneWidget);
     });
 

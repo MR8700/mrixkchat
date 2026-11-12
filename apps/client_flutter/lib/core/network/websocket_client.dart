@@ -1,15 +1,16 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
+import 'platform_socket/socket_adapter.dart';
 
-/// Real-time WebSocket connection to the MRixk server hub.
+/// Real-time multiplatform WebSocket connection to the MRixk server hub.
 class WebSocketClient {
   static final WebSocketClient _instance = WebSocketClient._internal();
   factory WebSocketClient() => _instance;
   WebSocketClient._internal();
 
   String wsUrl = 'wss://mrixk-backend.onrender.com/api/v1/ws';
-  WebSocket? _socket;
+  PlatformSocket? _socket;
+  StreamSubscription? _socketSubscription;
   bool _isConnected = false;
   bool get isConnected => _isConnected;
 
@@ -27,11 +28,11 @@ class WebSocketClient {
 
     try {
       final uri = Uri.parse('$wsUrl?token=$token');
-      _socket = await WebSocket.connect(uri.toString())
-          .timeout(const Duration(seconds: 4));
+      _socket = await createPlatformSocket(uri.toString(), timeout: const Duration(seconds: 4));
       _isConnected = true;
 
-      _socket!.listen(
+      _socketSubscription?.cancel();
+      _socketSubscription = _socket!.stream.listen(
         (data) {
           try {
             if (data is String) {
@@ -75,6 +76,8 @@ class WebSocketClient {
 
   void disconnect() {
     _reconnectTimer?.cancel();
+    _socketSubscription?.cancel();
+    _socketSubscription = null;
     _socket?.close();
     _socket = null;
     _isConnected = false;

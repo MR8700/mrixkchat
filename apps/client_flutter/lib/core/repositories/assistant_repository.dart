@@ -209,7 +209,7 @@ class AssistantRepository extends ChangeNotifier {
           "Toutes vos clés cryptographiques restent confinées en mémoire locale sécurisée.";
       sourceTitle = 'Sécurité & Terminaux';
       sourceSubtitle = '${devices.length} appareil(s) certifié(s)';
-    } else if (lower.contains('contact') || lower.contains('qui') || lower.contains('répertoire') || lower.contains('sarah')) {
+    } else if (lower.contains('contact') || lower.contains('qui') || lower.contains('répertoire')) {
       // 6. Query contacts
       final contacts = _db.getAll('contacts');
       if (contacts.isEmpty) {

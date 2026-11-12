@@ -78,8 +78,8 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                   TextField(
                     controller: titleController,
                     decoration: InputDecoration(
-                      labelText: isGroup ? 'Nom du groupe' : 'Nom ou identifiant du proche',
-                      hintText: isGroup ? 'Ex: Projet Sovereign' : 'Ex: @sarah.connor ou Dr. Sarah Connor',
+                      labelText: isGroup ? 'Nom du groupe' : 'Nom ou @identifiant du contact',
+                      hintText: isGroup ? 'Ex: Équipe Projet' : 'Ex: @handle ou Prénom',
                       border: const OutlineInputBorder(),
                       errorText: dialogError,
                     ),
@@ -89,28 +89,6 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                       }
                     },
                   ),
-                  if (!isGroup) ...[
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Contact souverain disponible :',
-                      style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: AppTheme.onSurfaceVariant),
-                    ),
-                    const SizedBox(height: 6),
-                    ActionChip(
-                      avatar: const Icon(Icons.person_outline, size: 16, color: AppTheme.primary),
-                      label: const Text('Dr. Sarah Connor (@sarah.connor)'),
-                      backgroundColor: const Color(0xFFEFF6FF),
-                      onPressed: () {
-                        setModalState(() {
-                          titleController.text = 'Dr. Sarah Connor';
-                          dialogError = null;
-                        });
-                      },
-                    ),
-                  ],
                   const SizedBox(height: 12),
                   TextField(
                     controller: messageController,

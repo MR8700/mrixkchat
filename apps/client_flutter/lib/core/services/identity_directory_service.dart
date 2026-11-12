@@ -21,17 +21,7 @@ class SovereignUser {
 }
 
 class IdentityDirectoryService {
-  static final List<SovereignUser> registeredUsers = [
-    const SovereignUser(
-      id: 'contact_sarah',
-      name: 'Dr. Sarah Connor',
-      handle: '@sarah.connor',
-      avatarUrl: '',
-      statusText: 'Recherche & IA 🧬 (En ligne)',
-      isOnline: true,
-      isVerified: true,
-    ),
-  ];
+  static final List<SovereignUser> registeredUsers = [];
 
   /// Verifies if a user exists by handle or name
   static SovereignUser? findUser(String query) {

@@ -130,7 +130,7 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: CallDialog(
-              peerName: 'Dr. Sarah Connor',
+              peerName: 'Dr. Elena Rostova',
               peerAvatar: '',
               isVideo: false,
               isPeerOnline: true,
@@ -144,7 +144,7 @@ void main() {
       );
 
       // Initial state: Ringing
-      expect(find.text('Dr. Sarah Connor'), findsOneWidget);
+      expect(find.text('Dr. Elena Rostova'), findsOneWidget);
       expect(find.text('Sonnerie en cours...'), findsOneWidget);
 
       // Advance 3.1 seconds to trigger connect
@@ -226,7 +226,7 @@ void main() {
         const MaterialApp(
           home: Scaffold(
             body: AppAvatar(
-              name: 'Dr. Sarah Connor',
+              name: 'Dr. Elena Rostova',
               radius: 24,
               isOnline: true,
               isVerified: true,
@@ -255,7 +255,7 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: CallDialog(
-              peerName: 'Dr. Sarah Connor',
+              peerName: 'Dr. Elena Rostova',
               peerAvatar: '',
               isVideo: false,
             ),

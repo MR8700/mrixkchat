@@ -472,7 +472,7 @@ class MoeEngine {
   /// Parses a legacy component block: {{id="..."; <table...> or chart="..."}}
   static MoeObject? parseLegacyComponent(String id, String payload) {
     final titleMatch = RegExp(r'title\s*=\s*"([^"]*)"').firstMatch(payload);
-    final title = titleMatch?.group(1) ?? id;
+    final title = titleMatch?.group(1) ?? 'Tableau : {{$id}}';
 
     // 1. Table
     if (payload.contains('<table') || payload.contains('<tr')) {
@@ -521,11 +521,14 @@ class MoeEngine {
 
     // 3. Diagram
     if (payload.contains('<diagram') || payload.contains('->')) {
+      final nodeMatches = RegExp(r'\[(.*?)\]').allMatches(payload);
+      final nodes = nodeMatches.map((m) => m.group(1)!.trim()).toList();
       return MoeObject(
         id: 'obj_diagram_$id',
         name: id,
         type: MoeObjectType.diagram,
-        properties: {'title': title, 'diagramType': 'flowchart'},
+        properties: {'title': titleMatch?.group(1) ?? 'Organigramme : {{$id}}', 'diagramType': 'flowchart'},
+        data: nodes.isNotEmpty ? nodes : null,
         rawMrixkCode: payload,
       );
     }

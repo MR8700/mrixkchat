@@ -157,8 +157,8 @@ class Conversation {
     if (member.id.isNotEmpty) {
       return member.isAdmin;
     }
-    // Default fallback: if current user is richard, treat as admin
-    if (userId == 'user_richard' || userId.isEmpty) return true;
+    // If no explicit member list is configured yet, allow admin rights to the session owner
+    if (groupMembers.isEmpty || userId.isEmpty) return true;
     return false;
   }
 

@@ -160,7 +160,7 @@ class _MoeInteractiveTableWidgetState extends State<MoeInteractiveTableWidget> {
 
   @override
   Widget build(BuildContext context) {
-    final title = widget.object.properties['title'] as String? ?? 'Tableau ${widget.object.name}';
+    final title = widget.object.properties['title'] as String? ?? 'Tableau : {{${widget.object.name}}}';
     final rowsCount = _grid.length;
     final colsCount = _grid.isNotEmpty ? _grid.first.length : 0;
 

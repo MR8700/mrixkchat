@@ -212,8 +212,9 @@ class _CallDialogState extends State<CallDialog> with SingleTickerProviderStateM
         ),
         child: LayoutBuilder(
           builder: (context, constraints) {
-            return Column(
-              mainAxisSize: MainAxisSize.min,
+            return SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
               children: [
                 // Top status badge
                 Row(
@@ -533,8 +534,9 @@ class _CallDialogState extends State<CallDialog> with SingleTickerProviderStateM
                   ),
                 ],
               ],
-            );
-          },
+            ),
+          );
+        },
         ),
       ),
     );

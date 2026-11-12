@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import 'package:mrixk_client/core/database/local_database.dart';
 import 'package:mrixk_client/core/database/database_seed.dart';
+import 'package:mrixk_client/core/models/contact.dart';
 import 'package:mrixk_client/core/models/conversation.dart';
 import 'package:mrixk_client/core/models/moment.dart';
 import 'package:mrixk_client/core/repositories/assistant_repository.dart';
@@ -80,7 +81,7 @@ void main() {
       final moment = Moment(
         id: 'moment_test_1',
         authorId: 'author_1',
-        authorName: 'Dr. Sarah Connor',
+        authorName: 'Dr. Elena Rostova',
         authorAvatar: '',
         authorBadge: 'verified',
         type: MomentType.quote,
@@ -103,7 +104,7 @@ void main() {
         ),
       );
 
-      expect(find.text('Dr. Sarah Connor'), findsOneWidget);
+      expect(find.text('Dr. Elena Rostova'), findsOneWidget);
       expect(find.textContaining('Il y a 10 min'), findsOneWidget);
       expect(find.text('Paris, France'), findsOneWidget);
       expect(find.text('La technologie souveraine garantit notre liberté numérique.'), findsOneWidget);
@@ -115,9 +116,9 @@ void main() {
       final db = await resetDb();
       final momentRepo = MomentRepository(db);
       final testMoment = Moment(
-        id: 'm_sarah_1',
-        authorId: 'contact_sarah',
-        authorName: 'Dr. Sarah Connor',
+        id: 'm_elena_1',
+        authorId: 'contact_elena',
+        authorName: 'Dr. Elena Rostova',
         authorAvatar: '',
         authorBadge: 'verified',
         type: MomentType.quote,
@@ -146,9 +147,9 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Find Sarah's moment circle in Moments du jour
-      expect(find.text('Dr. Sarah Connor'), findsWidgets);
-      await tester.tap(find.text('Dr. Sarah Connor').first);
+      // Find Elena's moment circle in Moments du jour
+      expect(find.text('Dr. Elena Rostova'), findsWidgets);
+      await tester.tap(find.text('Dr. Elena Rostova').first);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 200));
 
@@ -166,8 +167,8 @@ void main() {
       final moments = [
         Moment(
           id: 'moment_seq_1',
-          authorId: 'author_sarah',
-          authorName: 'Sarah Connor',
+          authorId: 'author_elena',
+          authorName: 'Elena Rostova',
           authorAvatar: '',
           type: MomentType.quote,
           timeAgo: 'Il y a 5 min',
@@ -175,8 +176,8 @@ void main() {
         ),
         Moment(
           id: 'moment_seq_2',
-          authorId: 'author_sarah',
-          authorName: 'Sarah Connor',
+          authorId: 'author_elena',
+          authorName: 'Elena Rostova',
           authorAvatar: '',
           type: MomentType.quote,
           timeAgo: 'Il y a 2 min',
@@ -322,6 +323,15 @@ void main() {
 
     test('AssistantRepository askAssistant queries real contacts and answers authentically', () async {
       final db = await resetDb();
+      final contactRepo = ContactRepository(db);
+      await contactRepo.createContact(Contact(
+        id: 'contact_alice',
+        name: 'Alice Dubois',
+        handle: '@alice.dubois',
+        avatarUrl: '',
+        statusText: 'Disponible',
+        category: 'A',
+      ));
       final assistantRepo = AssistantRepository(db);
 
       await assistantRepo.askAssistant('Qui sont mes contacts ?');
@@ -330,8 +340,8 @@ void main() {
       expect(messages.length, equals(2));
       final botMsg = messages[1];
       expect(botMsg.sourceTitle, equals('Carnet d\'adresses chiffré'));
-      expect(botMsg.text, contains('Dr. Sarah Connor'));
-      expect(botMsg.text, contains('@sarah.connor'));
+      expect(botMsg.text, contains('Alice Dubois'));
+      expect(botMsg.text, contains('@alice.dubois'));
     });
 
     testWidgets('AssistantScreen displays sovereign welcome card when no messages exist', (tester) async {

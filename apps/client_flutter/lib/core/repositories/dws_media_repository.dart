@@ -32,7 +32,7 @@ class DwsMediaRepository extends ChangeNotifier {
         figureNumber: 1,
         role: DwsMediaRole.figure,
         createdAt: '11 novembre 2026 à 10:35',
-        createdBy: 'Dr. Sarah Connor',
+        createdBy: 'Membre du groupe',
       ),
       DwsMedia(
         id: 'media://group/asset_experience_mp4',
@@ -51,7 +51,7 @@ class DwsMediaRepository extends ChangeNotifier {
         figureNumber: 2,
         role: DwsMediaRole.demo,
         createdAt: '11 novembre 2026 à 10:48',
-        createdBy: 'Dr. Sarah Connor',
+        createdBy: 'Membre du groupe',
       ),
       DwsMedia(
         id: 'media://group/asset_explication_mp3',

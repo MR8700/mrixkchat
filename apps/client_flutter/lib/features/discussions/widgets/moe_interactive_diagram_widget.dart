@@ -113,7 +113,7 @@ class _MoeInteractiveDiagramWidgetState extends State<MoeInteractiveDiagramWidge
 
   @override
   Widget build(BuildContext context) {
-    final title = widget.object.properties['title'] as String? ?? 'Diagramme ${widget.object.name}';
+    final title = widget.object.properties['title'] as String? ?? 'Organigramme : {{${widget.object.name}}}';
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 10),
