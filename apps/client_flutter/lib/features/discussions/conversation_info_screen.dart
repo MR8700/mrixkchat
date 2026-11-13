@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../shared/responsive/responsive.dart';
 import 'package:provider/provider.dart';
 import '../../core/models/conversation.dart';
 import '../../core/repositories/contact_repository.dart';
@@ -70,9 +71,10 @@ class _ConversationInfoScreenState extends State<ConversationInfoScreen> {
     final titleController = TextEditingController(text: _conv.title);
     final descController = TextEditingController(text: _conv.description ?? '');
 
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (ctx) => AlertDialog(
+        scrollable: true,
         backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(
@@ -140,7 +142,9 @@ class _ConversationInfoScreenState extends State<ConversationInfoScreen> {
     final existingUserIds = _conv.groupMembers.map((m) => m.userId).toSet();
     final availableContacts = contacts.where((c) => !existingUserIds.contains(c.id)).toList();
 
-    showModalBottomSheet(
+    showResponsiveSheet(
+      isScrollControlled: true,
+      useSafeArea: true,
       context: context,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
@@ -1005,7 +1009,9 @@ class _ConversationInfoScreenState extends State<ConversationInfoScreen> {
               subtitle: Text('Délai actuel : $_ephemeralTimer', style: const TextStyle(fontSize: 11, color: AppTheme.onSurfaceVariant)),
               trailing: const Icon(Icons.timer_outlined, color: AppTheme.primary),
               onTap: () {
-                showModalBottomSheet(
+                showResponsiveSheet(
+                  isScrollControlled: true,
+                  useSafeArea: true,
                   context: context,
                   builder: (ctx) => Column(
                     mainAxisSize: MainAxisSize.min,

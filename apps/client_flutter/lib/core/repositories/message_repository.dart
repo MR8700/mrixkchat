@@ -35,6 +35,29 @@ class MessageRepository extends ChangeNotifier {
     ).catchError((_) => false);
   }
 
+  /// Inserts a local-only system notice (never relayed to the server).
+  /// Idempotent: the same [key] is only inserted once.
+  Future<void> addSystemMessage(String conversationId, String text, {required String key}) async {
+    final id = 'sys_${conversationId}_$key';
+    if (_db.get('messages', id) != null) return;
+    final now = DateTime.now();
+    final time = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+    final msg = Message(
+      id: id,
+      conversationId: conversationId,
+      senderId: 'system',
+      senderName: 'MRixk',
+      senderAvatar: '',
+      type: MessageType.text,
+      content: text,
+      time: time,
+      isOutgoing: false,
+      isRead: true,
+    );
+    await _db.insert('messages', id, msg.toJson());
+    notifyListeners();
+  }
+
   // --- CRUD: READ ---
   List<Message> getMessagesForConversation(String conversationId) {
     final list = _db.query(

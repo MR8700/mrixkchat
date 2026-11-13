@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../shared/responsive/responsive.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../core/models/user_profile.dart';
@@ -16,7 +17,9 @@ class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
 
   void _showAvatarOptions(BuildContext context, void Function(String newAvatarUrl) onAvatarSelected) {
-    showModalBottomSheet(
+    showResponsiveSheet(
+      isScrollControlled: true,
+      useSafeArea: true,
       context: context,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
@@ -132,12 +135,13 @@ class ProfileScreen extends StatelessWidget {
     final statusController = TextEditingController(text: profile.statusMessage);
     String selectedAvatarUrl = profile.avatarUrl;
 
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (dialogCtx) {
         return StatefulBuilder(
           builder: (ctx, setDialogState) {
             return AlertDialog(
+        scrollable: true,
               backgroundColor: Colors.white,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
               titlePadding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
@@ -339,9 +343,10 @@ class ProfileScreen extends StatelessWidget {
   }
 
   void _confirmLogout(BuildContext context) {
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (dialogCtx) => AlertDialog(
+        scrollable: true,
         backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(
@@ -391,9 +396,10 @@ class ProfileScreen extends StatelessWidget {
   }
 
   void _confirmDeleteAccount(BuildContext context) {
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (dialogCtx) => AlertDialog(
+        scrollable: true,
         backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(
@@ -466,12 +472,25 @@ class ProfileScreen extends StatelessWidget {
             ),
             onPressed: () async {
               Navigator.of(dialogCtx).pop();
-              await context.read<ProfileRepository>().deleteAccount();
+              final messenger = ScaffoldMessenger.of(context);
+              try {
+                await context.read<ProfileRepository>().deleteAccount();
+              } catch (e) {
+                // Server did not confirm: keep local data, tell the user.
+                messenger.showSnackBar(SnackBar(
+                  backgroundColor: const Color(0xFFDC2626),
+                  content: Text('Suppression impossible : ${e.toString().replaceAll('Exception: ', '')}'),
+                ));
+                return;
+              }
               if (context.mounted) {
                 Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
                   MaterialPageRoute(builder: (_) => const SplashScreen()),
                   (route) => false,
                 );
+                messenger.showSnackBar(const SnackBar(
+                  content: Text('Compte supprimé. Votre @identifiant reste réservé 24 h.'),
+                ));
               }
             },
             child: const Text('Supprimer définitivement',
@@ -487,9 +506,10 @@ class ProfileScreen extends StatelessWidget {
     final currentStatus = profileRepo.getProfile().statusMessage;
     final controller = TextEditingController(text: currentStatus);
 
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (ctx) => AlertDialog(
+        scrollable: true,
         backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text(
@@ -526,7 +546,7 @@ class ProfileScreen extends StatelessWidget {
   }
 
   void _openDeviceManager(BuildContext context) {
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (ctx) => const DeviceManagerDialog(),
     );
@@ -534,9 +554,10 @@ class ProfileScreen extends StatelessWidget {
 
   void _showRecoveryCodeDialog(BuildContext context, String code) {
     final effectiveCode = code.isNotEmpty ? code : 'MRX-7F89-A2B4-9C10-E5D3';
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (ctx) => AlertDialog(
+        scrollable: true,
         backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(

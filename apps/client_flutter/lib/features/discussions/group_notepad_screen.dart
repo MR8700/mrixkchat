@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../shared/responsive/responsive.dart';
 import 'package:provider/provider.dart';
 import '../../core/models/conversation.dart';
 import '../../core/models/dws_ast.dart';
@@ -39,7 +40,7 @@ class GroupNotepadScreen extends StatefulWidget {
     Conversation conversation, {
     String? documentId,
   }) {
-    return showModalBottomSheet(
+    return showResponsiveSheet(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
@@ -339,6 +340,7 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
     final result = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
+        scrollable: true,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(
           children: const [
@@ -533,7 +535,8 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
 
   void _applyHeadingModal() {
     if (!_canEdit()) return;
-    showModalBottomSheet(
+    showResponsiveSheet(
+      useSafeArea: true,
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.white,
@@ -681,7 +684,9 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
             {'name': 'Violet impérial', 'hex': '#7C3AED', 'color': const Color(0xFF7C3AED)},
           ];
 
-    showModalBottomSheet(
+    showResponsiveSheet(
+      isScrollControlled: true,
+      useSafeArea: true,
       context: context,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
@@ -733,7 +738,9 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
   void _showFontFamilyModal() {
     if (!_canEdit()) return;
     const fonts = ['Inter', 'Roboto', 'serif', 'monospace', 'Helvetica'];
-    showModalBottomSheet(
+    showResponsiveSheet(
+      isScrollControlled: true,
+      useSafeArea: true,
       context: context,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
@@ -764,7 +771,9 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
     final myProfile = context.read<ProfileRepository>().getProfile();
     final isAdmin = widget.conversation.isUserAdmin(myProfile.id);
 
-    showModalBottomSheet(
+    showResponsiveSheet(
+      isScrollControlled: true,
+      useSafeArea: true,
       context: context,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
@@ -826,9 +835,10 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
 
   void _showRenameDialog() {
     final titleEditCtrl = TextEditingController(text: _titleController.text);
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (ctx) => AlertDialog(
+        scrollable: true,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Renommer le Bloc-Note', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
         content: TextField(
@@ -869,9 +879,10 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
   }
 
   void _downloadDocument() {
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (ctx) => AlertDialog(
+        scrollable: true,
         title: Row(
           children: const [
             Icon(Icons.download_rounded, color: AppTheme.primary),
@@ -1018,7 +1029,9 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
   }
 
   void _showSpacingDialog() {
-    showModalBottomSheet(
+    showResponsiveSheet(
+      isScrollControlled: true,
+      useSafeArea: true,
       context: context,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
@@ -1114,7 +1127,9 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
       return;
     }
 
-    showModalBottomSheet(
+    showResponsiveSheet(
+      isScrollControlled: true,
+      useSafeArea: true,
       context: context,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
@@ -1319,7 +1334,9 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
       return m.type != MessageType.text || m.imageUri != null || m.videoUri != null || m.voiceUri != null;
     }).toList();
 
-    showModalBottomSheet(
+    showResponsiveSheet(
+      isScrollControlled: true,
+      useSafeArea: true,
       context: context,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
@@ -1431,7 +1448,9 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
     final mediaRepo = context.read<DwsMediaRepository>();
     final list = mediaRepo.getMediaForGroup(widget.conversation.id);
 
-    showModalBottomSheet(
+    showResponsiveSheet(
+      isScrollControlled: true,
+      useSafeArea: true,
       context: context,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
@@ -1522,7 +1541,8 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
     String selectedWrap = media.wrap;
     DwsMediaRole selectedRole = media.role;
 
-    showModalBottomSheet(
+    showResponsiveSheet(
+      useSafeArea: true,
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.white,
@@ -1795,9 +1815,10 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
   }
 
   void _showOcrResultDialog(String text) {
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (ctx) => AlertDialog(
+        scrollable: true,
         title: Row(
           children: const [
             Icon(Icons.document_scanner_outlined, color: AppTheme.primary),
@@ -1829,9 +1850,10 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
   }
 
   void _showPrintPreview() {
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (ctx) => AlertDialog(
+        scrollable: true,
         title: Row(
           children: const [
             Icon(Icons.print_rounded, color: AppTheme.primary),
@@ -1897,9 +1919,10 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
   }
 
   void _exportDocumentPdf() {
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (ctx) => AlertDialog(
+        scrollable: true,
         title: Row(
           children: const [
             Icon(Icons.picture_as_pdf_rounded, color: Color(0xFFDC2626)),
@@ -1970,9 +1993,10 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
   }
 
   void _showTranscriptionResultDialog(String text) {
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (ctx) => AlertDialog(
+        scrollable: true,
         title: Row(
           children: const [
             Icon(Icons.record_voice_over_rounded, color: AppTheme.primary),

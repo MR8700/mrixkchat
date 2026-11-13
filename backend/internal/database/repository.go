@@ -7,20 +7,24 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 )
 
 var (
-	ErrUserNotFound       = errors.New("user not found")
-	ErrHandleAlreadyTaken = errors.New("user handle is already registered")
-	ErrDeviceNotFound     = errors.New("device not found")
-	ErrMaxDevicesExceeded = errors.New("device quota exceeded: maximum of 3 active devices reached")
-	ErrSessionExpired     = errors.New("device session expired or revoked")
-	ErrUnauthorizedDevice = errors.New("device is not authorized")
+	ErrUserNotFound         = errors.New("user not found")
+	ErrUserAlreadyExists    = errors.New("user ID is already registered")
+	ErrRecoveryCodeTaken    = errors.New("recovery code is already registered")
+	ErrHandleAlreadyTaken   = errors.New("user handle is already registered")
+	ErrDeviceNotFound       = errors.New("device not found")
+	ErrMaxDevicesExceeded   = errors.New("device quota exceeded: maximum of 3 active devices reached")
+	ErrSessionExpired       = errors.New("device session expired or revoked")
+	ErrUnauthorizedDevice   = errors.New("device is not authorized")
 	ErrConversationNotFound = errors.New("conversation not found")
 )
 
@@ -60,7 +64,6 @@ func (u *User) Public() *UserPublic {
 		ID:                u.ID,
 		Handle:            u.Handle,
 		RecoveryPublicKey: u.RecoveryPublicKey,
-		RecoveryCode:      u.RecoveryCode,
 		DisplayName:       u.DisplayName,
 		AvatarRef:         u.AvatarRef,
 		Bio:               u.Bio,
@@ -68,6 +71,16 @@ func (u *User) Public() *UserPublic {
 		CreatedAt:         u.CreatedAt,
 		UpdatedAt:         u.UpdatedAt,
 	}
+}
+
+// PrivateProfile returns the profile INCLUDING the secret recovery code.
+// Only for the account owner (registration / recovery responses). Never use in listings.
+func (u *User) PrivateProfile() *UserPublic {
+	p := u.Public()
+	if p != nil {
+		p.RecoveryCode = u.RecoveryCode
+	}
+	return p
 }
 
 type DeviceStatus string
@@ -78,15 +91,15 @@ const (
 )
 
 type Device struct {
-	ID                    string       `json:"id"`
-	UserID                string       `json:"user_id"`
-	DeviceName            string       `json:"device_name"`
-	Platform              string       `json:"platform"` // Android, iOS, Windows, Linux
-	IdentityPublicKey     string       `json:"identity_public_key"`
-	DiffieHellmanPublicKey string      `json:"diffie_hellman_public_key"`
-	Status                DeviceStatus `json:"status"`
-	LastSeenAt            time.Time    `json:"last_seen_at"`
-	CreatedAt             time.Time    `json:"created_at"`
+	ID                     string       `json:"id"`
+	UserID                 string       `json:"user_id"`
+	DeviceName             string       `json:"device_name"`
+	Platform               string       `json:"platform"` // Android, iOS, Windows, Linux
+	IdentityPublicKey      string       `json:"identity_public_key"`
+	DiffieHellmanPublicKey string       `json:"diffie_hellman_public_key"`
+	Status                 DeviceStatus `json:"status"`
+	LastSeenAt             time.Time    `json:"last_seen_at"`
+	CreatedAt              time.Time    `json:"created_at"`
 }
 
 type DeviceSession struct {
@@ -96,6 +109,24 @@ type DeviceSession struct {
 	ExpiresAt        time.Time  `json:"expires_at"`
 	RevokedAt        *time.Time `json:"revoked_at,omitempty"`
 	CreatedAt        time.Time  `json:"created_at"`
+}
+
+// Tombstone records a deleted account. The handle stays reserved until ReservedUntil.
+type Tombstone struct {
+	UserID        string    `json:"user_id"`
+	Handle        string    `json:"handle"`
+	DisplayName   string    `json:"display_name"`
+	DeletedAt     time.Time `json:"deleted_at"`
+	ReservedUntil time.Time `json:"reserved_until"`
+}
+
+// HandleReservationTTL is how long a deleted account's handle remains reserved.
+const HandleReservationTTL = 24 * time.Hour
+
+// Persister is a durable backend (e.g. PostgreSQL) holding the serialized state.
+type Persister interface {
+	Save(data []byte) error
+	Load() ([]byte, error)
 }
 
 type KeyPackage struct {
@@ -162,6 +193,8 @@ type MemoryRepository struct {
 	syncEvents          []*SyncEvent
 	securityLogs        []*SecurityEvent
 	storagePath         string
+	persister           Persister
+	tombstones          map[string]*Tombstone // userID -> tombstone
 	mu                  sync.RWMutex
 	maxDevices          int
 }
@@ -174,6 +207,7 @@ type SnapshotData struct {
 	Conversations map[string]*Conversation             `json:"conversations"`
 	Messages      map[string]*EncryptedMessageEnvelope `json:"messages"`
 	SyncEvents    []*SyncEvent                         `json:"sync_events,omitempty"`
+	Tombstones    map[string]*Tombstone                `json:"tombstones,omitempty"`
 }
 
 // SetStoragePath sets the file path for durable persistence and attempts to load existing state.
@@ -188,10 +222,51 @@ func (r *MemoryRepository) SetStoragePath(path string) error {
 	return nil
 }
 
-func (r *MemoryRepository) saveIfConfigured() {
-	if r.storagePath != "" {
-		_ = r.saveToFileLocked(r.storagePath)
+// SetPersister attaches a durable store (PostgreSQL) and loads existing state from it.
+func (r *MemoryRepository) SetPersister(p Persister) error {
+	data, err := p.Load()
+	if err != nil {
+		return err
 	}
+	r.mu.Lock()
+	r.persister = p
+	r.mu.Unlock()
+	if len(data) == 0 {
+		return nil
+	}
+	return r.loadBytes(data)
+}
+
+func (r *MemoryRepository) saveIfConfigured() error {
+	if r.persister != nil {
+		data, err := r.marshalLocked()
+		if err != nil {
+			return err
+		}
+		if err := r.persister.Save(data); err != nil {
+			log.Printf("[MRixk Server] ERROR persisting state to database: %v", err)
+			return err
+		}
+	}
+	if r.storagePath != "" {
+		if err := r.saveToFileLocked(r.storagePath); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *MemoryRepository) marshalLocked() ([]byte, error) {
+	snap := SnapshotData{
+		Users:         r.users,
+		Devices:       r.devices,
+		Sessions:      r.sessions,
+		Conversations: r.conversations,
+		Messages:      r.messages,
+		SyncEvents:    r.syncEvents,
+		Tombstones:    r.tombstones,
+	}
+	return json.Marshal(snap)
 }
 
 // SaveToFile serializes the current database state to disk atomically.
@@ -209,6 +284,7 @@ func (r *MemoryRepository) saveToFileLocked(path string) error {
 		Conversations: r.conversations,
 		Messages:      r.messages,
 		SyncEvents:    r.syncEvents,
+		Tombstones:    r.tombstones,
 	}
 
 	bytes, err := json.MarshalIndent(snap, "", "  ")
@@ -233,7 +309,10 @@ func (r *MemoryRepository) LoadFromFile(path string) error {
 	if err != nil {
 		return err
 	}
+	return r.loadBytes(bytes)
+}
 
+func (r *MemoryRepository) loadBytes(bytes []byte) error {
 	var snap SnapshotData
 	if err := json.Unmarshal(bytes, &snap); err != nil {
 		return err
@@ -241,7 +320,11 @@ func (r *MemoryRepository) LoadFromFile(path string) error {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.loadSnapshotLocked(snap)
+	return nil
+}
 
+func (r *MemoryRepository) loadSnapshotLocked(snap SnapshotData) {
 	if snap.Users != nil {
 		r.users = snap.Users
 		r.usersByHandle = make(map[string]*User)
@@ -268,8 +351,9 @@ func (r *MemoryRepository) LoadFromFile(path string) error {
 	if snap.SyncEvents != nil {
 		r.syncEvents = snap.SyncEvents
 	}
-
-	return nil
+	if snap.Tombstones != nil {
+		r.tombstones = snap.Tombstones
+	}
 }
 
 // NewMemoryRepository instantiates the store with the specified max devices quota (3).
@@ -287,6 +371,7 @@ func NewMemoryRepository(maxDevices int) *MemoryRepository {
 		conversations:       make(map[string]*Conversation),
 		messages:            make(map[string]*EncryptedMessageEnvelope),
 		syncEvents:          make([]*SyncEvent, 0),
+		tombstones:          make(map[string]*Tombstone),
 		securityLogs:        make([]*SecurityEvent, 0),
 		maxDevices:          maxDevices,
 	}
@@ -296,15 +381,36 @@ func NewMemoryRepository(maxDevices int) *MemoryRepository {
 func (r *MemoryRepository) CreateUser(u *User) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	defer r.saveIfConfigured()
 
+	if _, exists := r.users[u.ID]; exists {
+		return ErrUserAlreadyExists
+	}
 	if _, exists := r.usersByHandle[u.Handle]; exists {
 		return ErrHandleAlreadyTaken
+	}
+	if u.RecoveryCode != "" {
+		if _, exists := r.usersByRecoveryCode[u.RecoveryCode]; exists {
+			return ErrRecoveryCodeTaken
+		}
+	}
+	now := time.Now()
+	for _, t := range r.tombstones {
+		if strings.EqualFold(t.Handle, u.Handle) && now.Before(t.ReservedUntil) {
+			return ErrHandleAlreadyTaken
+		}
 	}
 	r.users[u.ID] = u
 	r.usersByHandle[u.Handle] = u
 	if u.RecoveryCode != "" {
 		r.usersByRecoveryCode[u.RecoveryCode] = u
+	}
+	if err := r.saveIfConfigured(); err != nil {
+		delete(r.users, u.ID)
+		delete(r.usersByHandle, u.Handle)
+		if u.RecoveryCode != "" {
+			delete(r.usersByRecoveryCode, u.RecoveryCode)
+		}
+		return err
 	}
 	return nil
 }
@@ -388,7 +494,6 @@ func (r *MemoryRepository) GetAllUsers() []*UserPublic {
 func (r *MemoryRepository) UpdateUser(u *User) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	defer r.saveIfConfigured()
 
 	existing, exists := r.users[u.ID]
 	if !exists {
@@ -403,25 +508,167 @@ func (r *MemoryRepository) UpdateUser(u *User) error {
 	if u.RecoveryCode != "" {
 		r.usersByRecoveryCode[u.RecoveryCode] = u
 	}
+	if err := r.saveIfConfigured(); err != nil {
+		r.users[u.ID] = existing
+		r.usersByHandle[existing.Handle] = existing
+		if u.Handle != existing.Handle {
+			delete(r.usersByHandle, u.Handle)
+		}
+		if u.RecoveryCode != existing.RecoveryCode {
+			delete(r.usersByRecoveryCode, u.RecoveryCode)
+		}
+		if existing.RecoveryCode != "" {
+			r.usersByRecoveryCode[existing.RecoveryCode] = existing
+		}
+		return err
+	}
 	return nil
 }
 
-// DeleteUser permanently removes a user from repository.
+// DeleteUser permanently removes a user, revokes devices/sessions, removes them from every
+// conversation (groups and direct), and leaves a tombstone reserving the handle for 24h.
 func (r *MemoryRepository) DeleteUser(id string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	defer r.saveIfConfigured()
 
 	u, exists := r.users[id]
 	if !exists {
 		return ErrUserNotFound
 	}
+	before, err := r.marshalLocked()
+	if err != nil {
+		return err
+	}
+	now := time.Now()
 	delete(r.users, id)
 	delete(r.usersByHandle, u.Handle)
 	if u.RecoveryCode != "" {
 		delete(r.usersByRecoveryCode, u.RecoveryCode)
 	}
+
+	// Revoke devices and sessions
+	for did, d := range r.devices {
+		if d.UserID == id {
+			delete(r.devices, did)
+			for th, sess := range r.sessions {
+				if sess.DeviceID == did {
+					delete(r.sessions, th)
+				}
+			}
+		}
+	}
+
+	// Remove from conversations; drop emptied or direct conversations
+	for cid, c := range r.conversations {
+		kept := make([]string, 0, len(c.Members))
+		found := false
+		for _, m := range c.Members {
+			if m == id {
+				found = true
+				continue
+			}
+			kept = append(kept, m)
+		}
+		if !found {
+			continue
+		}
+		c.Members = kept
+		c.UpdatedAt = now
+		for _, memberID := range kept {
+			seq := int64(len(r.syncEvents) + 1)
+			payload, _ := json.Marshal(map[string]string{
+				"user_id": id, "handle": u.Handle, "display_name": u.DisplayName,
+				"conversation_id": cid, "conversation_type": c.Type,
+			})
+			r.syncEvents = append(r.syncEvents, &SyncEvent{
+				ID: fmt.Sprintf("sync-deleted-%s-%s-%s", id, cid, memberID), UserID: memberID,
+				EventType: "USER_DELETED", EncryptedPayload: string(payload), Sequence: seq, CreatedAt: now,
+			})
+		}
+		if len(kept) == 0 {
+			delete(r.conversations, cid)
+		} else if c.CreatedBy == id {
+			sort.SliceStable(kept, func(i, j int) bool {
+				left, right := r.users[kept[i]], r.users[kept[j]]
+				if left == nil {
+					return false
+				}
+				if right == nil {
+					return true
+				}
+				return left.CreatedAt.Before(right.CreatedAt)
+			})
+			c.CreatedBy = kept[0]
+		}
+	}
+
+	r.tombstones[id] = &Tombstone{
+		UserID:        id,
+		Handle:        u.Handle,
+		DisplayName:   u.DisplayName,
+		DeletedAt:     now,
+		ReservedUntil: now.Add(HandleReservationTTL),
+	}
+	if err := r.saveIfConfigured(); err != nil {
+		var snap SnapshotData
+		if unmarshalErr := json.Unmarshal(before, &snap); unmarshalErr == nil {
+			r.tombstones = make(map[string]*Tombstone)
+			r.syncEvents = make([]*SyncEvent, 0)
+			r.loadSnapshotLocked(snap)
+		}
+		return err
+	}
 	return nil
+}
+
+// AffectedUsers returns the remaining members who need a deletion notification.
+func (r *MemoryRepository) AffectedUsers(id string) []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	seen := make(map[string]struct{})
+	for _, c := range r.conversations {
+		found := false
+		for _, member := range c.Members {
+			if member == id {
+				found = true
+				break
+			}
+		}
+		if found {
+			for _, member := range c.Members {
+				if member != id {
+					seen[member] = struct{}{}
+				}
+			}
+		}
+	}
+	ids := make([]string, 0, len(seen))
+	for member := range seen {
+		ids = append(ids, member)
+	}
+	return ids
+}
+
+// GetTombstone returns the tombstone of a deleted account, if any.
+func (r *MemoryRepository) GetTombstone(id string) (*Tombstone, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	t, ok := r.tombstones[id]
+	return t, ok
+}
+
+// UserStatuses reports for each id whether it is active or deleted (with tombstone).
+func (r *MemoryRepository) UserStatuses(ids []string) (active []*UserPublic, deleted []*Tombstone) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, id := range ids {
+		if u, ok := r.users[id]; ok {
+			active = append(active, u.Public())
+		} else if t, ok := r.tombstones[id]; ok {
+			deleted = append(deleted, t)
+		}
+	}
+	return
 }
 
 // RegisterDevice registers a device enforcing the strict 3-device limit.

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../shared/responsive/responsive.dart';
 import 'package:provider/provider.dart';
 import '../../core/models/conversation.dart';
 import '../../core/models/message.dart';
@@ -264,7 +265,7 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
       return;
     }
 
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (ctx) => CallDialog(
         peerName: widget.conversation.title,
@@ -301,9 +302,10 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
   }
 
   void _showSelfCallNotAllowedAlert() {
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (ctx) => AlertDialog(
+        scrollable: true,
         backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
         title: Row(
@@ -351,7 +353,7 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
       "Autre motif personnalisé...",
     ];
 
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setModalState) {
@@ -363,6 +365,7 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
               effectiveReason != null && effectiveReason.isNotEmpty;
 
           return AlertDialog(
+        scrollable: true,
             backgroundColor: Colors.white,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
             title: Row(
@@ -589,9 +592,10 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
         .where((c) => c.id != widget.conversation.id)
         .toList();
 
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (ctx) => AlertDialog(
+        scrollable: true,
         backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
         title: Row(
@@ -800,7 +804,9 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
       '👀', '🙌', '👌', '💬', '🏆', '🌿', '🌍', '💎'
     ];
 
-    showModalBottomSheet(
+    showResponsiveSheet(
+      isScrollControlled: true,
+      useSafeArea: true,
       context: context,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
@@ -1171,7 +1177,9 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
 
   // --- Message Options Bottom Sheet ---
   void _showMessageOptions(Message msg) {
-    showModalBottomSheet(
+    showResponsiveSheet(
+      isScrollControlled: true,
+      useSafeArea: true,
       context: context,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
@@ -1909,9 +1917,10 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
   void _showRenameNoteDialog(Conversation conv) {
     final note = context.read<GroupNoteRepository>().getNote(conv.id);
     final ctrl = TextEditingController(text: note.title);
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (ctx) => AlertDialog(
+        scrollable: true,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Renommer le Bloc-Note', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
         content: TextField(
@@ -1942,9 +1951,10 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
 
   void _showCreateNoteDialog(Conversation conv) {
     final titleCtrl = TextEditingController(text: 'Bloc-Note Collaboratif');
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (ctx) => AlertDialog(
+        scrollable: true,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         title: Row(
           children: const [
@@ -3005,7 +3015,9 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
               color: Colors.purple,
               onTap: () {
                 setState(() => _showAttachments = false);
-                showModalBottomSheet(
+                showResponsiveSheet(
+                  isScrollControlled: true,
+                  useSafeArea: true,
                   context: context,
                   shape: const RoundedRectangleBorder(
                     borderRadius: BorderRadius.vertical(top: Radius.circular(20)),

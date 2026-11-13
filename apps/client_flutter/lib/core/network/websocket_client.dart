@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'api_client.dart';
 import 'platform_socket/socket_adapter.dart';
 
 /// Real-time multiplatform WebSocket connection to the MRixk server hub.
@@ -27,7 +28,12 @@ class WebSocketClient {
     if (_isConnected) return;
 
     try {
-      final uri = Uri.parse('$wsUrl?token=$token');
+      final apiUri = Uri.parse(await ApiClient().getActiveBaseUrl());
+      final uri = apiUri.replace(
+        scheme: apiUri.scheme == 'https' ? 'wss' : 'ws',
+        path: '${apiUri.path.replaceFirst(RegExp(r'/+$'), '')}/ws',
+        queryParameters: {'token': token},
+      );
       _socket = await createPlatformSocket(uri.toString(), timeout: const Duration(seconds: 4));
       _isConnected = true;
 

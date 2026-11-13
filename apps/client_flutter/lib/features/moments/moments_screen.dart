@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../shared/responsive/responsive.dart';
 import 'package:provider/provider.dart';
 import '../../core/models/moment.dart';
 import '../../core/repositories/moment_repository.dart';
@@ -16,7 +17,7 @@ class MomentsScreen extends StatelessWidget {
   const MomentsScreen({super.key});
 
   void _openAddMoment(BuildContext context) {
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (ctx) => const AddMomentDialog(),
     );
@@ -28,7 +29,9 @@ class MomentsScreen extends StatelessWidget {
         (myProfile.displayName.isNotEmpty &&
             moment.authorName.toLowerCase() == myProfile.displayName.toLowerCase());
 
-    showModalBottomSheet(
+    showResponsiveSheet(
+      isScrollControlled: true,
+      useSafeArea: true,
       context: context,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
@@ -80,9 +83,10 @@ class MomentsScreen extends StatelessWidget {
 
   void _showEditCaptionDialog(BuildContext context, Moment moment) {
     final controller = TextEditingController(text: moment.caption);
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (ctx) => AlertDialog(
+        scrollable: true,
         backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('Modifier la légende', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
@@ -118,7 +122,8 @@ class MomentsScreen extends StatelessWidget {
   void _showCommentsBottomSheet(BuildContext context, Moment moment) {
     final commentController = TextEditingController();
 
-    showModalBottomSheet(
+    showResponsiveSheet(
+      useSafeArea: true,
       context: context,
       backgroundColor: Colors.white,
       isScrollControlled: true,

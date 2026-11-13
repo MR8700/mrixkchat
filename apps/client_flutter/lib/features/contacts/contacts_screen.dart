@@ -8,6 +8,7 @@ import '../../core/repositories/device_repository.dart';
 import '../../core/repositories/profile_repository.dart';
 import '../../core/services/identity_directory_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../../shared/responsive/responsive.dart';
 import '../../shared/widgets/app_avatar.dart';
 import '../../shared/widgets/app_empty_state.dart';
 import '../discussions/conversation_detail_screen.dart';
@@ -50,7 +51,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
   }
 
   void _openAddContact() {
-    showDialog(
+    showAdaptiveModal(
       context: context,
       builder: (ctx) => const AddContactDialog(),
     );
@@ -123,7 +124,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
       return;
     }
 
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (ctx) => CallDialog(
         peerName: contact.name,
@@ -135,9 +136,10 @@ class _ContactsScreenState extends State<ContactsScreen> {
   }
 
   void _showSelfCallNotAllowedAlert() {
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (ctx) => AlertDialog(
+        scrollable: true,
         backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
         title: Row(
@@ -171,9 +173,10 @@ class _ContactsScreenState extends State<ContactsScreen> {
   }
 
   void _showBlockedAlert(Contact contact) {
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (ctx) => AlertDialog(
+        scrollable: true,
         backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
         title: Row(
@@ -214,7 +217,9 @@ class _ContactsScreenState extends State<ContactsScreen> {
   }
 
   void _showContactOptionsMenu(Contact contact) {
-    showModalBottomSheet(
+    showResponsiveSheet(
+      isScrollControlled: true,
+      useSafeArea: true,
       context: context,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
@@ -336,9 +341,10 @@ class _ContactsScreenState extends State<ContactsScreen> {
   }
 
   void _confirmDeleteContacts(List<String> ids, List<String> names) {
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (ctx) => AlertDialog(
+        scrollable: true,
         backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(
@@ -386,10 +392,11 @@ class _ContactsScreenState extends State<ContactsScreen> {
 
   void _showBatchBlockDialog() {
     String selectedDuration = '24 heures';
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setModalState) => AlertDialog(
+        scrollable: true,
           backgroundColor: Colors.white,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           title: Text('Bloquer ${_selectedContactIds.length} contact(s)'),

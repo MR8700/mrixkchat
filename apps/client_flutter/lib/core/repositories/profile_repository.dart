@@ -271,6 +271,48 @@ class ProfileRepository extends ChangeNotifier {
     throw Exception('Code de secours introuvable sur le serveur ($cleanCode).');
   }
 
+  /// Restores this exact local identity after the server has confirmed that its
+  /// ID is unknown and has no deletion tombstone.
+  Future<void> restoreExistingIdentity() async {
+    final current = getProfile();
+    final code = current.recoveryCode?.trim() ?? '';
+    if (current.id.isEmpty || current.handle.isEmpty || code.isEmpty) {
+      throw Exception('Les informations locales de récupération sont incomplètes.');
+    }
+    final result = await ApiClient().restoreAccount(
+      userId: current.id,
+      handle: current.handle,
+      displayName: current.displayName,
+      recoveryCode: code,
+      avatarUrl: current.avatarUrl,
+      statusMessage: current.statusMessage,
+    );
+    final user = result['user'] as Map<String, dynamic>?;
+    if (user == null || user['id']?.toString() != current.id) {
+      throw Exception('Le serveur n’a pas confirmé la restauration du même compte.');
+    }
+    await _db.insert('users', current.id, current.toJson());
+    await _db.insert('recovery_keys', code, {
+      'id': current.id,
+      'displayName': current.displayName,
+      'handle': current.handle,
+      'avatarUrl': current.avatarUrl,
+      'statusMessage': current.statusMessage,
+      'recoveryCode': code,
+    });
+    await _db.saveState();
+    IdentityDirectoryService.registerUser(SovereignUser(
+      id: current.id,
+      name: current.displayName,
+      handle: current.handle,
+      avatarUrl: current.avatarUrl,
+      statusText: current.statusMessage,
+      isVerified: true,
+      isOnline: true,
+    ));
+    notifyListeners();
+  }
+
   // --- CRUD: UPDATE (Handle is strictly immutable) ---
   Future<void> updateProfile(UserProfile profile) async {
     final current = getProfile();
@@ -293,6 +335,7 @@ class ProfileRepository extends ChangeNotifier {
       displayName: safeProfile.displayName,
       avatarUrl: safeProfile.avatarUrl,
       statusMessage: safeProfile.statusMessage,
+      recoveryCode: safeProfile.recoveryCode ?? current.recoveryCode,
     );
 
     notifyListeners();
@@ -329,11 +372,28 @@ class ProfileRepository extends ChangeNotifier {
     notifyListeners();
   }
 
-  // --- DELETE ACCOUNT ---
+  // --- DELETE ACCOUNT (online first) ---
+  /// Deletes the account on the server first (which removes the user from groups, closes
+  /// private discussions for peers and reserves the @handle for 24h), then wipes local data.
+  /// Throws if the server cannot confirm; local data is then left untouched.
   Future<void> deleteAccount() async {
+    final profile = getProfile();
+    final code = profile.recoveryCode ?? '';
+    if (profile.id.isNotEmpty && code.isNotEmpty) {
+      final ok = await ApiClient().deleteAccount(userId: profile.id, recoveryCode: code);
+      if (!ok) {
+        throw Exception('Le serveur n\'a pas confirmé la suppression du compte.');
+      }
+    }
+    await wipeLocalAccount();
+  }
+
+  /// Wipes every local trace of the account (data, sessions, credentials, directory cache).
+  Future<void> wipeLocalAccount() async {
     await _db.clearAll();
     await seedCleanProductionDatabase(_db);
     await _db.saveState();
+    IdentityDirectoryService.registeredUsers.clear();
     notifyListeners();
   }
 }

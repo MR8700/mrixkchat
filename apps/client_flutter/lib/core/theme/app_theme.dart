@@ -64,6 +64,9 @@ class AppTheme {
         elevation: 0,
         centerTitle: false,
       ),
+      dialogTheme: const DialogThemeData(
+        insetPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 20),
+      ),
       cardTheme: CardThemeData(
         color: cardBg,
         elevation: 0,
@@ -101,6 +104,9 @@ class AppTheme {
         foregroundColor: darkOnSurface,
         elevation: 0,
         centerTitle: false,
+      ),
+      dialogTheme: const DialogThemeData(
+        insetPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 20),
       ),
       cardTheme: CardThemeData(
         color: darkCard,

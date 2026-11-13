@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import '../database/local_database.dart';
 import '../network/api_client.dart';
 
@@ -108,7 +109,13 @@ class IdentityDirectoryService {
           ));
         }
       }
-    } catch (_) {}
+    } on ApiUnavailableException catch (e) {
+      lastOnlineError.value = e.message;
+      return [];
+    } catch (e) {
+      lastOnlineError.value = 'Erreur réseau : $e';
+      return [];
+    }
   }
 
   /// Strictly finds a verified user by handle or name from registered users ONLY.
@@ -165,11 +172,17 @@ class IdentityDirectoryService {
     return results;
   }
 
+  /// Last online discovery error (null when the last fetch succeeded). Drives UI banners.
+  static final ValueNotifier<String?> lastOnlineError = ValueNotifier<String?>(null);
+
   /// Discovers users online from the backend server in real-time.
-  /// Automatically registers discovered verified users into the directory.
+  /// An empty query is authoritative: the directory then mirrors exactly the server's accounts
+  /// (deleted or unknown accounts disappear). Errors are surfaced via [lastOnlineError],
+  /// never swallowed as an empty "no users" state.
   static Future<List<SovereignUser>> searchUsersOnline(String query) async {
     try {
       final remoteUsers = await ApiClient().searchUsers(query);
+      final remote = <SovereignUser>[];
       for (final u in remoteUsers) {
         final id = (u['id'] ?? '').toString();
         final name = (u['display_name'] ?? u['displayName'] ?? '').toString();
@@ -177,7 +190,7 @@ class IdentityDirectoryService {
         final avatar = (u['avatar_ref'] ?? u['avatar_url'] ?? u['avatarUrl'] ?? '').toString();
         final status = (u['status_message'] ?? u['statusMessage'] ?? 'Membre du réseau souverain').toString();
         if (id.isNotEmpty && handle.isNotEmpty) {
-          registerUser(SovereignUser(
+          remote.add(SovereignUser(
             id: id,
             name: name.isNotEmpty ? name : handle,
             handle: handle.startsWith('@') ? handle : '@$handle',
@@ -188,19 +201,28 @@ class IdentityDirectoryService {
           ));
         }
       }
-    } catch (_) {}
+      if (query.trim().isEmpty) {
+        final remoteIds = remote.map((u) => u.id).toSet();
+        registeredUsers.removeWhere((u) => !remoteIds.contains(u.id));
+      }
+      remote.forEach(registerUser);
+      lastOnlineError.value = null;
+    } on ApiUnavailableException catch (e) {
+      lastOnlineError.value = e.message;
+      return [];
+    } catch (e) {
+      lastOnlineError.value = 'Erreur réseau : $e';
+      return [];
+    }
     return searchUsers(query);
   }
 
   /// Verifies a user against the backend server online before contact addition.
   static Future<SovereignUser?> verifyUserOnline(String query) async {
-    // 1. Check local directory first
-    final local = findUser(query);
-    if (local != null) return local;
-
-    // 2. Query online server
+    // Always verify against the server: the local directory is only a display cache and may be stale.
     try {
       final res = await ApiClient().verifyContact(query);
+      lastOnlineError.value = null;
       if (res != null && res['valid'] == true && res['user'] != null) {
         final u = res['user'] as Map<String, dynamic>;
         final user = SovereignUser(
@@ -215,7 +237,11 @@ class IdentityDirectoryService {
         registerUser(user);
         return user;
       }
-    } catch (_) {}
+    } on ApiUnavailableException catch (e) {
+      lastOnlineError.value = e.message;
+    } catch (e) {
+      lastOnlineError.value = 'Erreur réseau : $e';
+    }
 
     return null;
   }

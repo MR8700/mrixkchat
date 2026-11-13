@@ -16,6 +16,7 @@ import 'core/repositories/profile_repository.dart';
 import 'core/services/identity_directory_service.dart';
 import 'core/theme/app_theme.dart';
 import 'features/onboarding/splash_screen.dart';
+import 'shared/widgets/reconciliation_runner.dart';
 import 'shared/widgets/single_instance_guard.dart';
 
 void main() async {
@@ -50,6 +51,8 @@ void main() async {
   );
 }
 
+final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
+
 class MRixkApp extends StatelessWidget {
   const MRixkApp({super.key});
 
@@ -59,13 +62,23 @@ class MRixkApp extends StatelessWidget {
     final isDark = profile.themeMode == 'Nuit';
 
     return MaterialApp(
+      navigatorKey: appNavigatorKey,
       title: 'MRixk - Messagerie Privée & Souveraine',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
-      builder: (context, child) => SingleInstanceGuard(
-        child: child ?? const SizedBox.shrink(),
+      builder: (context, child) => MediaQuery(
+        // Keep layouts intact with very large accessibility fonts on phones.
+        data: MediaQuery.of(context).copyWith(
+          textScaler: MediaQuery.of(context).textScaler.clamp(minScaleFactor: 0.85, maxScaleFactor: 1.3),
+        ),
+        child: ReconciliationRunner(
+        navigatorKey: appNavigatorKey,
+          child: SingleInstanceGuard(
+            child: child ?? const SizedBox.shrink(),
+          ),
+        ),
       ),
       home: const SplashScreen(),
     );

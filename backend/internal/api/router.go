@@ -24,18 +24,18 @@ import (
 )
 
 type Server struct {
-	mux           *http.ServeMux
-	idService     *identity.Service
-	deviceService *devices.Service
-	msgService    *messaging.Service
-	callService   *calls.Service
-	mediaService  *media.Service
-	socialService *social.Service
+	mux            *http.ServeMux
+	idService      *identity.Service
+	deviceService  *devices.Service
+	msgService     *messaging.Service
+	callService    *calls.Service
+	mediaService   *media.Service
+	socialService  *social.Service
 	contactService *contacts.Service
-	aiService     *ai.Service
-	docService    *documents.Service
-	hub           *Hub
-	repo          *database.MemoryRepository
+	aiService      *ai.Service
+	docService     *documents.Service
+	hub            *Hub
+	repo           *database.MemoryRepository
 }
 
 func NewServer(
@@ -45,18 +45,18 @@ func NewServer(
 	repo *database.MemoryRepository,
 ) *Server {
 	s := &Server{
-		mux:           http.NewServeMux(),
-		idService:     idService,
-		deviceService: deviceService,
-		msgService:    msgService,
-		callService:   calls.NewService(),
-		mediaService:  media.NewService(),
-		socialService: social.NewService(),
+		mux:            http.NewServeMux(),
+		idService:      idService,
+		deviceService:  deviceService,
+		msgService:     msgService,
+		callService:    calls.NewService(),
+		mediaService:   media.NewService(),
+		socialService:  social.NewService(),
 		contactService: contacts.NewService(),
-		aiService:     ai.NewService(),
-		docService:    documents.NewService(),
-		hub:           NewHub(),
-		repo:          repo,
+		aiService:      ai.NewService(),
+		docService:     documents.NewService(),
+		hub:            NewHub(),
+		repo:           repo,
 	}
 	s.routes()
 	return s
@@ -72,7 +72,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 	}
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-MRixk-Device-ID, X-Media-ID, X-Media-SHA256")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-MRixk-Recovery-Code, X-MRixk-Device-ID, X-Media-ID, X-Media-SHA256")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("X-Frame-Options", "DENY")
 	w.Header().Set("X-XSS-Protection", "1; mode=block")
@@ -92,6 +92,7 @@ func (s *Server) routes() {
 
 	// Auth & Identity
 	s.mux.HandleFunc("POST /api/v1/auth/register", s.handleRegister)
+	s.mux.HandleFunc("POST /api/v1/auth/restore", s.handleRestore)
 	s.mux.HandleFunc("POST /api/v1/auth/recover", s.handleRecover)
 	s.mux.HandleFunc("POST /api/v1/auth/login", s.handleLogin)
 	s.mux.HandleFunc("GET /api/v1/users", s.handleListUsers)
@@ -100,6 +101,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("PUT /api/v1/users/{id}", s.handleUpdateUser)
 	s.mux.HandleFunc("POST /api/v1/users/{id}", s.handleUpdateUser)
 	s.mux.HandleFunc("DELETE /api/v1/users/{id}", s.handleDeleteUser)
+	s.mux.HandleFunc("POST /api/v1/users/status", s.handleUsersStatus)
 	s.mux.HandleFunc("POST /api/v1/contacts/verify", s.handleVerifyContact)
 
 	// Devices (Max 3 limit enforced)
@@ -185,11 +187,15 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		req.StatusMessage,
 	)
 	if err != nil {
-		if errors.Is(err, database.ErrHandleAlreadyTaken) {
+		if errors.Is(err, database.ErrHandleAlreadyTaken) || errors.Is(err, database.ErrUserAlreadyExists) || errors.Is(err, database.ErrRecoveryCodeTaken) {
 			jsonError(w, http.StatusConflict, err.Error())
 			return
 		}
-		jsonError(w, http.StatusBadRequest, err.Error())
+		if errors.Is(err, identity.ErrInvalidHandle) || errors.Is(err, identity.ErrInvalidPassword) {
+			jsonError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		jsonError(w, http.StatusServiceUnavailable, "Le compte n’a pas pu être enregistré durablement")
 		return
 	}
 
@@ -205,8 +211,53 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 	jsonResponse(w, http.StatusCreated, map[string]interface{}{
 		"message": "User registered successfully",
-		"user":    user.Public(),
+		"user":    user.PrivateProfile(),
 	})
+}
+
+type RestoreRequest struct {
+	UserID        string `json:"user_id"`
+	Handle        string `json:"handle"`
+	RecoveryCode  string `json:"recovery_code"`
+	DisplayName   string `json:"display_name"`
+	AvatarURL     string `json:"avatar_url,omitempty"`
+	StatusMessage string `json:"status_message,omitempty"`
+}
+
+// handleRestore restores a locally held identity after a full server data reset.
+// A persisted tombstone always wins, so a previously deleted account cannot be revived.
+func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
+	var req RestoreRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request JSON payload")
+		return
+	}
+	if _, err := s.repo.GetUserByID(strings.TrimSpace(req.UserID)); err == nil {
+		jsonError(w, http.StatusConflict, "Ce compte existe déjà sur le serveur")
+		return
+	}
+	if _, deleted := s.repo.GetTombstone(strings.TrimSpace(req.UserID)); deleted {
+		jsonError(w, http.StatusGone, "Un compte supprimé ne peut pas être restauré")
+		return
+	}
+	user, err := s.idService.RestoreWithID(req.UserID, req.Handle, req.RecoveryCode, req.DisplayName, req.AvatarURL, req.StatusMessage)
+	if err != nil {
+		if errors.Is(err, database.ErrHandleAlreadyTaken) || errors.Is(err, database.ErrUserAlreadyExists) || errors.Is(err, database.ErrRecoveryCodeTaken) {
+			jsonError(w, http.StatusConflict, err.Error())
+			return
+		}
+		if errors.Is(err, identity.ErrInvalidHandle) || errors.Is(err, identity.ErrAuthFailed) {
+			jsonError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		jsonError(w, http.StatusServiceUnavailable, "Le compte restauré n’a pas pu être enregistré durablement")
+		return
+	}
+	s.contactService.UpsertContact(&contacts.ContactEntry{
+		UserID: user.ID, Handle: user.Handle, DisplayName: user.DisplayName,
+		AvatarURL: user.AvatarRef, IdentityPublicKey: user.RecoveryPublicKey, IsVerified: true,
+	})
+	jsonResponse(w, http.StatusCreated, map[string]interface{}{"message": "Compte restauré", "user": user.PrivateProfile()})
 }
 
 type RecoverRequest struct {
@@ -229,13 +280,6 @@ func (s *Server) handleRecover(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user, err := s.repo.GetUserByRecoveryCode(cleanCode)
-	if err != nil && req.PreferredHandle != "" {
-		h := req.PreferredHandle
-		if !strings.HasPrefix(h, "@") {
-			h = "@" + h
-		}
-		user, err = s.repo.GetUserByHandle(h)
-	}
 
 	if err != nil || user == nil {
 		jsonError(w, http.StatusNotFound, "Identifiant ou code de récupération introuvable sur le serveur")
@@ -244,7 +288,7 @@ func (s *Server) handleRecover(w http.ResponseWriter, r *http.Request) {
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"message": "User recovered successfully",
-		"user":    user.Public(),
+		"user":    user.PrivateProfile(),
 	})
 }
 
@@ -252,7 +296,7 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query().Get("q")
 	users := s.repo.SearchUsers(q)
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
-		"users": users,
+		"users": nonNilUsers(users),
 		"count": len(users),
 	})
 }
@@ -280,6 +324,15 @@ func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil || user == nil {
+		if t, ok := s.repo.GetTombstone(id); ok {
+			jsonResponse(w, http.StatusGone, map[string]interface{}{
+				"error":   "Ce compte a été supprimé",
+				"deleted": true,
+				"user_id": t.UserID,
+				"handle":  t.Handle,
+			})
+			return
+		}
 		jsonError(w, http.StatusNotFound, "Utilisateur introuvable sur le serveur")
 		return
 	}
@@ -324,6 +377,11 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !ownerAuthorized(r, user) {
+		jsonError(w, http.StatusForbidden, "Action réservée au propriétaire du compte")
+		return
+	}
+
 	// Sovereign handle is strictly immutable! Cannot be modified.
 	if req.DisplayName != "" {
 		user.DisplayName = strings.TrimSpace(req.DisplayName)
@@ -356,6 +414,12 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ownerAuthorized checks the caller proves ownership via the account's recovery code.
+func ownerAuthorized(r *http.Request, user *database.User) bool {
+	code := strings.ToUpper(strings.TrimSpace(r.Header.Get("X-MRixk-Recovery-Code")))
+	return code != "" && user != nil && strings.ToUpper(strings.TrimSpace(user.RecoveryCode)) == code
+}
+
 func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
@@ -363,28 +427,92 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	targetID := id
+	var user *database.User
+	var err error
 	if strings.HasPrefix(id, "@") {
-		u, err := s.repo.GetUserByHandle(id)
-		if err == nil && u != nil {
-			targetID = u.ID
-		}
+		user, err = s.repo.GetUserByHandle(id)
 	} else {
-		// check if it's a handle without @
-		u, err := s.repo.GetUserByHandle("@" + id)
-		if err == nil && u != nil {
-			targetID = u.ID
+		user, err = s.repo.GetUserByID(id)
+		if err != nil {
+			user, err = s.repo.GetUserByHandle("@" + id)
 		}
 	}
-
-	if err := s.repo.DeleteUser(targetID); err != nil {
+	if err != nil || user == nil {
+		if _, ok := s.repo.GetTombstone(id); ok {
+			jsonResponse(w, http.StatusOK, map[string]interface{}{"message": "Compte déjà supprimé", "id": id})
+			return
+		}
 		jsonError(w, http.StatusNotFound, "Utilisateur introuvable sur le serveur")
 		return
 	}
+	if !ownerAuthorized(r, user) {
+		jsonError(w, http.StatusForbidden, "Action réservée au propriétaire du compte")
+		return
+	}
+
+	affectedUsers := s.repo.AffectedUsers(user.ID)
+	if err := s.repo.DeleteUser(user.ID); err != nil {
+		if errors.Is(err, database.ErrUserNotFound) {
+			jsonError(w, http.StatusNotFound, "Utilisateur introuvable sur le serveur")
+			return
+		}
+		jsonError(w, http.StatusInternalServerError, "La suppression n’a pas pu être enregistrée durablement")
+		return
+	}
+	deletedEvent := &WSEvent{Type: "user.deleted", Payload: map[string]string{
+		"user_id": user.ID, "handle": user.Handle, "display_name": user.DisplayName,
+	}, Timestamp: time.Now()}
+	for _, affectedID := range affectedUsers {
+		s.hub.BroadcastToUser(affectedID, deletedEvent, "")
+	}
+	s.hub.BroadcastToUser(user.ID, &WSEvent{Type: "account.deleted", Timestamp: time.Now()}, "")
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
-		"message": "Utilisateur supprimé avec succès",
-		"id":      targetID,
+		"message":        "Utilisateur supprimé avec succès",
+		"id":             user.ID,
+		"handle":         user.Handle,
+		"reserved_hours": 24,
+	})
+}
+
+type UsersStatusRequest struct {
+	IDs []string `json:"ids"`
+}
+
+// handleUsersStatus lets clients reconcile contacts/members: which accounts still exist, which were deleted.
+func (s *Server) handleUsersStatus(w http.ResponseWriter, r *http.Request) {
+	var req UsersStatusRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request JSON payload")
+		return
+	}
+	if len(req.IDs) > 500 {
+		req.IDs = req.IDs[:500]
+	}
+	active, deleted := s.repo.UserStatuses(req.IDs)
+	known := make(map[string]struct{}, len(active)+len(deleted))
+	for _, u := range active {
+		known[u.ID] = struct{}{}
+	}
+	for _, u := range deleted {
+		known[u.UserID] = struct{}{}
+	}
+	missing := make([]string, 0)
+	for _, id := range req.IDs {
+		if _, ok := known[id]; !ok {
+			missing = append(missing, id)
+		}
+	}
+	if active == nil {
+		active = []*database.UserPublic{}
+	}
+	if deleted == nil {
+		deleted = []*database.Tombstone{}
+	}
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"active":  active,
+		"deleted": deleted,
+		"missing": missing,
 	})
 }
 
@@ -461,7 +589,7 @@ type AuthorizeDeviceRequest struct {
 	Password               string `json:"password,omitempty"`
 	DeviceName             string `json:"device_name"`
 	Platform               string `json:"platform"`
-	IdentityPublicKey     string `json:"identity_public_key,omitempty"`
+	IdentityPublicKey      string `json:"identity_public_key,omitempty"`
 	DiffieHellmanPublicKey string `json:"diffie_hellman_public_key,omitempty"`
 }
 
@@ -1470,4 +1598,11 @@ func jsonError(w http.ResponseWriter, status int, message string) {
 	jsonResponse(w, status, map[string]string{
 		"error": message,
 	})
+}
+
+func nonNilUsers(u []*database.UserPublic) []*database.UserPublic {
+	if u == nil {
+		return []*database.UserPublic{}
+	}
+	return u
 }

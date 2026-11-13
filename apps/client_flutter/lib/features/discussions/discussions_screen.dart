@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../shared/responsive/responsive.dart';
 import 'package:provider/provider.dart';
 import '../../core/models/conversation.dart';
 import '../../core/models/message.dart';
@@ -40,11 +42,37 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
   String _selectedFilter = 'Tous';
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
+  Timer? _directorySearchDebounce;
+  int _directorySearchVersion = 0;
+  bool _searchingDirectory = false;
+  List<SovereignUser> _onlineSearchResults = const [];
 
   @override
   void dispose() {
+    _directorySearchDebounce?.cancel();
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _searchOnlineDirectory(String query) {
+    _directorySearchDebounce?.cancel();
+    final version = ++_directorySearchVersion;
+    if (query.trim().isEmpty) {
+      setState(() {
+        _onlineSearchResults = const [];
+        _searchingDirectory = false;
+      });
+      return;
+    }
+    setState(() => _searchingDirectory = true);
+    _directorySearchDebounce = Timer(const Duration(milliseconds: 350), () async {
+      final results = await IdentityDirectoryService.searchUsersOnline(query);
+      if (!mounted || version != _directorySearchVersion) return;
+      setState(() {
+        _onlineSearchResults = results;
+        _searchingDirectory = false;
+      });
+    });
   }
 
   void _showNewConversationDialog() {
@@ -53,11 +81,12 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
     bool isGroup = false;
     String? dialogError;
 
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setModalState) {
           return AlertDialog(
+        scrollable: true,
             backgroundColor: Colors.white,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
             title: Row(
@@ -235,7 +264,9 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
   }
 
   void _showDiscussionOptionsMenu() {
-    showModalBottomSheet(
+    showResponsiveSheet(
+      isScrollControlled: true,
+      useSafeArea: true,
       context: context,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
@@ -278,7 +309,7 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                 title: const Text('Appareils synchronisés (3 max)'),
                 onTap: () {
                   Navigator.of(ctx).pop();
-                  showDialog(
+                  showResponsiveDialog(
                     context: context,
                     builder: (_) => const DeviceManagerDialog(),
                   );
@@ -747,7 +778,7 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                 if (hasMoment) {
                   _showMomentStory(context, myMoments, initialIndex: 0);
                 } else {
-                  showDialog(
+                  showResponsiveDialog(
                     context: context,
                     builder: (ctx) => const AddMomentDialog(),
                   );
@@ -782,7 +813,7 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
               right: -1,
               child: GestureDetector(
                 onTap: () {
-                  showDialog(
+                  showResponsiveDialog(
                     context: context,
                     builder: (ctx) => const AddMomentDialog(),
                   );
@@ -920,11 +951,7 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                     controller: _searchController,
                     onChanged: (val) {
                       setState(() => _searchQuery = val);
-                      if (val.trim().isNotEmpty) {
-                        IdentityDirectoryService.searchUsersOnline(val).then((_) {
-                          if (mounted) setState(() {});
-                        });
-                      }
+                      _searchOnlineDirectory(val);
                     },
                     decoration: const InputDecoration(
                       hintText: 'Rechercher un message, un proche...',
@@ -938,6 +965,7 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                     onTap: () {
                       _searchController.clear();
                       setState(() => _searchQuery = '');
+                      _searchOnlineDirectory('');
                     },
                     child: const Icon(Icons.close, size: 18, color: Colors.grey),
                   ),
@@ -974,8 +1002,38 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
   }
 
   Widget _buildRealtimeUserSearchResults() {
-    final matchingUsers = IdentityDirectoryService.searchUsers(_searchQuery);
-    if (matchingUsers.isEmpty) return const SizedBox.shrink();
+    final matchingUsers = _onlineSearchResults;
+    if (matchingUsers.isEmpty) {
+      final error = IdentityDirectoryService.lastOnlineError.value;
+      if (!_searchingDirectory && error == null) {
+        return const Padding(
+          padding: EdgeInsets.symmetric(vertical: 8),
+          child: Text('Aucun utilisateur trouvé sur le serveur.', style: TextStyle(fontSize: 12, color: AppTheme.onSurfaceVariant)),
+        );
+      }
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          children: [
+            if (_searchingDirectory)
+              const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+            else
+              const Icon(Icons.cloud_off_rounded, size: 18, color: Color(0xFFB91C1C)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                _searchingDirectory
+                    ? 'Recherche sur le serveur…'
+                    : 'Impossible de vérifier le réseau. Réessayez lorsque le serveur sera disponible.',
+                style: TextStyle(fontSize: 12, color: _searchingDirectory ? AppTheme.onSurfaceVariant : const Color(0xFF991B1B)),
+              ),
+            ),
+            if (!_searchingDirectory)
+              TextButton(onPressed: () => _searchOnlineDirectory(_searchQuery), child: const Text('Réessayer')),
+          ],
+        ),
+      );
+    }
 
     return Container(
       width: double.infinity,
@@ -1178,7 +1236,7 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
   }
 
   void _startCallWithUser(SovereignUser user, {required bool isVideo}) {
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (ctx) => CallDialog(
         peerName: user.name,
@@ -1346,6 +1404,7 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
           final confirmed = await showDialog<bool>(
             context: context,
             builder: (ctx) => AlertDialog(
+        scrollable: true,
               backgroundColor: Colors.white,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
               title: Row(

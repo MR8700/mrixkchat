@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../shared/responsive/responsive.dart';
 import 'package:provider/provider.dart';
 import '../../core/models/call_log.dart';
 import '../../core/repositories/call_history_repository.dart';
@@ -27,7 +28,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
               : throw Exception('No conversation'),
         );
 
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (ctx) => CallDialog(
         peerName: log.peerName,
@@ -39,9 +40,10 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
   }
 
   void _confirmClearAll() {
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (ctx) => AlertDialog(
+        scrollable: true,
         backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(

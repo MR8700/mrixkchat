@@ -25,6 +25,19 @@ func main() {
 	log.Printf("[MRixk Server] Max active devices per user: %d", cfg.MaxDevicesPerUser)
 
 	repo := database.NewMemoryRepository(cfg.MaxDevicesPerUser)
+	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
+		pg, err := database.NewPostgresPersister(dbURL)
+		if err != nil {
+			log.Fatalf("[MRixk Server] FATAL: cannot connect to PostgreSQL: %v", err)
+		}
+		if err := repo.SetPersister(pg); err != nil {
+			log.Fatalf("[MRixk Server] FATAL: cannot load state from PostgreSQL: %v", err)
+		}
+		log.Printf("[MRixk Server] PostgreSQL durable persistence active")
+		cfg.DataFilePath = "" // PostgreSQL is the single source of truth
+	} else {
+		log.Printf("[MRixk Server] WARNING: DATABASE_URL not set; using local file persistence only (ephemeral on free cloud hosts)")
+	}
 	if cfg.DataFilePath != "" {
 		if err := repo.SetStoragePath(cfg.DataFilePath); err != nil {
 			log.Printf("[MRixk Server] Notice: Initialized new durable state at %s", cfg.DataFilePath)

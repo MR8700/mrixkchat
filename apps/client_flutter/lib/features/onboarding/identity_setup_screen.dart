@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../shared/responsive/responsive.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../core/repositories/profile_repository.dart';
@@ -52,7 +53,9 @@ class _IdentitySetupScreenState extends State<IdentitySetupScreen> {
   }
 
   Future<void> _pickAvatar() async {
-    showModalBottomSheet(
+    showResponsiveSheet(
+      isScrollControlled: true,
+      useSafeArea: true,
       context: context,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
@@ -167,10 +170,11 @@ class _IdentitySetupScreenState extends State<IdentitySetupScreen> {
   }
 
   Future<void> _showCreatedRecoveryCodeDialog(BuildContext context, String code) async {
-    await showDialog(
+    await showResponsiveDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
+        scrollable: true,
         backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         title: Row(

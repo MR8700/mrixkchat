@@ -41,6 +41,19 @@ func (s *Service) Register(handle, password, recoveryPubKey, displayName string)
 
 // RegisterWithDetails registers a new sovereign user with complete profile data and recovery code.
 func (s *Service) RegisterWithDetails(handle, password, recoveryPubKey, recoveryCode, displayName, avatarRef, statusMessage string) (*database.User, error) {
+	return s.registerWithDetailsAndID("", handle, password, recoveryPubKey, recoveryCode, displayName, avatarRef, statusMessage)
+}
+
+// RestoreWithID re-registers an account after a server data reset, using its locally held
+// recovery code and the stable user ID. Deleted IDs remain blocked by their tombstones.
+func (s *Service) RestoreWithID(userID, handle, recoveryCode, displayName, avatarRef, statusMessage string) (*database.User, error) {
+	if strings.TrimSpace(userID) == "" || strings.TrimSpace(recoveryCode) == "" {
+		return nil, ErrAuthFailed
+	}
+	return s.registerWithDetailsAndID(userID, handle, "", "", recoveryCode, displayName, avatarRef, statusMessage)
+}
+
+func (s *Service) registerWithDetailsAndID(userID, handle, password, recoveryPubKey, recoveryCode, displayName, avatarRef, statusMessage string) (*database.User, error) {
 	cleanHandle := strings.TrimSpace(handle)
 	if !strings.HasPrefix(cleanHandle, "@") {
 		cleanHandle = "@" + cleanHandle
@@ -65,8 +78,11 @@ func (s *Service) RegisterWithDetails(handle, password, recoveryPubKey, recovery
 	}
 
 	pwdHash := hashPassword(password)
+	if userID == "" {
+		userID = fmt.Sprintf("usr-%d", time.Now().UnixNano())
+	}
 	user := &database.User{
-		ID:                fmt.Sprintf("usr-%d", time.Now().UnixNano()),
+		ID:                userID,
 		Handle:            cleanHandle,
 		PasswordHash:      pwdHash,
 		RecoveryPublicKey: recoveryPubKey,

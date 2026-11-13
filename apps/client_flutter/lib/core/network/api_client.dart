@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 /// Production-ready, offline-first API Client for the MRixk Go Backend.
@@ -9,7 +8,6 @@ class ApiClient {
   ApiClient._internal();
 
   static const String prodRemoteUrl = 'https://mrixk-backend.onrender.com/api/v1';
-  static const String localFallbackUrl = 'http://localhost:8080/api/v1';
   String baseUrl = prodRemoteUrl;
   String? _sessionToken;
 
@@ -17,40 +15,63 @@ class ApiClient {
     _sessionToken = token;
   }
 
-  /// Automatically resolves the active backend server (local or production).
-  /// Strictly online-first as required: prioritizes the production backend.
+  /// Optional override at build time: --dart-define=API_URL=https://host/api/v1
+  static const String _envUrl = String.fromEnvironment('API_URL');
+
+  bool _warmed = false;
+
+  /// Resolves the single source-of-truth backend.
+  /// Local development servers must be selected explicitly with --dart-define=API_URL=...
   Future<String> getActiveBaseUrl() async {
-    if (kIsWeb) {
-      // In web browser: if served over HTTPS or on GitHub Pages / remote domain,
-      // Mixed Content rules strictly forbid connecting to insecure http://localhost.
-      if (Uri.base.scheme == 'https' || !Uri.base.host.contains('localhost')) {
-        baseUrl = prodRemoteUrl;
-        return baseUrl;
-      }
+    if (_envUrl.isNotEmpty) {
+      baseUrl = _envUrl;
+      return baseUrl;
     }
-
-    // 1. Online-first: prioritize the remote production server
-    try {
-      final res = await http.get(Uri.parse('$prodRemoteUrl/health')).timeout(const Duration(milliseconds: 2000));
-      if (res.statusCode == 200) {
-        baseUrl = prodRemoteUrl;
-        return baseUrl;
-      }
-    } catch (_) {}
-
-    // 2. Fallback to local server if offline or running in local dev without internet
-    try {
-      final res = await http.get(Uri.parse('$localFallbackUrl/health')).timeout(const Duration(milliseconds: 600));
-      if (res.statusCode == 200) {
-        baseUrl = localFallbackUrl;
-        return baseUrl;
-      }
-    } catch (_) {}
-
+    baseUrl = prodRemoteUrl;
     return baseUrl;
   }
 
-  Map<String, String> _headers({String? contentType = 'application/json'}) {
+  /// Wakes up the (free-tier) server in the background; cold starts can take up to ~60s.
+  Future<bool> warmUp() async {
+    final target = await getActiveBaseUrl();
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        final res = await http.get(Uri.parse('$target/health')).timeout(const Duration(seconds: 40));
+        if (res.statusCode == 200) {
+          _warmed = true;
+          return true;
+        }
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  /// GET/POST with retry and a generous first-request timeout (cold start aware).
+  Future<http.Response> _send(
+    Future<http.Response> Function(String base) request, {
+    int retries = 2,
+  }) async {
+    final base = await getActiveBaseUrl();
+    final timeout = Duration(seconds: _warmed ? 12 : 45);
+    Object? lastError;
+    for (var attempt = 0; attempt <= retries; attempt++) {
+      try {
+        final res = await request(base).timeout(timeout);
+        if (res.statusCode >= 500 && attempt < retries) {
+          await Future.delayed(Duration(milliseconds: 600 * (attempt + 1)));
+          continue;
+        }
+        _warmed = true;
+        return res;
+      } catch (e) {
+        lastError = e;
+        await Future.delayed(Duration(milliseconds: 600 * (attempt + 1)));
+      }
+    }
+    throw ApiUnavailableException('Serveur injoignable ($lastError)');
+  }
+
+  Map<String, String> _headers({String? contentType = 'application/json', String? recoveryCode}) {
     final headers = <String, String>{};
     if (contentType != null) {
       headers['Content-Type'] = contentType;
@@ -58,14 +79,16 @@ class ApiClient {
     if (_sessionToken != null) {
       headers['Authorization'] = 'Bearer $_sessionToken';
     }
+    if (recoveryCode != null && recoveryCode.isNotEmpty) {
+      headers['X-MRixk-Recovery-Code'] = recoveryCode;
+    }
     return headers;
   }
 
   /// Checks if backend server is online and healthy.
   Future<bool> checkHealth() async {
     try {
-      final targetUrl = await getActiveBaseUrl();
-      final res = await http.get(Uri.parse('$targetUrl/health')).timeout(const Duration(seconds: 2));
+      final res = await _send((base) => http.get(Uri.parse('$base/health')), retries: 1);
       return res.statusCode == 200;
     } catch (_) {
       return false;
@@ -94,7 +117,7 @@ class ApiClient {
           if (statusMessage != null && statusMessage.isNotEmpty) 'status_message': statusMessage,
           if (password != null && password.isNotEmpty) 'password': password,
         }),
-      ).timeout(const Duration(seconds: 8));
+      ).timeout(const Duration(seconds: 65));
 
       if (res.statusCode == 201 || res.statusCode == 200) {
         return jsonDecode(res.body) as Map<String, dynamic>;
@@ -122,36 +145,18 @@ class ApiClient {
     String? preferredHandle,
   }) async {
     final cleanCode = recoveryCode.trim().toUpperCase();
-    final targetUrl = await getActiveBaseUrl();
-    final serversToTry = [
-      targetUrl,
-      if (targetUrl != prodRemoteUrl) prodRemoteUrl,
-      if (targetUrl != localFallbackUrl && !kIsWeb) localFallbackUrl,
-    ];
-
-    Exception? lastException;
-    for (final server in serversToTry) {
-      try {
-        final res = await http.post(
-          Uri.parse('$server/auth/recover'),
-          headers: _headers(),
-          body: jsonEncode({
-            'recovery_code': cleanCode,
-            if (preferredName != null && preferredName.isNotEmpty) 'preferred_name': preferredName.trim(),
-            if (preferredHandle != null && preferredHandle.isNotEmpty) 'preferred_handle': preferredHandle.trim(),
-          }),
-        ).timeout(const Duration(seconds: 6));
-
-        if (res.statusCode == 200) {
-          return jsonDecode(res.body) as Map<String, dynamic>;
-        }
-      } catch (e) {
-        if (e is Exception) lastException = e;
-      }
-    }
-
-    if (lastException != null) throw lastException;
-    throw Exception('Identifiant ou code de secours introuvable sur le serveur.');
+    final res = await _send((base) => http.post(
+      Uri.parse('$base/auth/recover'),
+      headers: _headers(),
+      body: jsonEncode({
+        'recovery_code': cleanCode,
+        if (preferredName != null && preferredName.isNotEmpty) 'preferred_name': preferredName.trim(),
+        if (preferredHandle != null && preferredHandle.isNotEmpty) 'preferred_handle': preferredHandle.trim(),
+      }),
+    ));
+    if (res.statusCode == 200) return jsonDecode(res.body) as Map<String, dynamic>;
+    if (res.statusCode == 404) throw Exception('Identifiant ou code de secours introuvable sur le serveur.');
+    throw ApiUnavailableException('Récupération impossible (${res.statusCode})');
   }
 
   /// Synchronizes profile updates to the server.
@@ -161,12 +166,13 @@ class ApiClient {
     String? displayName,
     String? avatarUrl,
     String? statusMessage,
+    String? recoveryCode,
   }) async {
     final targetUrl = await getActiveBaseUrl();
     try {
       final res = await http.put(
         Uri.parse('$targetUrl/users/$userId'),
-        headers: _headers(),
+        headers: _headers(recoveryCode: recoveryCode),
         body: jsonEncode({
           if (displayName != null) 'display_name': displayName,
           if (avatarUrl != null) 'avatar_url': avatarUrl,
@@ -180,65 +186,127 @@ class ApiClient {
   }
 
   /// Searches genuine registered users on the server.
+  /// Throws [ApiUnavailableException] when the server cannot be reached (never a silent empty list).
   Future<List<Map<String, dynamic>>> searchUsers(String query) async {
-    final targetUrl = await getActiveBaseUrl();
-    try {
-      final encoded = Uri.encodeComponent(query.trim());
-      final res = await http.get(
-        Uri.parse('$targetUrl/users/search?q=$encoded'),
-        headers: _headers(),
-      ).timeout(const Duration(seconds: 5));
-
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body) as Map<String, dynamic>;
-        final list = data['users'] as List<dynamic>?;
-        if (list != null) {
-          return list.map((item) => Map<String, dynamic>.from(item as Map)).toList();
-        }
+    final encoded = Uri.encodeComponent(query.trim());
+    final res = await _send((base) => http.get(
+          Uri.parse('$base/users/search?q=$encoded'),
+          headers: _headers(),
+        ));
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      final list = data['users'] as List<dynamic>?;
+      if (list != null) {
+        return list.map((item) => Map<String, dynamic>.from(item as Map)).toList();
       }
       return [];
+    }
+    throw ApiUnavailableException('Réponse serveur inattendue (${res.statusCode})');
+  }
+
+  /// Permanently deletes the account on the server (owner proven by recovery code).
+  /// Returns true when the account is deleted (or already gone).
+  Future<bool> deleteAccount({required String userId, required String recoveryCode}) async {
+    final res = await _send((base) => http.delete(
+          Uri.parse('$base/users/$userId'),
+          headers: _headers(recoveryCode: recoveryCode.trim().toUpperCase()),
+        ));
+    if (res.statusCode == 200) return true;
+    if (res.statusCode == 404) return true; // unknown to the server: nothing left to delete
+    if (res.statusCode == 403) {
+      throw Exception('Suppression refusée : code de récupération invalide.');
+    }
+    throw ApiUnavailableException('Suppression impossible (${res.statusCode})');
+  }
+
+  /// Re-registers the same local identity when a server reset erased it.
+  Future<Map<String, dynamic>> restoreAccount({
+    required String userId,
+    required String handle,
+    required String displayName,
+    required String recoveryCode,
+    String? avatarUrl,
+    String? statusMessage,
+  }) async {
+    final res = await _send((base) => http.post(
+      Uri.parse('$base/auth/restore'),
+      headers: _headers(),
+      body: jsonEncode({
+        'user_id': userId,
+        'handle': handle,
+        'display_name': displayName,
+        'recovery_code': recoveryCode,
+        if (avatarUrl != null) 'avatar_url': avatarUrl,
+        if (statusMessage != null) 'status_message': statusMessage,
+      }),
+    ));
+    if (res.statusCode == 201) return jsonDecode(res.body) as Map<String, dynamic>;
+    final message = _responseError(res.body) ?? 'Restauration impossible (${res.statusCode})';
+    throw Exception(message);
+  }
+
+  String? _responseError(String body) {
+    try {
+      final data = jsonDecode(body) as Map<String, dynamic>;
+      return data['error']?.toString();
     } catch (_) {
-      return [];
+      return null;
+    }
+  }
+
+  /// Reconciles known accounts with the server: which still exist, which were deleted.
+  /// Returns null when the server is unreachable (callers must not change local state then).
+  Future<UsersStatus?> usersStatus(List<String> ids) async {
+    if (ids.isEmpty) return UsersStatus(active: {}, deleted: {});
+    try {
+      final res = await _send(
+        (base) => http.post(
+          Uri.parse('$base/users/status'),
+          headers: _headers(),
+          body: jsonEncode({'ids': ids}),
+        ),
+        retries: 1,
+      );
+      if (res.statusCode != 200) return null;
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      final active = <String, Map<String, dynamic>>{};
+      for (final u in (data['active'] as List? ?? [])) {
+        final m = Map<String, dynamic>.from(u as Map);
+        active[(m['id'] ?? '').toString()] = m;
+      }
+      final deleted = <String, Map<String, dynamic>>{};
+      for (final u in (data['deleted'] as List? ?? [])) {
+        final m = Map<String, dynamic>.from(u as Map);
+        deleted[(m['user_id'] ?? '').toString()] = m;
+      }
+      final missing = (data['missing'] as List? ?? []).map((id) => id.toString()).toSet();
+      return UsersStatus(active: active, deleted: deleted, missing: missing);
+    } on ApiUnavailableException {
+      return null;
     }
   }
 
   /// Verifies if an identifier (user_id or @handle) exists on the server.
   Future<Map<String, dynamic>?> verifyContact(String identifier) async {
-    final targetUrl = await getActiveBaseUrl();
-    try {
-      final res = await http.post(
-        Uri.parse('$targetUrl/contacts/verify'),
-        headers: _headers(),
-        body: jsonEncode({'identifier': identifier.trim()}),
-      ).timeout(const Duration(seconds: 5));
-
-      if (res.statusCode == 200) {
-        return jsonDecode(res.body) as Map<String, dynamic>;
-      }
-      return null;
-    } catch (_) {
-      return null;
-    }
+    final res = await _send((base) => http.post(
+      Uri.parse('$base/contacts/verify'),
+      headers: _headers(),
+      body: jsonEncode({'identifier': identifier.trim()}),
+    ));
+    if (res.statusCode == 200) return jsonDecode(res.body) as Map<String, dynamic>;
+    throw ApiUnavailableException('Vérification impossible (${res.statusCode})');
   }
 
   /// Looks up a user by ID or handle from the server.
   Future<Map<String, dynamic>?> getUser(String idOrHandle) async {
-    final targetUrl = await getActiveBaseUrl();
-    try {
-      final encoded = Uri.encodeComponent(idOrHandle.trim());
-      final res = await http.get(
-        Uri.parse('$targetUrl/users/$encoded'),
-        headers: _headers(),
-      ).timeout(const Duration(seconds: 5));
-
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body) as Map<String, dynamic>;
-        return data['user'] as Map<String, dynamic>?;
-      }
-      return null;
-    } catch (_) {
-      return null;
+    final encoded = Uri.encodeComponent(idOrHandle.trim());
+    final res = await _send((base) => http.get(Uri.parse('$base/users/$encoded'), headers: _headers()));
+    if (res.statusCode == 200) {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      return data['user'] as Map<String, dynamic>?;
     }
+    if (res.statusCode == 404 || res.statusCode == 410) return null;
+    throw ApiUnavailableException('Recherche impossible (${res.statusCode})');
   }
 
   /// Authorizes a device and receives a session token.
@@ -398,4 +466,21 @@ class ApiClient {
       return null;
     }
   }
+}
+
+
+/// Raised when the online server cannot be reached.
+class ApiUnavailableException implements Exception {
+  final String message;
+  ApiUnavailableException(this.message);
+  @override
+  String toString() => message;
+}
+
+/// Result of reconciling local contacts/members with the server.
+class UsersStatus {
+  final Map<String, Map<String, dynamic>> active;
+  final Map<String, Map<String, dynamic>> deleted;
+  final Set<String> missing;
+  UsersStatus({required this.active, required this.deleted, this.missing = const {}});
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../shared/responsive/responsive.dart';
 import 'package:provider/provider.dart';
 import '../../core/repositories/assistant_repository.dart';
 import '../../core/theme/app_theme.dart';
@@ -42,16 +43,17 @@ class _AssistantScreenState extends State<AssistantScreen> {
   }
 
   void _openMemoryManager() {
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (ctx) => const MemoryManagerDialog(),
     );
   }
 
   void _confirmClearChat() {
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (ctx) => AlertDialog(
+        scrollable: true,
         backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/models/contact.dart';
@@ -19,24 +20,46 @@ class _AddContactDialogState extends State<AddContactDialog> {
   SovereignUser? _selectedUser;
   String? _errorMessage;
   bool _isSearchingOnline = false;
+  List<SovereignUser> _onlineResults = const [];
+  int _searchVersion = 0;
+  Timer? _autoRefresh;
+  Timer? _searchDebounce;
 
   @override
   void initState() {
     super.initState();
     _triggerOnlineSearch('');
+    // Newly registered users appear automatically without manual refresh.
+    _autoRefresh = Timer.periodic(const Duration(seconds: 20), (_) {
+      if (mounted && !_isSearchingOnline) _triggerOnlineSearch(_queryController.text);
+    });
   }
 
   void _triggerOnlineSearch(String q) {
-    setState(() => _isSearchingOnline = true);
-    IdentityDirectoryService.searchUsersOnline(q).then((_) {
-      if (mounted) setState(() => _isSearchingOnline = false);
-    }).catchError((_) {
-      if (mounted) setState(() => _isSearchingOnline = false);
+    _searchDebounce?.cancel();
+    final version = ++_searchVersion;
+    if (mounted) setState(() => _isSearchingOnline = true);
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () async {
+      try {
+        final results = await IdentityDirectoryService.searchUsersOnline(q);
+        if (mounted && version == _searchVersion) setState(() {
+          _onlineResults = results;
+          _isSearchingOnline = false;
+        });
+      } catch (_) {
+        if (mounted && version == _searchVersion) setState(() {
+          _onlineResults = const [];
+          _isSearchingOnline = false;
+        });
+      }
     });
   }
 
   @override
   void dispose() {
+    _autoRefresh?.cancel();
+    _searchDebounce?.cancel();
+    _searchVersion++;
     _queryController.dispose();
     super.dispose();
   }
@@ -67,8 +90,10 @@ class _AddContactDialogState extends State<AddContactDialog> {
     if (verifiedUser == null) {
       if (mounted) {
         setState(() {
-          _errorMessage =
-              'Utilisateur introuvable : L\'identifiant « $query » n\'existe pas sur le serveur en ligne.';
+          final onlineError = IdentityDirectoryService.lastOnlineError.value;
+          _errorMessage = onlineError == null
+              ? 'Utilisateur introuvable : l\'identifiant « $query » n\'existe pas sur le serveur.'
+              : 'Vérification impossible : le serveur est injoignable. Réessayez quand la connexion sera rétablie.';
         });
       }
       return;
@@ -160,7 +185,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
     final existingHandles = existingContacts.map((c) => c.handle.toLowerCase().replaceAll('@', '').trim()).toSet();
     final existingNames = existingContacts.map((c) => c.name.toLowerCase().trim()).toSet();
 
-    final allResults = IdentityDirectoryService.searchUsers(_queryController.text);
+    final allResults = _onlineResults;
 
     // Strictly exclude the current user from any search or directory results
     final nonSelfResults = allResults.where((u) {
@@ -172,14 +197,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
       return !isSelf;
     }).toList();
 
-    return Dialog(
-      backgroundColor: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 480),
-        child: Padding(
-          padding: const EdgeInsets.all(22),
-          child: Column(
+    return Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -260,6 +278,38 @@ class _AddContactDialogState extends State<AddContactDialog> {
               ),
               const SizedBox(height: 14),
 
+              ValueListenableBuilder<String?>(
+                valueListenable: IdentityDirectoryService.lastOnlineError,
+                builder: (context, err, _) {
+                  if (err == null) return const SizedBox.shrink();
+                  return Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 10),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEF2F2),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFFECACA)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.cloud_off_rounded, size: 18, color: Color(0xFFB91C1C)),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Text(
+                            'Serveur injoignable ou en cours de démarrage. La liste peut être incomplète.',
+                            style: TextStyle(fontSize: 11.5, color: Color(0xFF991B1B)),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () => _triggerOnlineSearch(_queryController.text),
+                          child: const Text('Réessayer', style: TextStyle(fontSize: 11.5)),
+                        ),
+          ],
+          );
+                },
+              ),
+
               // Section Header
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -300,7 +350,9 @@ class _AddContactDialogState extends State<AddContactDialog> {
                       Text(
                         _isSearchingOnline
                             ? 'Recherche sur le serveur en ligne...'
-                            : (_queryController.text.trim().isEmpty
+                            : (IdentityDirectoryService.lastOnlineError.value != null
+                                ? 'Liste des membres indisponible pour le moment.'
+                                : _queryController.text.trim().isEmpty
                                 ? 'Aucun autre utilisateur inscrit sur le réseau pour le moment.'
                                 : 'Aucun utilisateur certifié ne correspond à « ${_queryController.text.trim()} ».'),
                         textAlign: TextAlign.center,
@@ -438,9 +490,6 @@ class _AddContactDialogState extends State<AddContactDialog> {
                 ],
               ),
             ],
-          ),
-        ),
-      ),
-    );
+          );
   }
 }

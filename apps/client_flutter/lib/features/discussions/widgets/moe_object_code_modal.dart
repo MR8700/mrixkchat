@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../shared/responsive/responsive.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/models/moe_object.dart';
 
@@ -25,7 +26,8 @@ class MoeObjectCodeModal extends StatefulWidget {
     final isMobile = MediaQuery.of(context).size.width < 600;
 
     if (isMobile) {
-      await showModalBottomSheet(
+      await showResponsiveSheet(
+        useSafeArea: true,
         context: context,
         isScrollControlled: true,
         backgroundColor: Colors.transparent,
@@ -36,7 +38,7 @@ class MoeObjectCodeModal extends StatefulWidget {
         context: context,
         builder: (_) => Dialog(
           backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+          insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 20),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 720, maxHeight: 680),
             child: MoeObjectCodeModal(object: object, onApply: onApply),

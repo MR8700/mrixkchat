@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../shared/responsive/responsive.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/models/moe_object.dart';
 
@@ -68,9 +69,10 @@ class _MoeInteractiveDiagramWidgetState extends State<MoeInteractiveDiagramWidge
     if (widget.isReadOnly) return;
     final textController = TextEditingController(text: _nodes[index]);
 
-    showDialog(
+    showResponsiveDialog(
       context: context,
       builder: (ctx) => AlertDialog(
+        scrollable: true,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Modifier le Nœud', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
         content: TextField(

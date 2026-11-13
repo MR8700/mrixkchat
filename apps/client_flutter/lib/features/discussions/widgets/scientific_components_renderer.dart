@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import '../../../shared/responsive/responsive.dart';
 import '../../../core/theme/app_theme.dart';
 
 /// Interactive Scientific Chart Renderer for MRixk DWS.
@@ -716,9 +717,10 @@ class DwsPeriodicTableWidget extends StatelessWidget {
 
               return InkWell(
                 onTap: () {
-                  showDialog(
+                  showResponsiveDialog(
                     context: context,
                     builder: (ctx) => AlertDialog(
+        scrollable: true,
                       title: Row(
                         children: [
                           CircleAvatar(backgroundColor: color, child: Text(sym, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
