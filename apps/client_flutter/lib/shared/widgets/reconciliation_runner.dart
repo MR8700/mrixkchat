@@ -15,15 +15,18 @@ import '../responsive/responsive.dart';
 class ReconciliationRunner extends StatefulWidget {
   final Widget child;
   final GlobalKey<NavigatorState> navigatorKey;
-  const ReconciliationRunner({super.key, required this.child, required this.navigatorKey});
+  const ReconciliationRunner(
+      {super.key, required this.child, required this.navigatorKey});
 
   @override
   State<ReconciliationRunner> createState() => _ReconciliationRunnerState();
 }
 
-class _ReconciliationRunnerState extends State<ReconciliationRunner> with WidgetsBindingObserver {
+class _ReconciliationRunnerState extends State<ReconciliationRunner>
+    with WidgetsBindingObserver {
   Timer? _timer;
   bool _restorePromptShown = false;
+  bool _syncingRequests = false;
 
   @override
   void initState() {
@@ -49,6 +52,16 @@ class _ReconciliationRunnerState extends State<ReconciliationRunner> with Widget
     if (!mounted) return;
     final profileRepo = context.read<ProfileRepository>();
     if (!profileRepo.hasConfiguredIdentity) return;
+    if (!_syncingRequests) {
+      _syncingRequests = true;
+      try {
+        await context.read<MessageRepository>().syncIncomingMessageRequests();
+      } catch (_) {
+        // Keep already cached requests visible when the server is temporarily unavailable.
+      } finally {
+        _syncingRequests = false;
+      }
+    }
     final result = await AccountReconciliationService.run(
       contacts: context.read<ContactRepository>(),
       conversations: context.read<ConversationRepository>(),
@@ -75,8 +88,12 @@ class _ReconciliationRunnerState extends State<ReconciliationRunner> with Widget
             'Le serveur ne connaît plus ce compte. Voulez-vous le restaurer avec son même identifiant, son @handle et son code de secours local ?',
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Plus tard')),
-            FilledButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: const Text('Restaurer')),
+            TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Plus tard')),
+            FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Restaurer')),
           ],
         ),
       );

@@ -5,7 +5,8 @@ class GroupMember {
   final String avatarUrl;
   final String role; // 'creator', 'admin', 'member'
   final bool isMuted;
-  final int connectedDevicesCount; // Number of authorized devices for this account (1 to 3)
+  final int
+      connectedDevicesCount; // Number of authorized devices for this account (1 to 3)
 
   const GroupMember({
     required this.id,
@@ -56,7 +57,8 @@ class GroupMember {
       avatarUrl: avatarUrl ?? this.avatarUrl,
       role: role ?? this.role,
       isMuted: isMuted ?? this.isMuted,
-      connectedDevicesCount: connectedDevicesCount ?? this.connectedDevicesCount,
+      connectedDevicesCount:
+          connectedDevicesCount ?? this.connectedDevicesCount,
     );
   }
 
@@ -78,12 +80,14 @@ class GroupMember {
     avatarUrl: json['avatarUrl'] as String? ?? '',
     role: json['role'] as String? ?? 'member',
     isMuted: json['isMuted'] as bool? ?? false,
-    connectedDevicesCount: (json['connectedDevicesCount'] as num?)?.toInt() ?? 1,
+        connectedDevicesCount:
+            (json['connectedDevicesCount'] as num?)?.toInt() ?? 1,
   );
 }
 
 class Conversation {
   final String id;
+  final String? peerUserId;
   final String title;
   final String peerAvatar;
   final bool isGroup;
@@ -113,6 +117,7 @@ class Conversation {
 
   Conversation({
     required this.id,
+    this.peerUserId,
     required this.title,
     required this.peerAvatar,
     this.isGroup = false,
@@ -141,7 +146,8 @@ class Conversation {
 
   /// Total count of unique user accounts in the group (based strictly on user_id)
   int get totalUserAccountsCount {
-    if (groupMembers.isEmpty) return (isGroup ? (groupMembersCount > 0 ? groupMembersCount : 1) : 1);
+    if (groupMembers.isEmpty)
+      return (isGroup ? (groupMembersCount > 0 ? groupMembersCount : 1) : 1);
     final uniqueIds = <String>{};
     for (final m in groupMembers) {
       final uid = m.userId.isNotEmpty ? m.userId : m.id;
@@ -149,7 +155,9 @@ class Conversation {
         uniqueIds.add(uid);
       }
     }
-    return uniqueIds.isNotEmpty ? uniqueIds.length : (isGroup ? (groupMembersCount > 0 ? groupMembersCount : 1) : 1);
+    return uniqueIds.isNotEmpty
+        ? uniqueIds.length
+        : (isGroup ? (groupMembersCount > 0 ? groupMembersCount : 1) : 1);
   }
 
   /// Total count of all connected devices across all members
@@ -174,6 +182,7 @@ class Conversation {
 
   Conversation copyWith({
     String? id,
+    String? peerUserId,
     String? title,
     String? peerAvatar,
     bool? isGroup,
@@ -201,6 +210,7 @@ class Conversation {
   }) {
     return Conversation(
       id: id ?? this.id,
+      peerUserId: peerUserId ?? this.peerUserId,
       title: title ?? this.title,
       peerAvatar: peerAvatar ?? this.peerAvatar,
       isGroup: isGroup ?? this.isGroup,
@@ -220,16 +230,21 @@ class Conversation {
       isBlocked: isBlocked ?? this.isBlocked,
       blockedMessage: blockedMessage ?? this.blockedMessage,
       description: description ?? this.description,
-      onlyAdminsCanSendMessages: onlyAdminsCanSendMessages ?? this.onlyAdminsCanSendMessages,
-      onlyAdminsCanEditGroupInfo: onlyAdminsCanEditGroupInfo ?? this.onlyAdminsCanEditGroupInfo,
-      onlyAdminsCanAddMembers: onlyAdminsCanAddMembers ?? this.onlyAdminsCanAddMembers,
-      onlyAdminsCanEditNotes: onlyAdminsCanEditNotes ?? this.onlyAdminsCanEditNotes,
+      onlyAdminsCanSendMessages:
+          onlyAdminsCanSendMessages ?? this.onlyAdminsCanSendMessages,
+      onlyAdminsCanEditGroupInfo:
+          onlyAdminsCanEditGroupInfo ?? this.onlyAdminsCanEditGroupInfo,
+      onlyAdminsCanAddMembers:
+          onlyAdminsCanAddMembers ?? this.onlyAdminsCanAddMembers,
+      onlyAdminsCanEditNotes:
+          onlyAdminsCanEditNotes ?? this.onlyAdminsCanEditNotes,
       groupMembers: groupMembers ?? this.groupMembers,
     );
   }
 
   Map<String, dynamic> toJson() => {
     'id': id,
+        'peerUserId': peerUserId,
     'title': title,
     'peerAvatar': peerAvatar,
     'isGroup': isGroup,
@@ -283,6 +298,7 @@ class Conversation {
 
     return Conversation(
       id: json['id'] as String,
+      peerUserId: json['peerUserId'] as String?,
       title: json['title'] as String,
       peerAvatar: json['peerAvatar'] as String,
       isGroup: isGroup,
@@ -302,9 +318,12 @@ class Conversation {
       isBlocked: json['isBlocked'] as bool? ?? false,
       blockedMessage: json['blockedMessage'] as String?,
       description: json['description'] as String?,
-      onlyAdminsCanSendMessages: json['onlyAdminsCanSendMessages'] as bool? ?? false,
-      onlyAdminsCanEditGroupInfo: json['onlyAdminsCanEditGroupInfo'] as bool? ?? false,
-      onlyAdminsCanAddMembers: json['onlyAdminsCanAddMembers'] as bool? ?? false,
+      onlyAdminsCanSendMessages:
+          json['onlyAdminsCanSendMessages'] as bool? ?? false,
+      onlyAdminsCanEditGroupInfo:
+          json['onlyAdminsCanEditGroupInfo'] as bool? ?? false,
+      onlyAdminsCanAddMembers:
+          json['onlyAdminsCanAddMembers'] as bool? ?? false,
       onlyAdminsCanEditNotes: json['onlyAdminsCanEditNotes'] as bool? ?? false,
       groupMembers: dedupedMembers,
     );

@@ -21,6 +21,7 @@ import '../moments/widgets/add_moment_dialog.dart';
 import '../moments/widgets/moment_story_viewer_dialog.dart';
 import '../profile/widgets/device_manager_dialog.dart';
 import 'conversation_detail_screen.dart';
+import 'message_requests_screen.dart';
 import 'widgets/audio_player_widget.dart';
 import 'widgets/call_dialog.dart';
 
@@ -65,7 +66,8 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
       return;
     }
     setState(() => _searchingDirectory = true);
-    _directorySearchDebounce = Timer(const Duration(milliseconds: 350), () async {
+    _directorySearchDebounce =
+        Timer(const Duration(milliseconds: 350), () async {
       final results = await IdentityDirectoryService.searchUsersOnline(query);
       if (!mounted || version != _directorySearchVersion) return;
       setState(() {
@@ -88,7 +90,8 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
           return AlertDialog(
         scrollable: true,
             backgroundColor: Colors.white,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
             title: Row(
               children: const [
                 Icon(Icons.chat_bubble_outline, color: AppTheme.primary),
@@ -107,8 +110,12 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                   TextField(
                     controller: titleController,
                     decoration: InputDecoration(
-                      labelText: isGroup ? 'Nom du groupe' : 'Nom ou @identifiant du contact',
-                      hintText: isGroup ? 'Ex: Équipe Projet' : 'Ex: @handle ou Prénom',
+                      labelText: isGroup
+                          ? 'Nom du groupe'
+                          : 'Nom ou @identifiant du contact',
+                      hintText: isGroup
+                          ? 'Ex: Équipe Projet'
+                          : 'Ex: @handle ou Prénom',
                       border: const OutlineInputBorder(),
                       errorText: dialogError,
                     ),
@@ -154,31 +161,38 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppTheme.primary,
                   foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
                 ),
                 onPressed: () {
                   final title = titleController.text.trim();
                   if (title.isEmpty) return;
 
-                  final myProfile = context.read<ProfileRepository>().getProfile();
+                  final myProfile =
+                      context.read<ProfileRepository>().getProfile();
 
                   if (!isGroup) {
                     final titleLower = title.toLowerCase();
-                    final myNameLower = myProfile.displayName.trim().toLowerCase();
+                    final myNameLower =
+                        myProfile.displayName.trim().toLowerCase();
                     final myHandleLower = myProfile.handle.trim().toLowerCase();
 
                     if ((myNameLower.isNotEmpty && titleLower == myNameLower) ||
-                        (myHandleLower.isNotEmpty && titleLower == myHandleLower) ||
+                        (myHandleLower.isNotEmpty &&
+                            titleLower == myHandleLower) ||
                         titleLower.contains('moi-même')) {
                       setModalState(() {
-                        dialogError = 'Une discussion « Note à moi-même » existe déjà.';
+                        dialogError =
+                            'Une discussion « Note à moi-même » existe déjà.';
                       });
                       return;
                     }
 
                     // Check if exists in Identity Directory or Contact Repository
-                    final inDirectory = IdentityDirectoryService.findUser(title);
-                    final contacts = context.read<ContactRepository>().getAllContacts();
+                    final inDirectory =
+                        IdentityDirectoryService.findUser(title);
+                    final contacts =
+                        context.read<ContactRepository>().getAllContacts();
                     final inContacts = contacts.any((c) =>
                         c.name.toLowerCase() == titleLower ||
                         c.handle.toLowerCase() == titleLower ||
@@ -186,7 +200,8 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
 
                     if (inDirectory == null && !inContacts) {
                       setModalState(() {
-                        dialogError = 'Utilisateur introuvable sur le réseau sécurisé.';
+                        dialogError =
+                            'Utilisateur introuvable sur le réseau sécurisé.';
                       });
                       return;
                     }
@@ -206,33 +221,54 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
 
                   final creatorMember = GroupMember(
                     id: myProfile.id,
-                    name: myProfile.displayName.isNotEmpty ? '${myProfile.displayName} (Moi)' : 'Moi',
+                    name: myProfile.displayName.isNotEmpty
+                        ? '${myProfile.displayName} (Moi)'
+                        : 'Moi',
                     handle: myProfile.handle,
                     avatarUrl: myProfile.avatarUrl,
                     role: 'creator',
                     connectedDevicesCount: myDeviceCount,
                   );
 
+                  String? peerUserId;
+                  if (!isGroup) {
+                    peerUserId = IdentityDirectoryService.findUser(title)?.id;
+                    for (final contact
+                        in context.read<ContactRepository>().getAllContacts()) {
+                      if (contact.name.toLowerCase() == title.toLowerCase() ||
+                          contact.handle.toLowerCase() == title.toLowerCase()) {
+                        peerUserId = contact.id;
+                        break;
+                      }
+                    }
+                  }
+
                   final newConv = Conversation(
                     id: 'conv_${DateTime.now().millisecondsSinceEpoch}',
+                    peerUserId: peerUserId,
                     title: title,
                     peerAvatar: '',
                     isGroup: isGroup,
                     groupMembersCount: 1,
                     groupMembers: isGroup ? [creatorMember] : const [],
-                    lastMessage: firstMsg.isNotEmpty ? firstMsg : 'Discussion créée',
+                    lastMessage:
+                        firstMsg.isNotEmpty ? firstMsg : 'Discussion créée',
                     lastMessageTime: timeStr,
                     unreadCount: 0,
                     tagText: isGroup ? 'Groupe sécurisé' : 'Privé',
                   );
-                  context.read<ConversationRepository>().createConversation(newConv);
+                  context
+                      .read<ConversationRepository>()
+                      .createConversation(newConv);
 
                   if (firstMsg.isNotEmpty) {
                     final msg = Message(
                       id: 'msg_${DateTime.now().millisecondsSinceEpoch}',
                       conversationId: newConv.id,
                       senderId: myProfile.id,
-                      senderName: myProfile.displayName.isNotEmpty ? myProfile.displayName : 'Moi',
+                      senderName: myProfile.displayName.isNotEmpty
+                          ? myProfile.displayName
+                          : 'Moi',
                       senderAvatar: myProfile.avatarUrl,
                       type: MessageType.text,
                       content: firstMsg,
@@ -249,7 +285,8 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                   } else {
                     Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (_) => ConversationDetailScreen(conversation: newConv),
+                        builder: (_) =>
+                            ConversationDetailScreen(conversation: newConv),
                       ),
                     );
                   }
@@ -285,13 +322,35 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                   SizedBox(width: 8),
                   Text(
                     'Options des Discussions',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.onSurface),
+                    style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.onSurface),
                   ),
                 ],
               ),
               const SizedBox(height: 14),
               ListTile(
-                leading: const Icon(Icons.mark_chat_read_outlined, color: AppTheme.primary),
+                leading: const Icon(Icons.mark_email_unread_outlined,
+                    color: AppTheme.primary),
+                title: const Text('Demandes de message'),
+                trailing: Badge(
+                  label: Text(
+                      '${context.read<MessageRepository>().getPendingMessageRequests().length}'),
+                  isLabelVisible: context
+                      .read<MessageRepository>()
+                      .getPendingMessageRequests()
+                      .isNotEmpty,
+                ),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => const MessageRequestsScreen()));
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.mark_chat_read_outlined,
+                    color: AppTheme.primary),
                 title: const Text('Tout marquer comme lu'),
                 onTap: () {
                   final convRepo = context.read<ConversationRepository>();
@@ -300,7 +359,9 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                   }
                   Navigator.of(ctx).pop();
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Toutes les discussions marquées comme lues')),
+                    const SnackBar(
+                        content:
+                            Text('Toutes les discussions marquées comme lues')),
                   );
                 },
               ),
@@ -316,17 +377,20 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.phone_in_talk_outlined, color: AppTheme.primary),
+                leading: const Icon(Icons.phone_in_talk_outlined,
+                    color: AppTheme.primary),
                 title: const Text('Historique des appels sécurisés'),
                 onTap: () {
                   Navigator.of(ctx).pop();
                   Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const CallHistoryScreen()),
+                    MaterialPageRoute(
+                        builder: (_) => const CallHistoryScreen()),
                   );
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.folder_special_outlined, color: AppTheme.primary),
+                leading: const Icon(Icons.folder_special_outlined,
+                    color: AppTheme.primary),
                 title: const Text('Ouvrir le Coffre Médias'),
                 onTap: () {
                   Navigator.of(ctx).pop();
@@ -377,7 +441,8 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
 
                 // 4. Search and Filter Chips
                 SliverToBoxAdapter(
-                  child: _buildSearchAndFilters(totalCount, unreadCount, groupCount, archivedCount),
+                  child: _buildSearchAndFilters(
+                      totalCount, unreadCount, groupCount, archivedCount),
                 ),
 
                 // 5. Conversations Cards List or Coherent Empty State
@@ -428,16 +493,19 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                                 ? () => setState(() => _selectedFilter = 'Tous')
                                 : (_selectedFilter == 'Tous'
                                     ? _showNewConversationDialog
-                                    : () => setState(() => _selectedFilter = 'Tous')),
+                                    : () => setState(
+                                        () => _selectedFilter = 'Tous')),
                           ),
                   )
                 else ...[
                   if (_selectedFilter == 'Archivés')
                     SliverToBoxAdapter(
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 6),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 8),
                           decoration: BoxDecoration(
                             color: const Color(0xFFEFF6FF),
                             borderRadius: BorderRadius.circular(16),
@@ -445,7 +513,8 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                           ),
                           child: Row(
                             children: [
-                              const Icon(Icons.archive_outlined, color: Color(0xFF1D4ED8), size: 20),
+                              const Icon(Icons.archive_outlined,
+                                  color: Color(0xFF1D4ED8), size: 20),
                               const SizedBox(width: 10),
                               const Expanded(
                                 child: Text(
@@ -458,8 +527,12 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                                 ),
                               ),
                               TextButton(
-                                onPressed: () => setState(() => _selectedFilter = 'Tous'),
-                                child: const Text('Fermer', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1D4ED8))),
+                                onPressed: () =>
+                                    setState(() => _selectedFilter = 'Tous'),
+                                child: const Text('Fermer',
+                                    style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF1D4ED8))),
                               ),
                             ],
                           ),
@@ -467,7 +540,8 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                       ),
                     ),
                   SliverPadding(
-                    padding: const EdgeInsets.only(left: 16, right: 16, bottom: 100, top: 8),
+                    padding: const EdgeInsets.only(
+                        left: 16, right: 16, bottom: 100, top: 8),
                     sliver: SliverList(
                       delegate: SliverChildBuilderDelegate(
                         (context, index) {
@@ -509,7 +583,8 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                         blurRadius: 16,
                       ),
                     ],
-                    border: Border.all(color: Colors.white.withOpacity(0.4), width: 1.5),
+                    border: Border.all(
+                        color: Colors.white.withOpacity(0.4), width: 1.5),
                   ),
                   child: const Icon(Icons.add, color: Colors.white, size: 28),
                 ),
@@ -549,7 +624,8 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                       ),
                       const SizedBox(width: 6),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
                           color: const Color(0xFFECFDF5),
                           borderRadius: BorderRadius.circular(12),
@@ -605,7 +681,8 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(color: const Color(0xFFDFE4ED)),
                   ),
-                  child: const Icon(Icons.phone_outlined, size: 18, color: AppTheme.primary),
+                  child: const Icon(Icons.phone_outlined,
+                      size: 18, color: AppTheme.primary),
                 ),
                 onPressed: () {
                   Navigator.of(context).push(
@@ -626,7 +703,8 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(color: const Color(0xFFDFE4ED)),
                   ),
-                  child: const Icon(Icons.folder_special_outlined, size: 18, color: AppTheme.primary),
+                  child: const Icon(Icons.folder_special_outlined,
+                      size: 18, color: AppTheme.primary),
                 ),
                 onPressed: () {
                   Navigator.of(context).push(
@@ -647,7 +725,29 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(color: const Color(0xFFCBD5E1)),
                   ),
-                  child: const Icon(Icons.tune, size: 18, color: AppTheme.primary),
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      const Center(
+                          child: Icon(Icons.tune,
+                              size: 18, color: AppTheme.primary)),
+                      if (context
+                          .watch<MessageRepository>()
+                          .getPendingMessageRequests()
+                          .isNotEmpty)
+                        Positioned(
+                          right: 1,
+                          top: 1,
+                          child: Container(
+                            width: 8,
+                            height: 8,
+                            decoration: const BoxDecoration(
+                                color: Color(0xFFDC2626),
+                                shape: BoxShape.circle),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
                 onPressed: _showDiscussionOptionsMenu,
                 tooltip: 'Options des discussions',
@@ -673,9 +773,8 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
     );
   }
 
-
-
-  void _showMomentStory(BuildContext context, List<Moment> moments, {int initialIndex = 0}) {
+  void _showMomentStory(BuildContext context, List<Moment> moments,
+      {int initialIndex = 0}) {
     if (moments.isEmpty) return;
     showDialog(
       context: context,
@@ -693,17 +792,23 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
     final profile = context.watch<ProfileRepository>().getProfile();
 
     // Check if the current user has any moment published
-    final myMoments = moments.where((m) =>
+    final myMoments = moments
+        .where((m) =>
       m.authorId == profile.id ||
-      (profile.displayName.isNotEmpty && m.authorName.toLowerCase() == profile.displayName.toLowerCase())
-    ).toList();
+            (profile.displayName.isNotEmpty &&
+                m.authorName.toLowerCase() ==
+                    profile.displayName.toLowerCase()))
+        .toList();
 
     // Filter contacts' moments
-    final otherMoments = moments.where((m) =>
+    final otherMoments = moments
+        .where((m) =>
       !myMoments.contains(m) &&
       m.authorId != profile.id &&
-      (profile.displayName.isEmpty || m.authorName.toLowerCase() != profile.displayName.toLowerCase())
-    ).toList();
+            (profile.displayName.isEmpty ||
+                m.authorName.toLowerCase() !=
+                    profile.displayName.toLowerCase()))
+        .toList();
 
     // Group contact moments by author key to play their stories sequentially
     final Map<String, List<Moment>> contactMomentsGrouped = {};
@@ -790,7 +895,11 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                   shape: BoxShape.circle,
                   gradient: hasMoment
                       ? const LinearGradient(
-                          colors: [AppTheme.primary, Color(0xFF245BDB), AppTheme.secondaryGlow],
+                          colors: [
+                            AppTheme.primary,
+                            Color(0xFF245BDB),
+                            AppTheme.secondaryGlow
+                          ],
                           begin: Alignment.bottomLeft,
                           end: Alignment.topRight,
                         )
@@ -800,7 +909,9 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                       : Border.all(color: const Color(0xFFDFE4ED), width: 1.5),
                 ),
                 child: AppAvatar(
-                  name: profile.displayName.isNotEmpty ? profile.displayName : 'Moi',
+                  name: profile.displayName.isNotEmpty
+                      ? profile.displayName
+                      : 'Moi',
                   avatarUrl: profile.avatarUrl,
                   radius: 23,
                   isClickable: false,
@@ -866,7 +977,11 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                 padding: const EdgeInsets.all(2.5),
                 decoration: const BoxDecoration(
                   gradient: LinearGradient(
-                    colors: [AppTheme.primary, Color(0xFF245BDB), AppTheme.secondaryGlow],
+                    colors: [
+                      AppTheme.primary,
+                      Color(0xFF245BDB),
+                      AppTheme.secondaryGlow
+                    ],
                     begin: Alignment.bottomLeft,
                     end: Alignment.topRight,
                   ),
@@ -885,7 +1000,8 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                   top: 0,
                   right: 0,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                     decoration: BoxDecoration(
                       color: AppTheme.secondary,
                       borderRadius: BorderRadius.circular(8),
@@ -923,7 +1039,8 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
     );
   }
 
-  Widget _buildSearchAndFilters(int total, int unread, int groups, int archived) {
+  Widget _buildSearchAndFilters(
+      int total, int unread, int groups, int archived) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Column(
@@ -967,7 +1084,8 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                       setState(() => _searchQuery = '');
                       _searchOnlineDirectory('');
                     },
-                    child: const Icon(Icons.close, size: 18, color: Colors.grey),
+                    child:
+                        const Icon(Icons.close, size: 18, color: Colors.grey),
                   ),
                 const SizedBox(width: 6),
                 const Icon(Icons.mic, size: 20, color: Colors.grey),
@@ -1008,7 +1126,8 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
       if (!_searchingDirectory && error == null) {
         return const Padding(
           padding: EdgeInsets.symmetric(vertical: 8),
-          child: Text('Aucun utilisateur trouvé sur le serveur.', style: TextStyle(fontSize: 12, color: AppTheme.onSurfaceVariant)),
+          child: Text('Aucun utilisateur trouvé sur le serveur.',
+              style: TextStyle(fontSize: 12, color: AppTheme.onSurfaceVariant)),
         );
       }
       return Padding(
@@ -1016,20 +1135,30 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
         child: Row(
           children: [
             if (_searchingDirectory)
-              const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+              const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2))
             else
-              const Icon(Icons.cloud_off_rounded, size: 18, color: Color(0xFFB91C1C)),
+              const Icon(Icons.cloud_off_rounded,
+                  size: 18, color: Color(0xFFB91C1C)),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
                 _searchingDirectory
                     ? 'Recherche sur le serveur…'
                     : 'Impossible de vérifier le réseau. Réessayez lorsque le serveur sera disponible.',
-                style: TextStyle(fontSize: 12, color: _searchingDirectory ? AppTheme.onSurfaceVariant : const Color(0xFF991B1B)),
+                style: TextStyle(
+                    fontSize: 12,
+                    color: _searchingDirectory
+                        ? AppTheme.onSurfaceVariant
+                        : const Color(0xFF991B1B)),
               ),
             ),
             if (!_searchingDirectory)
-              TextButton(onPressed: () => _searchOnlineDirectory(_searchQuery), child: const Text('Réessayer')),
+              TextButton(
+                  onPressed: () => _searchOnlineDirectory(_searchQuery),
+                  child: const Text('Réessayer')),
           ],
         ),
       );
@@ -1061,7 +1190,8 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                   color: AppTheme.primary.withOpacity(0.1),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.bolt, size: 14, color: AppTheme.primary),
+                child:
+                    const Icon(Icons.bolt, size: 14, color: AppTheme.primary),
               ),
               const SizedBox(width: 8),
               Text(
@@ -1203,7 +1333,8 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
       } else {
         Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (ctx) => ConversationDetailScreen(conversation: existingConv!),
+            builder: (ctx) =>
+                ConversationDetailScreen(conversation: existingConv!),
           ),
         );
       }
@@ -1213,6 +1344,7 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
           '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
       final newConv = Conversation(
         id: 'conv_${DateTime.now().millisecondsSinceEpoch}',
+        peerUserId: user.id,
         title: user.name,
         peerAvatar: user.avatarUrl,
         isGroup: false,
@@ -1261,7 +1393,8 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
         decoration: BoxDecoration(
           color: isSelected ? AppTheme.primary : Colors.white,
           borderRadius: BorderRadius.circular(20),
-          border: isSelected ? null : Border.all(color: const Color(0xFFDFE4ED)),
+          border:
+              isSelected ? null : Border.all(color: const Color(0xFFDFE4ED)),
           boxShadow: isSelected
               ? [
                   BoxShadow(
@@ -1303,7 +1436,9 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                 decoration: BoxDecoration(
-                  color: isSelected ? Colors.white.withOpacity(0.2) : AppTheme.primarySoft,
+                  color: isSelected
+                      ? Colors.white.withOpacity(0.2)
+                      : AppTheme.primarySoft,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
@@ -1329,7 +1464,9 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
       background: Container(
         margin: const EdgeInsets.only(bottom: 10),
         decoration: BoxDecoration(
-          color: conv.isArchived ? const Color(0xFF3B82F6) : const Color(0xFF10B981),
+          color: conv.isArchived
+              ? const Color(0xFF3B82F6)
+              : const Color(0xFF10B981),
           borderRadius: BorderRadius.circular(18),
         ),
         alignment: Alignment.centerLeft,
@@ -1337,7 +1474,9 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
         child: Row(
           children: [
             Icon(
-              conv.isArchived ? Icons.unarchive_outlined : Icons.archive_outlined,
+              conv.isArchived
+                  ? Icons.unarchive_outlined
+                  : Icons.archive_outlined,
               color: Colors.white,
               size: 24,
             ),
@@ -1385,13 +1524,17 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(
-                  conv.isArchived ? 'Discussion désarchivée' : 'Discussion archivée',
+                  conv.isArchived
+                      ? 'Discussion désarchivée'
+                      : 'Discussion archivée',
                 ),
                 action: SnackBarAction(
                   label: 'Annuler',
                   textColor: Colors.amber,
                   onPressed: () {
-                    context.read<ConversationRepository>().toggleArchive(conv.id);
+                    context
+                        .read<ConversationRepository>()
+                        .toggleArchive(conv.id);
                   },
                 ),
                 duration: const Duration(seconds: 3),
@@ -1406,17 +1549,20 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
             builder: (ctx) => AlertDialog(
         scrollable: true,
               backgroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20)),
               title: Row(
                 children: const [
                   Icon(Icons.delete_forever, color: Color(0xFFEF4444)),
                   SizedBox(width: 8),
-                  Text('Supprimer la discussion ?', style: TextStyle(fontSize: 16)),
+                  Text('Supprimer la discussion ?',
+                      style: TextStyle(fontSize: 16)),
                 ],
               ),
               content: Text(
                 'Êtes-vous sûr de vouloir effacer l\'historique avec ${conv.title} sur cet appareil ?',
-                style: const TextStyle(fontSize: 13.5, color: AppTheme.onSurfaceVariant),
+                style: const TextStyle(
+                    fontSize: 13.5, color: AppTheme.onSurfaceVariant),
               ),
               actions: [
                 TextButton(
@@ -1435,7 +1581,9 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
             ),
           );
           if (confirmed == true && mounted) {
-            await context.read<ConversationRepository>().deleteConversation(conv.id);
+            await context
+                .read<ConversationRepository>()
+                .deleteConversation(conv.id);
             return true;
           }
           return false;
@@ -1480,12 +1628,16 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                     height: 48,
                     decoration: BoxDecoration(
                       gradient: const LinearGradient(
-                        colors: [AppTheme.primarySoft, AppTheme.secondaryLight],
+                          colors: [
+                            AppTheme.primarySoft,
+                            AppTheme.secondaryLight
+                          ],
                       ),
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(color: const Color(0xFFDBEAFE)),
                     ),
-                    child: const Icon(Icons.groups, color: AppTheme.primary, size: 24),
+                      child: const Icon(Icons.groups,
+                          color: AppTheme.primary, size: 24),
                   )
                 else if (conv.title.contains('Coffre'))
                   Container(
@@ -1496,7 +1648,8 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(color: const Color(0xFFDBEAFE)),
                     ),
-                    child: const Icon(Icons.shield, color: AppTheme.primary, size: 24),
+                      child: const Icon(Icons.shield,
+                          color: AppTheme.primary, size: 24),
                   )
                 else
                   AppAvatar(
@@ -1510,7 +1663,8 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                     bottom: -2,
                     right: -2,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 5, vertical: 1),
                       decoration: BoxDecoration(
                         color: AppTheme.primary,
                         borderRadius: BorderRadius.circular(8),
@@ -1549,7 +1703,8 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                           if (conv.isVerified) ...[
                             const SizedBox(width: 4),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 5, vertical: 1),
                               decoration: BoxDecoration(
                                 color: const Color(0xFFECFDF5),
                                 borderRadius: BorderRadius.circular(8),
@@ -1570,8 +1725,12 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                         conv.lastMessageTime,
                         style: TextStyle(
                           fontSize: 11.5,
-                          fontWeight: conv.unreadCount > 0 ? FontWeight.bold : FontWeight.w500,
-                          color: conv.unreadCount > 0 ? AppTheme.primary : AppTheme.onSurfaceVariant,
+                            fontWeight: conv.unreadCount > 0
+                                ? FontWeight.bold
+                                : FontWeight.w500,
+                            color: conv.unreadCount > 0
+                                ? AppTheme.primary
+                                : AppTheme.onSurfaceVariant,
                         ),
                       ),
                     ],
@@ -1591,7 +1750,8 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                   if (conv.hasDocument) ...[
                     Row(
                       children: const [
-                        Icon(Icons.description, size: 16, color: AppTheme.primary),
+                          Icon(Icons.description,
+                              size: 16, color: AppTheme.primary),
                         SizedBox(width: 4),
                         Expanded(
                           child: Text(
@@ -1621,8 +1781,9 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                             color: conv.unreadCount > 0
                                 ? AppTheme.onSurface
                                 : AppTheme.onSurfaceVariant,
-                            fontWeight:
-                                conv.unreadCount > 0 ? FontWeight.w600 : FontWeight.normal,
+                              fontWeight: conv.unreadCount > 0
+                                  ? FontWeight.w600
+                                  : FontWeight.normal,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -1664,7 +1825,8 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                       children: [
                         Row(
                           children: const [
-                            Icon(Icons.lock, size: 12, color: Color(0xFF059669)),
+                              Icon(Icons.lock,
+                                  size: 12, color: Color(0xFF059669)),
                             SizedBox(width: 3),
                             Text(
                               'Connexion sécurisée',
@@ -1677,7 +1839,8 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                           ],
                         ),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 1.5),
                           decoration: BoxDecoration(
                             color: AppTheme.primarySoft,
                             borderRadius: BorderRadius.circular(8),

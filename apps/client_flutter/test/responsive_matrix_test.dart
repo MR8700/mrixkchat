@@ -89,13 +89,16 @@ void main() {
           conversation: ConversationRepository(db).getAllConversations().first,
         ),
     'Bloc-notes de groupe': () => GroupNotepadScreen(
-          conversation: ConversationRepository(db).getAllConversations().firstWhere((c) => c.isGroup),
+          conversation: ConversationRepository(db)
+              .getAllConversations()
+              .firstWhere((c) => c.isGroup),
         ),
   };
 
   for (final sizeEntry in sizes.entries) {
     for (final screenEntry in screens.entries) {
-      testWidgets('${screenEntry.key} @ ${sizeEntry.key} sans débordement', (tester) async {
+      testWidgets('${screenEntry.key} @ ${sizeEntry.key} sans débordement',
+          (tester) async {
         tester.view.physicalSize = sizeEntry.value;
         tester.view.devicePixelRatio = 1.0;
         addTearDown(() {
@@ -112,11 +115,14 @@ void main() {
       });
     }
 
-    testWidgets('AddContactDialog @ ${sizeEntry.key} (clavier ouvert) sans débordement', (tester) async {
+    testWidgets(
+        'AddContactDialog @ ${sizeEntry.key} (clavier ouvert) sans débordement',
+        (tester) async {
       tester.view.physicalSize = sizeEntry.value;
       tester.view.devicePixelRatio = 1.0;
       // Simulate on-screen keyboard taking ~40% of the height
-      tester.view.viewInsets = FakeViewPadding(bottom: sizeEntry.value.height * 0.4);
+      tester.view.viewInsets =
+          FakeViewPadding(bottom: sizeEntry.value.height * 0.4);
       addTearDown(() {
         tester.view.resetPhysicalSize();
         tester.view.resetDevicePixelRatio();
@@ -127,7 +133,8 @@ void main() {
           builder: (ctx) => Scaffold(
             body: Center(
               child: ElevatedButton(
-                onPressed: () => showAdaptiveModal(context: ctx, builder: (_) => const AddContactDialog()),
+                onPressed: () => showAdaptiveModal(ctx,
+                    builder: (_) => const AddContactDialog()),
                 child: const Text('open'),
               ),
             ),
@@ -142,7 +149,8 @@ void main() {
       }, () => emptyServer);
     });
 
-    testWidgets('AdaptiveAlertDialog @ ${sizeEntry.key} sans débordement', (tester) async {
+    testWidgets('AdaptiveAlertDialog @ ${sizeEntry.key} sans débordement',
+        (tester) async {
       tester.view.physicalSize = sizeEntry.value;
       tester.view.devicePixelRatio = 1.0;
       addTearDown(() {
@@ -157,8 +165,13 @@ void main() {
                 context: ctx,
                 builder: (dialogContext) => AlertDialog(
                   title: const Text('Dialogue adaptative'),
-                  content: const Text('Contenu de contrôle pour les quatre tailles d’écran.'),
-                  actions: [TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Fermer'))],
+                  content: const Text(
+                      'Contenu de contrôle pour les quatre tailles d’écran.'),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        child: const Text('Fermer'))
+                  ],
                 ),
               ),
               child: const Text('ouvrir'),

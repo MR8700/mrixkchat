@@ -92,3 +92,53 @@ func TestRestoreAfterServerResetPreservesIdentity(t *testing.T) {
 		t.Fatalf("restored user ID changed: %q", body.User.ID)
 	}
 }
+
+func TestFirstContactMessageRequestCanBeReceivedAndAccepted(t *testing.T) {
+	s := setupTestServer()
+	register := func(handle, code string) string {
+		rec := call(s, "POST", "/api/v1/auth/register", `{"handle":"`+handle+`","display_name":"`+handle+`","recovery_code":"`+code+`"}`, nil)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("register %s: %d %s", handle, rec.Code, rec.Body.String())
+		}
+		var result struct {
+			User struct {
+				ID string `json:"id"`
+			} `json:"user"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		return result.User.ID
+	}
+	senderID := register("@sender", "MRX-SENDER-1")
+	recipientID := register("@recipient", "MRX-RECIPIENT-1")
+	postPath := "/api/v1/users/" + senderID + "/message-requests"
+	postBody := `{"id":"msg-1","recipient_id":"` + recipientID + `","conversation_id":"conv-1","content":"Bonjour","message_type":"text"}`
+	if r := call(s, "POST", postPath, postBody, map[string]string{"X-MRixk-Recovery-Code": "MRX-SENDER-1"}); r.Code != http.StatusCreated {
+		t.Fatalf("send request: %d %s", r.Code, r.Body.String())
+	}
+	inboxPath := "/api/v1/users/" + recipientID + "/message-requests"
+	if r := call(s, "GET", inboxPath, "", nil); r.Code != http.StatusForbidden {
+		t.Fatalf("inbox without owner proof must be forbidden, got %d", r.Code)
+	}
+	inbox := call(s, "GET", inboxPath, "", map[string]string{"X-MRixk-Recovery-Code": "MRX-RECIPIENT-1"})
+	if inbox.Code != http.StatusOK || !strings.Contains(inbox.Body.String(), `"content":"Bonjour"`) || !strings.Contains(inbox.Body.String(), `"status":"PENDING"`) {
+		t.Fatalf("recipient inbox should contain a pending request: %d %s", inbox.Code, inbox.Body.String())
+	}
+	var response struct {
+		Requests []struct {
+			ID string `json:"id"`
+		} `json:"requests"`
+	}
+	if err := json.Unmarshal(inbox.Body.Bytes(), &response); err != nil || len(response.Requests) != 1 {
+		t.Fatalf("bad inbox payload: %v", err)
+	}
+	acceptPath := inboxPath + "/" + response.Requests[0].ID
+	if r := call(s, "POST", acceptPath, `{"status":"ACCEPTED"}`, map[string]string{"X-MRixk-Recovery-Code": "MRX-RECIPIENT-1"}); r.Code != http.StatusOK {
+		t.Fatalf("accept request: %d %s", r.Code, r.Body.String())
+	}
+	postBody = strings.Replace(postBody, "msg-1", "msg-2", 1)
+	if r := call(s, "POST", postPath, postBody, map[string]string{"X-MRixk-Recovery-Code": "MRX-SENDER-1"}); r.Code != http.StatusCreated || !strings.Contains(r.Body.String(), `"status":"ACCEPTED"`) {
+		t.Fatalf("subsequent message should be delivered to accepted thread: %d %s", r.Code, r.Body.String())
+	}
+}

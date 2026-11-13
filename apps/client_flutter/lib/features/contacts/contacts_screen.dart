@@ -52,7 +52,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
 
   void _openAddContact() {
     showAdaptiveModal(
-      context: context,
+      context,
       builder: (ctx) => const AddContactDialog(),
     );
   }
@@ -71,7 +71,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
       if (!c.isGroup &&
           (c.id == 'conv_${contact.id}' ||
            c.title.toLowerCase() == contact.name.toLowerCase() ||
-           (contact.handle.isNotEmpty && c.title.toLowerCase() == contact.handle.toLowerCase()))) {
+              (contact.handle.isNotEmpty &&
+                  c.title.toLowerCase() == contact.handle.toLowerCase()))) {
         target = c;
         break;
       }
@@ -83,6 +84,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
           '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
       target = Conversation(
         id: 'conv_${contact.id}',
+        peerUserId: contact.id,
         title: contact.name,
         peerAvatar: contact.avatarUrl,
         isOnline: contact.isOnline,
@@ -115,9 +117,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
         contact.id == 'contact_self' ||
         (myNameLower.isNotEmpty && nameLower == myNameLower) ||
         nameLower.contains('moi-même');
-    final isOwnDevice = devRepo.getAllDevices().any((d) =>
-        d.id == contact.id ||
-        d.name.trim().toLowerCase() == nameLower);
+    final isOwnDevice = devRepo.getAllDevices().any(
+        (d) => d.id == contact.id || d.name.trim().toLowerCase() == nameLower);
 
     if (isSelf || isOwnDevice) {
       _showSelfCallNotAllowedAlert();
@@ -144,7 +145,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
         title: Row(
           children: const [
-            Icon(Icons.phone_disabled_rounded, color: Color(0xFF0043B8), size: 28),
+            Icon(Icons.phone_disabled_rounded,
+                color: Color(0xFF0043B8), size: 28),
             SizedBox(width: 10),
             Text(
               'Appel non autorisé',
@@ -155,14 +157,16 @@ class _ContactsScreenState extends State<ContactsScreen> {
         content: const Text(
           'Vous ne pouvez pas vous appeler vous-même ni appeler l\'un de vos autres appareils synchronisés.\n\n'
           'Vos appareils partagent le même espace sécurisé et vos échanges y sont déjà synchronisés instantanément en temps réel.',
-          style: TextStyle(fontSize: 13, height: 1.4, color: AppTheme.onSurfaceVariant),
+          style: TextStyle(
+              fontSize: 13, height: 1.4, color: AppTheme.onSurfaceVariant),
         ),
         actions: [
           ElevatedButton(
             style: ElevatedButton.styleFrom(
               backgroundColor: AppTheme.primary,
               foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
             ),
             onPressed: () => Navigator.of(ctx).pop(),
             child: const Text('Compris'),
@@ -183,12 +187,14 @@ class _ContactsScreenState extends State<ContactsScreen> {
           children: const [
             Icon(Icons.shield_outlined, color: Color(0xFFD97706)),
             SizedBox(width: 8),
-            Text('Contact Suspendu', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            Text('Contact Suspendu',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           ],
         ),
         content: Text(
           'Les échanges avec ${contact.name} sont actuellement suspendus (${contact.blockedUntil ?? "Définitif"}). Les appels et messages sont bloqués avec bienveillance pour préserver votre tranquillité mutuelle.',
-          style: const TextStyle(fontSize: 13, height: 1.4, color: AppTheme.onSurfaceVariant),
+          style: const TextStyle(
+              fontSize: 13, height: 1.4, color: AppTheme.onSurfaceVariant),
         ),
         actions: [
           TextButton(
@@ -202,10 +208,14 @@ class _ContactsScreenState extends State<ContactsScreen> {
             ),
             onPressed: () async {
               Navigator.of(ctx).pop();
-              await context.read<ContactRepository>().unblockContact(contact.id);
+              await context
+                  .read<ContactRepository>()
+                  .unblockContact(contact.id);
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('${contact.name} a été débloqué avec succès.')),
+                  SnackBar(
+                      content:
+                          Text('${contact.name} a été débloqué avec succès.')),
                 );
               }
             },
@@ -234,75 +244,99 @@ class _ContactsScreenState extends State<ContactsScreen> {
             children: [
               Row(
                 children: [
-                  AppAvatar(name: contact.name, avatarUrl: contact.avatarUrl, radius: 18),
+                  AppAvatar(
+                      name: contact.name,
+                      avatarUrl: contact.avatarUrl,
+                      radius: 18),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(contact.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                        Text(contact.handle, style: const TextStyle(fontSize: 12, color: AppTheme.onSurfaceVariant)),
+                        Text(contact.name,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold, fontSize: 15)),
+                        Text(contact.handle,
+                            style: const TextStyle(
+                                fontSize: 12,
+                                color: AppTheme.onSurfaceVariant)),
                       ],
                     ),
                   ),
                 ],
               ),
               const Divider(height: 24),
-
               if (!contact.isBlocked) ...[
                 ListTile(
-                  leading: const Icon(Icons.timer_outlined, color: Color(0xFFF59E0B)),
+                  leading: const Icon(Icons.timer_outlined,
+                      color: Color(0xFFF59E0B)),
                   title: const Text('Bloquer temporairement (24 heures)'),
                   onTap: () async {
                     Navigator.of(ctx).pop();
-                    await context.read<ContactRepository>().blockContact(contact.id, duration: '24 heures');
+                    await context
+                        .read<ContactRepository>()
+                        .blockContact(contact.id, duration: '24 heures');
                     _notifyBlocked(contact.name, '24 heures');
                   },
                 ),
                 ListTile(
-                  leading: const Icon(Icons.date_range_outlined, color: Color(0xFFF59E0B)),
+                  leading: const Icon(Icons.date_range_outlined,
+                      color: Color(0xFFF59E0B)),
                   title: const Text('Bloquer temporairement (7 jours)'),
                   onTap: () async {
                     Navigator.of(ctx).pop();
-                    await context.read<ContactRepository>().blockContact(contact.id, duration: '7 jours');
+                    await context
+                        .read<ContactRepository>()
+                        .blockContact(contact.id, duration: '7 jours');
                     _notifyBlocked(contact.name, '7 jours');
                   },
                 ),
                 ListTile(
-                  leading: const Icon(Icons.calendar_month_outlined, color: Color(0xFFD97706)),
+                  leading: const Icon(Icons.calendar_month_outlined,
+                      color: Color(0xFFD97706)),
                   title: const Text('Bloquer temporairement (30 jours)'),
                   onTap: () async {
                     Navigator.of(ctx).pop();
-                    await context.read<ContactRepository>().blockContact(contact.id, duration: '30 jours');
+                    await context
+                        .read<ContactRepository>()
+                        .blockContact(contact.id, duration: '30 jours');
                     _notifyBlocked(contact.name, '30 jours');
                   },
                 ),
                 ListTile(
                   leading: const Icon(Icons.block, color: Color(0xFFDC2626)),
-                  title: const Text('Bloquer définitivement', style: TextStyle(color: Color(0xFFDC2626))),
+                  title: const Text('Bloquer définitivement',
+                      style: TextStyle(color: Color(0xFFDC2626))),
                   onTap: () async {
                     Navigator.of(ctx).pop();
-                    await context.read<ContactRepository>().blockContact(contact.id, duration: 'Définitif');
+                    await context
+                        .read<ContactRepository>()
+                        .blockContact(contact.id, duration: 'Définitif');
                     _notifyBlocked(contact.name, 'Définitif');
                   },
                 ),
               ] else ...[
                 ListTile(
-                  leading: const Icon(Icons.lock_open, color: AppTheme.statusGreen),
-                  title: const Text('Débloquer le contact avec bienveillance', style: TextStyle(color: AppTheme.statusGreen)),
+                  leading:
+                      const Icon(Icons.lock_open, color: AppTheme.statusGreen),
+                  title: const Text('Débloquer le contact avec bienveillance',
+                      style: TextStyle(color: AppTheme.statusGreen)),
                   onTap: () async {
                     Navigator.of(ctx).pop();
-                    await context.read<ContactRepository>().unblockContact(contact.id);
+                    await context
+                        .read<ContactRepository>()
+                        .unblockContact(contact.id);
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text('${contact.name} débloqué.')),
                     );
                   },
                 ),
               ],
-
               ListTile(
-                leading: const Icon(Icons.delete_outline, color: Color(0xFFEF4444)),
-                title: const Text('Supprimer des contacts', style: TextStyle(color: Color(0xFFEF4444))),
+                leading:
+                    const Icon(Icons.delete_outline, color: Color(0xFFEF4444)),
+                title: const Text('Supprimer des contacts',
+                    style: TextStyle(color: Color(0xFFEF4444))),
                 onTap: () async {
                   Navigator.of(ctx).pop();
                   _confirmDeleteContacts([contact.id], [contact.name]);
@@ -358,7 +392,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
           ids.length > 1
               ? 'Voulez-vous supprimer ces ${ids.length} contacts de votre carnet d\'adresses souverain ?'
               : 'Voulez-vous supprimer ${names.first} de vos contacts ?',
-          style: const TextStyle(fontSize: 13, color: AppTheme.onSurfaceVariant),
+          style:
+              const TextStyle(fontSize: 13, color: AppTheme.onSurfaceVariant),
         ),
         actions: [
           TextButton(
@@ -372,7 +407,9 @@ class _ContactsScreenState extends State<ContactsScreen> {
             ),
             onPressed: () async {
               Navigator.of(ctx).pop();
-              await context.read<ContactRepository>().deleteMultipleContacts(ids);
+              await context
+                  .read<ContactRepository>()
+                  .deleteMultipleContacts(ids);
               setState(() {
                 _selectedContactIds.clear();
                 _isSelectionMode = false;
@@ -398,7 +435,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
         builder: (context, setModalState) => AlertDialog(
         scrollable: true,
           backgroundColor: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           title: Text('Bloquer ${_selectedContactIds.length} contact(s)'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -406,7 +444,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
             children: [
               const Text(
                 'Choisissez la durée de suspension bienveillante :',
-                style: TextStyle(fontSize: 13, color: AppTheme.onSurfaceVariant),
+                style:
+                    TextStyle(fontSize: 13, color: AppTheme.onSurfaceVariant),
               ),
               const SizedBox(height: 12),
               ...['24 heures', '7 jours', '30 jours', 'Définitif'].map((d) {
@@ -416,7 +455,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
                   groupValue: selectedDuration,
                   activeColor: AppTheme.primary,
                   onChanged: (val) {
-                    if (val != null) setModalState(() => selectedDuration = val);
+                    if (val != null)
+                      setModalState(() => selectedDuration = val);
                   },
                 );
               }),
@@ -428,7 +468,9 @@ class _ContactsScreenState extends State<ContactsScreen> {
               child: const Text('Annuler'),
             ),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFD97706), foregroundColor: Colors.white),
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFD97706),
+                  foregroundColor: Colors.white),
               onPressed: () async {
                 Navigator.of(ctx).pop();
                 await context.read<ContactRepository>().blockMultipleContacts(
@@ -441,7 +483,9 @@ class _ContactsScreenState extends State<ContactsScreen> {
                 });
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('${_selectedContactIds.length} contact(s) bloqué(s) pour $selectedDuration.')),
+                    SnackBar(
+                        content: Text(
+                            '${_selectedContactIds.length} contact(s) bloqué(s) pour $selectedDuration.')),
                   );
                 }
               },
@@ -482,7 +526,9 @@ class _ContactsScreenState extends State<ContactsScreen> {
                     Text(
                       _isSelectionMode
                           ? '${_selectedContactIds.length} sélectionné(s)'
-                          : (_showBlockedOnly ? 'Contacts Suspendus' : 'Contacts Réseau'),
+                          : (_showBlockedOnly
+                              ? 'Contacts Suspendus'
+                              : 'Contacts Réseau'),
                       style: const TextStyle(
                         fontSize: 19,
                         fontWeight: FontWeight.w800,
@@ -525,35 +571,51 @@ class _ContactsScreenState extends State<ContactsScreen> {
                       width: 36,
                       height: 36,
                       decoration: BoxDecoration(
-                        color: _showBlockedOnly ? const Color(0xFFFEF3C7) : Colors.white,
+                        color: _showBlockedOnly
+                            ? const Color(0xFFFEF3C7)
+                            : Colors.white,
                         shape: BoxShape.circle,
                         border: Border.all(color: const Color(0xFFCBD5E1)),
                       ),
                       child: Icon(
                         Icons.shield_outlined,
                         size: 18,
-                        color: _showBlockedOnly ? const Color(0xFFD97706) : AppTheme.onSurfaceVariant,
+                        color: _showBlockedOnly
+                            ? const Color(0xFFD97706)
+                            : AppTheme.onSurfaceVariant,
                       ),
                     ),
-                    tooltip: _showBlockedOnly ? 'Voir tous les contacts' : 'Voir les contacts bloqués',
-                    onPressed: () => setState(() => _showBlockedOnly = !_showBlockedOnly),
+                    tooltip: _showBlockedOnly
+                        ? 'Voir tous les contacts'
+                        : 'Voir les contacts bloqués',
+                    onPressed: () =>
+                        setState(() => _showBlockedOnly = !_showBlockedOnly),
                   ),
                   IconButton(
                     icon: Container(
                       width: 36,
                       height: 36,
                       decoration: BoxDecoration(
-                        color: _isSelectionMode ? AppTheme.primarySoft : Colors.white,
+                        color: _isSelectionMode
+                            ? AppTheme.primarySoft
+                            : Colors.white,
                         shape: BoxShape.circle,
-                        border: Border.all(color: _isSelectionMode ? AppTheme.primary : const Color(0xFFCBD5E1)),
+                        border: Border.all(
+                            color: _isSelectionMode
+                                ? AppTheme.primary
+                                : const Color(0xFFCBD5E1)),
                       ),
                       child: Icon(
                         Icons.checklist_rounded,
                         size: 18,
-                        color: _isSelectionMode ? AppTheme.primary : AppTheme.onSurfaceVariant,
+                        color: _isSelectionMode
+                            ? AppTheme.primary
+                            : AppTheme.onSurfaceVariant,
                       ),
                     ),
-                    tooltip: _isSelectionMode ? 'Quitter la sélection' : 'Sélectionner des contacts',
+                    tooltip: _isSelectionMode
+                        ? 'Quitter la sélection'
+                        : 'Sélectionner des contacts',
                     onPressed: () => setState(() {
                       _isSelectionMode = !_isSelectionMode;
                       if (!_isSelectionMode) _selectedContactIds.clear();
@@ -567,8 +629,10 @@ class _ContactsScreenState extends State<ContactsScreen> {
               if (_isSelectionMode)
                 SliverToBoxAdapter(
                   child: Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    margin:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(16),
@@ -586,7 +650,10 @@ class _ContactsScreenState extends State<ContactsScreen> {
                       children: [
                         Text(
                           '${_selectedContactIds.length} contact(s) choisi(s)',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppTheme.primary),
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                              color: AppTheme.primary),
                         ),
                         Row(
                           children: [
@@ -594,24 +661,31 @@ class _ContactsScreenState extends State<ContactsScreen> {
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFFF59E0B),
                                 foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 6),
                               ),
                               icon: const Icon(Icons.block, size: 14),
-                              label: const Text('Bloquer...', style: TextStyle(fontSize: 11.5)),
-                              onPressed: _selectedContactIds.isEmpty ? null : _showBatchBlockDialog,
+                              label: const Text('Bloquer...',
+                                  style: TextStyle(fontSize: 11.5)),
+                              onPressed: _selectedContactIds.isEmpty
+                                  ? null
+                                  : _showBatchBlockDialog,
                             ),
                             const SizedBox(width: 8),
                             ElevatedButton.icon(
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFFEF4444),
                                 foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 6),
                               ),
                               icon: const Icon(Icons.delete_outline, size: 14),
-                              label: const Text('Supprimer', style: TextStyle(fontSize: 11.5)),
+                              label: const Text('Supprimer',
+                                  style: TextStyle(fontSize: 11.5)),
                               onPressed: _selectedContactIds.isEmpty
                                   ? null
-                                  : () => _confirmDeleteContacts(_selectedContactIds.toList(), []),
+                                  : () => _confirmDeleteContacts(
+                                      _selectedContactIds.toList(), []),
                             ),
                           ],
                         ),
@@ -623,27 +697,32 @@ class _ContactsScreenState extends State<ContactsScreen> {
               // Search Bar
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   child: Container(
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: const Color(0xFFCBD5E1), width: 1.2),
+                      border: Border.all(
+                          color: const Color(0xFFCBD5E1), width: 1.2),
                     ),
                     child: TextField(
                       controller: _searchController,
                       onChanged: (val) {
                         setState(() => _searchQuery = val);
                         if (val.trim().isNotEmpty) {
-                          IdentityDirectoryService.searchUsersOnline(val).then((_) {
+                          IdentityDirectoryService.searchUsersOnline(val)
+                              .then((_) {
                             if (mounted) setState(() {});
                           });
                         }
                       },
                       decoration: InputDecoration(
                         hintText: 'Rechercher un contact, @handle, statut...',
-                        hintStyle: const TextStyle(fontSize: 13, color: AppTheme.onSurfaceVariant),
-                        prefixIcon: const Icon(Icons.search, color: AppTheme.onSurfaceVariant, size: 20),
+                        hintStyle: const TextStyle(
+                            fontSize: 13, color: AppTheme.onSurfaceVariant),
+                        prefixIcon: const Icon(Icons.search,
+                            color: AppTheme.onSurfaceVariant, size: 20),
                         suffixIcon: _searchQuery.isNotEmpty
                             ? IconButton(
                                 icon: const Icon(Icons.clear, size: 18),
@@ -654,7 +733,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
                               )
                             : null,
                         border: InputBorder.none,
-                        contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                        contentPadding:
+                            const EdgeInsets.symmetric(vertical: 12),
                       ),
                     ),
                   ),
@@ -669,7 +749,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
 
               // Contacts List
               SliverPadding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                 sliver: displayedContacts.isEmpty
                     ? SliverToBoxAdapter(
                         child: _showBlockedOnly
@@ -727,7 +808,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
                 backgroundColor: AppTheme.primary,
                 elevation: 6,
                 onPressed: _openAddContact,
-                icon: const Icon(Icons.person_add_rounded, color: Colors.white, size: 20),
+                icon: const Icon(Icons.person_add_rounded,
+                    color: Colors.white, size: 20),
                 label: const Text(
                   'Ajouter',
                   style: TextStyle(
@@ -746,13 +828,17 @@ class _ContactsScreenState extends State<ContactsScreen> {
 
   Widget _buildRealtimeDirectoryResults(List<Contact> displayedContacts) {
     final myProfile = context.read<ProfileRepository>().getProfile();
-    final myHandleClean = myProfile.handle.toLowerCase().replaceAll('@', '').trim();
+    final myHandleClean =
+        myProfile.handle.toLowerCase().replaceAll('@', '').trim();
     final myNameLower = myProfile.displayName.toLowerCase().trim();
     final myId = myProfile.id.trim();
 
     final matchingUsers = IdentityDirectoryService.searchUsers(_searchQuery);
-    final existingNames = displayedContacts.map((c) => c.name.toLowerCase().trim()).toSet();
-    final existingHandles = displayedContacts.map((c) => c.handle.toLowerCase().replaceAll('@', '').trim()).toSet();
+    final existingNames =
+        displayedContacts.map((c) => c.name.toLowerCase().trim()).toSet();
+    final existingHandles = displayedContacts
+        .map((c) => c.handle.toLowerCase().replaceAll('@', '').trim())
+        .toSet();
     final existingIds = displayedContacts.map((c) => c.id.trim()).toSet();
 
     final nonAddedUsers = matchingUsers.where((u) {
@@ -797,8 +883,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
                     color: AppTheme.primary.withOpacity(0.1),
                     shape: BoxShape.circle,
                   ),
-                  child:
-                      const Icon(Icons.person_add_alt_1_rounded, size: 14, color: AppTheme.primary),
+                  child: const Icon(Icons.person_add_alt_1_rounded,
+                      size: 14, color: AppTheme.primary),
                 ),
                 const SizedBox(width: 8),
                 Text(
@@ -823,7 +909,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
                   final user = nonAddedUsers[idx];
                   return Container(
                     width: 160,
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                     decoration: BoxDecoration(
                       color: const Color(0xFFF8FAFC),
                       borderRadius: BorderRadius.circular(14),
@@ -863,11 +950,13 @@ class _ContactsScreenState extends State<ContactsScreen> {
                         ElevatedButton.icon(
                           onPressed: () => _quickAddContact(user),
                           icon: const Icon(Icons.add, size: 13),
-                          label: const Text('Ajouter', style: TextStyle(fontSize: 11)),
+                          label: const Text('Ajouter',
+                              style: TextStyle(fontSize: 11)),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppTheme.primary,
                             foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 0),
                             minimumSize: const Size(60, 24),
                             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                             shape: RoundedRectangleBorder(
@@ -937,12 +1026,16 @@ class _ContactsScreenState extends State<ContactsScreen> {
         margin: const EdgeInsets.only(bottom: 8),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: contact.isBlocked ? const Color(0xFFFEF3C7).withOpacity(0.4) : Colors.white,
+          color: contact.isBlocked
+              ? const Color(0xFFFEF3C7).withOpacity(0.4)
+              : Colors.white,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: isSelected
                 ? AppTheme.primary
-                : (contact.isBlocked ? const Color(0xFFFDE68A) : const Color(0xFFCBD5E1)),
+                : (contact.isBlocked
+                    ? const Color(0xFFFDE68A)
+                    : const Color(0xFFCBD5E1)),
             width: isSelected ? 1.8 : 1.2,
           ),
           boxShadow: [
@@ -968,7 +1061,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
                         _selectedContactIds.add(contact.id);
                       } else {
                         _selectedContactIds.remove(contact.id);
-                        if (_selectedContactIds.isEmpty) _isSelectionMode = false;
+                        if (_selectedContactIds.isEmpty)
+                          _isSelectionMode = false;
                       }
                     });
                   },
@@ -995,7 +1089,9 @@ class _ContactsScreenState extends State<ContactsScreen> {
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
-                            color: contact.isBlocked ? const Color(0xFF92400E) : AppTheme.onSurface,
+                            color: contact.isBlocked
+                                ? const Color(0xFF92400E)
+                                : AppTheme.onSurface,
                           ),
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -1003,7 +1099,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
                       if (contact.isBlocked) ...[
                         const SizedBox(width: 6),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 1),
                           decoration: BoxDecoration(
                             color: const Color(0xFFFEF3C7),
                             borderRadius: BorderRadius.circular(8),
@@ -1011,7 +1108,10 @@ class _ContactsScreenState extends State<ContactsScreen> {
                           ),
                           child: Text(
                             'Suspendu (${contact.blockedUntil ?? "Définitif"})',
-                            style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Color(0xFFB45309)),
+                            style: const TextStyle(
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFFB45309)),
                           ),
                         ),
                       ] else if (contact.isVerified) ...[
@@ -1028,7 +1128,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
                               ),
                             );
                           },
-                          child: const Icon(Icons.verified, size: 16, color: AppTheme.secondary),
+                          child: const Icon(Icons.verified,
+                              size: 16, color: AppTheme.secondary),
                         ),
                       ],
                     ],
@@ -1063,7 +1164,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(color: const Color(0xFFCBD5E1)),
                       ),
-                      child: const Icon(Icons.chat_bubble_outline, size: 16, color: AppTheme.primary),
+                      child: const Icon(Icons.chat_bubble_outline,
+                          size: 16, color: AppTheme.primary),
                     ),
                     tooltip: 'Discussion',
                     onPressed: () => _openChatWithContact(contact),
@@ -1077,7 +1179,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(color: const Color(0xFFCBD5E1)),
                       ),
-                      child: const Icon(Icons.call_outlined, size: 16, color: AppTheme.onSurface),
+                      child: const Icon(Icons.call_outlined,
+                          size: 16, color: AppTheme.onSurface),
                     ),
                     tooltip: 'Appel sécurisé',
                     onPressed: () => _callContact(contact),
@@ -1093,7 +1196,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(color: const Color(0xFFCBD5E1)),
                     ),
-                    child: const Icon(Icons.more_vert, size: 16, color: AppTheme.onSurfaceVariant),
+                    child: const Icon(Icons.more_vert,
+                        size: 16, color: AppTheme.onSurfaceVariant),
                   ),
                   tooltip: 'Options du contact (Bloquer, Supprimer)',
                   onPressed: () => _showContactOptionsMenu(contact),

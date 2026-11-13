@@ -130,3 +130,37 @@ func TestCreateUserRollsBackWhenDurableSaveFails(t *testing.T) {
 		t.Fatal("failed registration must not leave an in-memory user")
 	}
 }
+
+func TestMessageRequestsPersistAndUnlockAcceptedPair(t *testing.T) {
+	repo := NewMemoryRepository(3)
+	persister := &memPersister{}
+	if err := repo.SetPersister(persister); err != nil {
+		t.Fatal(err)
+	}
+	for _, user := range []*User{
+		{ID: "sender", Handle: "@sender", RecoveryCode: "SENDER-CODE"},
+		{ID: "recipient", Handle: "@recipient", RecoveryCode: "RECIPIENT-CODE"},
+	} {
+		if err := repo.CreateUser(user); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := repo.CreateMessageRequest(&MessageRequest{ID: "sender_msg1", SenderID: "sender", RecipientID: "recipient", Content: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.RespondToMessageRequest("recipient", "sender_msg1", "ACCEPTED"); err != nil {
+		t.Fatal(err)
+	}
+	reloaded := NewMemoryRepository(3)
+	if err := reloaded.SetPersister(persister); err != nil {
+		t.Fatal(err)
+	}
+	requests := reloaded.ListMessageRequests("recipient")
+	if len(requests) != 1 || requests[0].Status != "ACCEPTED" {
+		t.Fatalf("accepted request was not persisted: %+v", requests)
+	}
+	next, err := reloaded.CreateMessageRequest(&MessageRequest{ID: "sender_msg2", SenderID: "sender", RecipientID: "recipient", Content: "again"})
+	if err != nil || next.Status != "ACCEPTED" {
+		t.Fatalf("accepted pair should keep delivering messages, request=%+v err=%v", next, err)
+	}
+}

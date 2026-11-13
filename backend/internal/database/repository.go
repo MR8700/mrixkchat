@@ -17,15 +17,16 @@ import (
 )
 
 var (
-	ErrUserNotFound         = errors.New("user not found")
-	ErrUserAlreadyExists    = errors.New("user ID is already registered")
-	ErrRecoveryCodeTaken    = errors.New("recovery code is already registered")
-	ErrHandleAlreadyTaken   = errors.New("user handle is already registered")
-	ErrDeviceNotFound       = errors.New("device not found")
-	ErrMaxDevicesExceeded   = errors.New("device quota exceeded: maximum of 3 active devices reached")
-	ErrSessionExpired       = errors.New("device session expired or revoked")
-	ErrUnauthorizedDevice   = errors.New("device is not authorized")
-	ErrConversationNotFound = errors.New("conversation not found")
+	ErrUserNotFound           = errors.New("user not found")
+	ErrUserAlreadyExists      = errors.New("user ID is already registered")
+	ErrRecoveryCodeTaken      = errors.New("recovery code is already registered")
+	ErrHandleAlreadyTaken     = errors.New("user handle is already registered")
+	ErrDeviceNotFound         = errors.New("device not found")
+	ErrMaxDevicesExceeded     = errors.New("device quota exceeded: maximum of 3 active devices reached")
+	ErrSessionExpired         = errors.New("device session expired or revoked")
+	ErrUnauthorizedDevice     = errors.New("device is not authorized")
+	ErrConversationNotFound   = errors.New("conversation not found")
+	ErrMessageRequestNotFound = errors.New("message request not found")
 )
 
 type User struct {
@@ -120,6 +121,21 @@ type Tombstone struct {
 	ReservedUntil time.Time `json:"reserved_until"`
 }
 
+// MessageRequest is a durable one-to-one message awaiting delivery/acceptance on the recipient device.
+type MessageRequest struct {
+	ID             string    `json:"id"`
+	SenderID       string    `json:"sender_id"`
+	SenderHandle   string    `json:"sender_handle"`
+	SenderName     string    `json:"sender_name"`
+	SenderAvatar   string    `json:"sender_avatar,omitempty"`
+	RecipientID    string    `json:"recipient_id"`
+	ConversationID string    `json:"conversation_id"`
+	Content        string    `json:"content"`
+	MessageType    string    `json:"message_type"`
+	CreatedAt      time.Time `json:"created_at"`
+	Status         string    `json:"status"` // PENDING, ACCEPTED, IGNORED
+}
+
 // HandleReservationTTL is how long a deleted account's handle remains reserved.
 const HandleReservationTTL = 24 * time.Hour
 
@@ -195,19 +211,23 @@ type MemoryRepository struct {
 	storagePath         string
 	persister           Persister
 	tombstones          map[string]*Tombstone // userID -> tombstone
+	messageRequests     map[string]*MessageRequest
+	acceptedPairs       map[string]bool
 	mu                  sync.RWMutex
 	maxDevices          int
 }
 
 // SnapshotData represents the serializable state of the repository for durable persistence.
 type SnapshotData struct {
-	Users         map[string]*User                     `json:"users"`
-	Devices       map[string]*Device                   `json:"devices"`
-	Sessions      map[string]*DeviceSession            `json:"sessions,omitempty"`
-	Conversations map[string]*Conversation             `json:"conversations"`
-	Messages      map[string]*EncryptedMessageEnvelope `json:"messages"`
-	SyncEvents    []*SyncEvent                         `json:"sync_events,omitempty"`
-	Tombstones    map[string]*Tombstone                `json:"tombstones,omitempty"`
+	Users           map[string]*User                     `json:"users"`
+	Devices         map[string]*Device                   `json:"devices"`
+	Sessions        map[string]*DeviceSession            `json:"sessions,omitempty"`
+	Conversations   map[string]*Conversation             `json:"conversations"`
+	Messages        map[string]*EncryptedMessageEnvelope `json:"messages"`
+	SyncEvents      []*SyncEvent                         `json:"sync_events,omitempty"`
+	Tombstones      map[string]*Tombstone                `json:"tombstones,omitempty"`
+	MessageRequests map[string]*MessageRequest           `json:"message_requests,omitempty"`
+	AcceptedPairs   map[string]bool                      `json:"accepted_message_pairs,omitempty"`
 }
 
 // SetStoragePath sets the file path for durable persistence and attempts to load existing state.
@@ -258,13 +278,15 @@ func (r *MemoryRepository) saveIfConfigured() error {
 
 func (r *MemoryRepository) marshalLocked() ([]byte, error) {
 	snap := SnapshotData{
-		Users:         r.users,
-		Devices:       r.devices,
-		Sessions:      r.sessions,
-		Conversations: r.conversations,
-		Messages:      r.messages,
-		SyncEvents:    r.syncEvents,
-		Tombstones:    r.tombstones,
+		Users:           r.users,
+		Devices:         r.devices,
+		Sessions:        r.sessions,
+		Conversations:   r.conversations,
+		Messages:        r.messages,
+		SyncEvents:      r.syncEvents,
+		Tombstones:      r.tombstones,
+		MessageRequests: r.messageRequests,
+		AcceptedPairs:   r.acceptedPairs,
 	}
 	return json.Marshal(snap)
 }
@@ -278,13 +300,15 @@ func (r *MemoryRepository) SaveToFile(path string) error {
 
 func (r *MemoryRepository) saveToFileLocked(path string) error {
 	snap := SnapshotData{
-		Users:         r.users,
-		Devices:       r.devices,
-		Sessions:      r.sessions,
-		Conversations: r.conversations,
-		Messages:      r.messages,
-		SyncEvents:    r.syncEvents,
-		Tombstones:    r.tombstones,
+		Users:           r.users,
+		Devices:         r.devices,
+		Sessions:        r.sessions,
+		Conversations:   r.conversations,
+		Messages:        r.messages,
+		SyncEvents:      r.syncEvents,
+		Tombstones:      r.tombstones,
+		MessageRequests: r.messageRequests,
+		AcceptedPairs:   r.acceptedPairs,
 	}
 
 	bytes, err := json.MarshalIndent(snap, "", "  ")
@@ -354,6 +378,12 @@ func (r *MemoryRepository) loadSnapshotLocked(snap SnapshotData) {
 	if snap.Tombstones != nil {
 		r.tombstones = snap.Tombstones
 	}
+	if snap.MessageRequests != nil {
+		r.messageRequests = snap.MessageRequests
+	}
+	if snap.AcceptedPairs != nil {
+		r.acceptedPairs = snap.AcceptedPairs
+	}
 }
 
 // NewMemoryRepository instantiates the store with the specified max devices quota (3).
@@ -372,6 +402,8 @@ func NewMemoryRepository(maxDevices int) *MemoryRepository {
 		messages:            make(map[string]*EncryptedMessageEnvelope),
 		syncEvents:          make([]*SyncEvent, 0),
 		tombstones:          make(map[string]*Tombstone),
+		messageRequests:     make(map[string]*MessageRequest),
+		acceptedPairs:       make(map[string]bool),
 		securityLogs:        make([]*SecurityEvent, 0),
 		maxDevices:          maxDevices,
 	}
@@ -557,6 +589,16 @@ func (r *MemoryRepository) DeleteUser(id string) error {
 			}
 		}
 	}
+	for reqID, request := range r.messageRequests {
+		if request.SenderID == id || request.RecipientID == id {
+			delete(r.messageRequests, reqID)
+		}
+	}
+	for pair := range r.acceptedPairs {
+		if strings.HasPrefix(pair, id+"\x00") || strings.HasSuffix(pair, "\x00"+id) {
+			delete(r.acceptedPairs, pair)
+		}
+	}
 
 	// Remove from conversations; drop emptied or direct conversations
 	for cid, c := range r.conversations {
@@ -669,6 +711,88 @@ func (r *MemoryRepository) UserStatuses(ids []string) (active []*UserPublic, del
 		}
 	}
 	return
+}
+
+func messagePairKey(a, b string) string {
+	if a > b {
+		a, b = b, a
+	}
+	return a + "\x00" + b
+}
+
+// CreateMessageRequest stores a message for a recipient without requiring a shared contact list
+// or a pre-existing conversation. The caller must authenticate the sender first.
+func (r *MemoryRepository) CreateMessageRequest(request *MessageRequest) (*MessageRequest, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.users[request.SenderID] == nil || r.users[request.RecipientID] == nil {
+		return nil, ErrUserNotFound
+	}
+	for _, existing := range r.messageRequests {
+		if existing.SenderID == request.SenderID && existing.ID == request.ID {
+			copy := *existing
+			return &copy, nil
+		}
+	}
+	sender := r.users[request.SenderID]
+	request.SenderHandle = sender.Handle
+	request.SenderName = sender.DisplayName
+	request.SenderAvatar = sender.AvatarRef
+	request.CreatedAt = time.Now()
+	request.Status = "PENDING"
+	if r.acceptedPairs[messagePairKey(request.SenderID, request.RecipientID)] {
+		request.Status = "ACCEPTED"
+	}
+	copy := *request
+	r.messageRequests[request.ID] = &copy
+	if err := r.saveIfConfigured(); err != nil {
+		delete(r.messageRequests, request.ID)
+		return nil, err
+	}
+	return &copy, nil
+}
+
+func (r *MemoryRepository) ListMessageRequests(recipientID string) []*MessageRequest {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var requests []*MessageRequest
+	for _, request := range r.messageRequests {
+		if request.RecipientID == recipientID && request.Status != "IGNORED" {
+			copy := *request
+			requests = append(requests, &copy)
+		}
+	}
+	sort.Slice(requests, func(i, j int) bool { return requests[i].CreatedAt.Before(requests[j].CreatedAt) })
+	return requests
+}
+
+func (r *MemoryRepository) RespondToMessageRequest(recipientID, requestID, status string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	request, ok := r.messageRequests[requestID]
+	if !ok || request.RecipientID != recipientID {
+		return ErrMessageRequestNotFound
+	}
+	if status != "ACCEPTED" && status != "IGNORED" {
+		return errors.New("invalid message request status")
+	}
+	previous := request.Status
+	request.Status = status
+	pair := messagePairKey(request.SenderID, request.RecipientID)
+	previousPair := r.acceptedPairs[pair]
+	if status == "ACCEPTED" {
+		r.acceptedPairs[pair] = true
+	}
+	if err := r.saveIfConfigured(); err != nil {
+		request.Status = previous
+		if previousPair {
+			r.acceptedPairs[pair] = true
+		} else {
+			delete(r.acceptedPairs, pair)
+		}
+		return err
+	}
+	return nil
 }
 
 // RegisterDevice registers a device enforcing the strict 3-device limit.

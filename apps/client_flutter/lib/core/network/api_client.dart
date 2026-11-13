@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../models/message_request.dart';
 
 /// Production-ready, offline-first API Client for the MRixk Go Backend.
 class ApiClient {
@@ -7,7 +8,8 @@ class ApiClient {
   factory ApiClient() => _instance;
   ApiClient._internal();
 
-  static const String prodRemoteUrl = 'https://mrixk-backend.onrender.com/api/v1';
+  static const String prodRemoteUrl =
+      'https://mrixk-backend.onrender.com/api/v1';
   String baseUrl = prodRemoteUrl;
   String? _sessionToken;
 
@@ -36,7 +38,9 @@ class ApiClient {
     final target = await getActiveBaseUrl();
     for (var attempt = 0; attempt < 3; attempt++) {
       try {
-        final res = await http.get(Uri.parse('$target/health')).timeout(const Duration(seconds: 40));
+        final res = await http
+            .get(Uri.parse('$target/health'))
+            .timeout(const Duration(seconds: 40));
         if (res.statusCode == 200) {
           _warmed = true;
           return true;
@@ -71,7 +75,8 @@ class ApiClient {
     throw ApiUnavailableException('Serveur injoignable ($lastError)');
   }
 
-  Map<String, String> _headers({String? contentType = 'application/json', String? recoveryCode}) {
+  Map<String, String> _headers(
+      {String? contentType = 'application/json', String? recoveryCode}) {
     final headers = <String, String>{};
     if (contentType != null) {
       headers['Content-Type'] = contentType;
@@ -88,7 +93,8 @@ class ApiClient {
   /// Checks if backend server is online and healthy.
   Future<bool> checkHealth() async {
     try {
-      final res = await _send((base) => http.get(Uri.parse('$base/health')), retries: 1);
+      final res = await _send((base) => http.get(Uri.parse('$base/health')),
+          retries: 1);
       return res.statusCode == 200;
     } catch (_) {
       return false;
@@ -106,30 +112,38 @@ class ApiClient {
   }) async {
     final targetUrl = await getActiveBaseUrl();
     try {
-      final res = await http.post(
+      final res = await http
+          .post(
         Uri.parse('$targetUrl/auth/register'),
         headers: _headers(),
         body: jsonEncode({
           'handle': handle,
           'display_name': displayName,
-          if (recoveryCode != null && recoveryCode.isNotEmpty) 'recovery_code': recoveryCode,
-          if (avatarUrl != null && avatarUrl.isNotEmpty) 'avatar_url': avatarUrl,
-          if (statusMessage != null && statusMessage.isNotEmpty) 'status_message': statusMessage,
+              if (recoveryCode != null && recoveryCode.isNotEmpty)
+                'recovery_code': recoveryCode,
+              if (avatarUrl != null && avatarUrl.isNotEmpty)
+                'avatar_url': avatarUrl,
+              if (statusMessage != null && statusMessage.isNotEmpty)
+                'status_message': statusMessage,
           if (password != null && password.isNotEmpty) 'password': password,
         }),
-      ).timeout(const Duration(seconds: 65));
+          )
+          .timeout(const Duration(seconds: 65));
 
       if (res.statusCode == 201 || res.statusCode == 200) {
         return jsonDecode(res.body) as Map<String, dynamic>;
       } else if (res.statusCode == 409) {
-        throw Exception('Cet identifiant unique est déjà enregistré sur le serveur.');
+        throw Exception(
+            'Cet identifiant unique est déjà enregistré sur le serveur.');
       } else {
         try {
           final err = jsonDecode(res.body) as Map<String, dynamic>;
-          throw Exception(err['error'] ?? 'Échec de l\'enregistrement sur le serveur.');
+          throw Exception(
+              err['error'] ?? 'Échec de l\'enregistrement sur le serveur.');
         } catch (e) {
           if (e is Exception) rethrow;
-          throw Exception('Erreur serveur lors de l\'enregistrement (${res.statusCode}).');
+          throw Exception(
+              'Erreur serveur lors de l\'enregistrement (${res.statusCode}).');
         }
       }
     } catch (e) {
@@ -150,13 +164,19 @@ class ApiClient {
       headers: _headers(),
       body: jsonEncode({
         'recovery_code': cleanCode,
-        if (preferredName != null && preferredName.isNotEmpty) 'preferred_name': preferredName.trim(),
-        if (preferredHandle != null && preferredHandle.isNotEmpty) 'preferred_handle': preferredHandle.trim(),
+            if (preferredName != null && preferredName.isNotEmpty)
+              'preferred_name': preferredName.trim(),
+            if (preferredHandle != null && preferredHandle.isNotEmpty)
+              'preferred_handle': preferredHandle.trim(),
       }),
     ));
-    if (res.statusCode == 200) return jsonDecode(res.body) as Map<String, dynamic>;
-    if (res.statusCode == 404) throw Exception('Identifiant ou code de secours introuvable sur le serveur.');
-    throw ApiUnavailableException('Récupération impossible (${res.statusCode})');
+    if (res.statusCode == 200)
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    if (res.statusCode == 404)
+      throw Exception(
+          'Identifiant ou code de secours introuvable sur le serveur.');
+    throw ApiUnavailableException(
+        'Récupération impossible (${res.statusCode})');
   }
 
   /// Synchronizes profile updates to the server.
@@ -170,7 +190,8 @@ class ApiClient {
   }) async {
     final targetUrl = await getActiveBaseUrl();
     try {
-      final res = await http.put(
+      final res = await http
+          .put(
         Uri.parse('$targetUrl/users/$userId'),
         headers: _headers(recoveryCode: recoveryCode),
         body: jsonEncode({
@@ -178,7 +199,8 @@ class ApiClient {
           if (avatarUrl != null) 'avatar_url': avatarUrl,
           if (statusMessage != null) 'status_message': statusMessage,
         }),
-      ).timeout(const Duration(seconds: 5));
+          )
+          .timeout(const Duration(seconds: 5));
       return res.statusCode == 200;
     } catch (_) {
       return false;
@@ -197,22 +219,27 @@ class ApiClient {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
       final list = data['users'] as List<dynamic>?;
       if (list != null) {
-        return list.map((item) => Map<String, dynamic>.from(item as Map)).toList();
+        return list
+            .map((item) => Map<String, dynamic>.from(item as Map))
+            .toList();
       }
       return [];
     }
-    throw ApiUnavailableException('Réponse serveur inattendue (${res.statusCode})');
+    throw ApiUnavailableException(
+        'Réponse serveur inattendue (${res.statusCode})');
   }
 
   /// Permanently deletes the account on the server (owner proven by recovery code).
   /// Returns true when the account is deleted (or already gone).
-  Future<bool> deleteAccount({required String userId, required String recoveryCode}) async {
+  Future<bool> deleteAccount(
+      {required String userId, required String recoveryCode}) async {
     final res = await _send((base) => http.delete(
           Uri.parse('$base/users/$userId'),
           headers: _headers(recoveryCode: recoveryCode.trim().toUpperCase()),
         ));
     if (res.statusCode == 200) return true;
-    if (res.statusCode == 404) return true; // unknown to the server: nothing left to delete
+    if (res.statusCode == 404)
+      return true; // unknown to the server: nothing left to delete
     if (res.statusCode == 403) {
       throw Exception('Suppression refusée : code de récupération invalide.');
     }
@@ -240,8 +267,10 @@ class ApiClient {
         if (statusMessage != null) 'status_message': statusMessage,
       }),
     ));
-    if (res.statusCode == 201) return jsonDecode(res.body) as Map<String, dynamic>;
-    final message = _responseError(res.body) ?? 'Restauration impossible (${res.statusCode})';
+    if (res.statusCode == 201)
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    final message = _responseError(res.body) ??
+        'Restauration impossible (${res.statusCode})';
     throw Exception(message);
   }
 
@@ -279,7 +308,8 @@ class ApiClient {
         final m = Map<String, dynamic>.from(u as Map);
         deleted[(m['user_id'] ?? '').toString()] = m;
       }
-      final missing = (data['missing'] as List? ?? []).map((id) => id.toString()).toSet();
+      final missing =
+          (data['missing'] as List? ?? []).map((id) => id.toString()).toSet();
       return UsersStatus(active: active, deleted: deleted, missing: missing);
     } on ApiUnavailableException {
       return null;
@@ -293,14 +323,17 @@ class ApiClient {
       headers: _headers(),
       body: jsonEncode({'identifier': identifier.trim()}),
     ));
-    if (res.statusCode == 200) return jsonDecode(res.body) as Map<String, dynamic>;
-    throw ApiUnavailableException('Vérification impossible (${res.statusCode})');
+    if (res.statusCode == 200)
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    throw ApiUnavailableException(
+        'Vérification impossible (${res.statusCode})');
   }
 
   /// Looks up a user by ID or handle from the server.
   Future<Map<String, dynamic>?> getUser(String idOrHandle) async {
     final encoded = Uri.encodeComponent(idOrHandle.trim());
-    final res = await _send((base) => http.get(Uri.parse('$base/users/$encoded'), headers: _headers()));
+    final res = await _send((base) =>
+        http.get(Uri.parse('$base/users/$encoded'), headers: _headers()));
     if (res.statusCode == 200) {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
       return data['user'] as Map<String, dynamic>?;
@@ -363,6 +396,72 @@ class ApiClient {
       // Offline: returns false so caller can retain in outbox queue
       return false;
     }
+  }
+
+  /// Delivers a first-contact message to the recipient's request inbox.
+  Future<bool> sendMessageRequest({
+    required String senderId,
+    required String recipientId,
+    required String messageId,
+    required String conversationId,
+    required String content,
+    required String recoveryCode,
+    String messageType = 'text',
+  }) async {
+    final res = await _send((base) => http.post(
+          Uri.parse(
+              '$base/users/${Uri.encodeComponent(senderId)}/message-requests'),
+          headers: _headers(recoveryCode: recoveryCode.trim().toUpperCase()),
+          body: jsonEncode({
+            'id': messageId,
+            'recipient_id': recipientId,
+            'conversation_id': conversationId,
+            'content': content,
+            'message_type': messageType,
+          }),
+        ));
+    if (res.statusCode == 201) return true;
+    if (res.statusCode == 403)
+      throw Exception('Code de secours invalide pour envoyer ce message.');
+    if (res.statusCode == 404)
+      throw Exception('Le destinataire n’existe plus sur le serveur.');
+    throw ApiUnavailableException(
+        'Le message n’a pas été remis (${res.statusCode})');
+  }
+
+  Future<List<MessageRequest>> fetchMessageRequests({
+    required String userId,
+    required String recoveryCode,
+  }) async {
+    final res = await _send((base) => http.get(
+          Uri.parse(
+              '$base/users/${Uri.encodeComponent(userId)}/message-requests'),
+          headers: _headers(recoveryCode: recoveryCode.trim().toUpperCase()),
+        ));
+    if (res.statusCode != 200) return const [];
+    final data = jsonDecode(res.body) as Map<String, dynamic>;
+    return (data['requests'] as List? ?? [])
+        .map((item) =>
+            MessageRequest.fromJson(Map<String, dynamic>.from(item as Map)))
+        .toList();
+  }
+
+  Future<bool> respondToMessageRequest({
+    required String userId,
+    required String recoveryCode,
+    required String requestId,
+    required bool accept,
+  }) async {
+    final res = await _send((base) => http.post(
+          Uri.parse(
+              '$base/users/${Uri.encodeComponent(userId)}/message-requests/${Uri.encodeComponent(requestId)}'),
+          headers: _headers(recoveryCode: recoveryCode.trim().toUpperCase()),
+          body: jsonEncode({'status': accept ? 'ACCEPTED' : 'IGNORED'}),
+        ));
+    if (res.statusCode == 200) return true;
+    if (res.statusCode == 404) return false;
+    throw ApiUnavailableException(
+        'La demande n’a pas pu être traitée (${res.statusCode})');
   }
 
   /// Fetches delta synchronization events from the server since sequence cursor.
@@ -468,7 +567,6 @@ class ApiClient {
   }
 }
 
-
 /// Raised when the online server cannot be reached.
 class ApiUnavailableException implements Exception {
   final String message;
@@ -482,5 +580,6 @@ class UsersStatus {
   final Map<String, Map<String, dynamic>> active;
   final Map<String, Map<String, dynamic>> deleted;
   final Set<String> missing;
-  UsersStatus({required this.active, required this.deleted, this.missing = const {}});
+  UsersStatus(
+      {required this.active, required this.deleted, this.missing = const {}});
 }

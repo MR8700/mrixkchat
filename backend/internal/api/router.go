@@ -103,6 +103,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /api/v1/users/{id}", s.handleDeleteUser)
 	s.mux.HandleFunc("POST /api/v1/users/status", s.handleUsersStatus)
 	s.mux.HandleFunc("POST /api/v1/contacts/verify", s.handleVerifyContact)
+	s.mux.HandleFunc("POST /api/v1/users/{id}/message-requests", s.handleCreateMessageRequest)
+	s.mux.HandleFunc("GET /api/v1/users/{id}/message-requests", s.handleListMessageRequests)
+	s.mux.HandleFunc("POST /api/v1/users/{id}/message-requests/{requestId}", s.handleRespondMessageRequest)
 
 	// Devices (Max 3 limit enforced)
 	s.mux.HandleFunc("POST /api/v1/devices/authorize", s.handleAuthorizeDevice)
@@ -556,6 +559,91 @@ func (s *Server) handleVerifyContact(w http.ResponseWriter, r *http.Request) {
 		"valid": true,
 		"user":  user.Public(),
 	})
+}
+
+type CreateMessageRequest struct {
+	ID             string `json:"id"`
+	RecipientID    string `json:"recipient_id"`
+	ConversationID string `json:"conversation_id"`
+	Content        string `json:"content"`
+	MessageType    string `json:"message_type"`
+}
+
+func (s *Server) handleCreateMessageRequest(w http.ResponseWriter, r *http.Request) {
+	senderID := r.PathValue("id")
+	sender, err := s.repo.GetUserByID(senderID)
+	if err != nil || !ownerAuthorized(r, sender) {
+		jsonError(w, http.StatusForbidden, "Action réservée au propriétaire du compte")
+		return
+	}
+	var req CreateMessageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request JSON payload")
+		return
+	}
+	req.ID = strings.TrimSpace(req.ID)
+	req.RecipientID = strings.TrimSpace(req.RecipientID)
+	if req.ID == "" || req.RecipientID == "" || req.Content == "" || req.RecipientID == senderID {
+		jsonError(w, http.StatusBadRequest, "Identifiant, destinataire et message sont obligatoires")
+		return
+	}
+	if req.MessageType == "" {
+		req.MessageType = "text"
+	}
+	message, err := s.repo.CreateMessageRequest(&database.MessageRequest{
+		ID: senderID + "_" + req.ID, SenderID: senderID, RecipientID: req.RecipientID,
+		ConversationID: req.ConversationID, Content: req.Content, MessageType: req.MessageType,
+	})
+	if err != nil {
+		if errors.Is(err, database.ErrUserNotFound) {
+			jsonError(w, http.StatusNotFound, "Destinataire introuvable")
+			return
+		}
+		jsonError(w, http.StatusServiceUnavailable, "Le message n’a pas pu être remis durablement")
+		return
+	}
+	s.hub.BroadcastToUser(req.RecipientID, &WSEvent{Type: "MESSAGE_REQUEST", Payload: message, Timestamp: time.Now()}, "")
+	jsonResponse(w, http.StatusCreated, map[string]interface{}{"request": message})
+}
+
+func (s *Server) handleListMessageRequests(w http.ResponseWriter, r *http.Request) {
+	userID := r.PathValue("id")
+	user, err := s.repo.GetUserByID(userID)
+	if err != nil || !ownerAuthorized(r, user) {
+		jsonError(w, http.StatusForbidden, "Action réservée au propriétaire du compte")
+		return
+	}
+	requests := s.repo.ListMessageRequests(userID)
+	if requests == nil {
+		requests = []*database.MessageRequest{}
+	}
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"requests": requests, "count": len(requests)})
+}
+
+func (s *Server) handleRespondMessageRequest(w http.ResponseWriter, r *http.Request) {
+	userID := r.PathValue("id")
+	user, err := s.repo.GetUserByID(userID)
+	if err != nil || !ownerAuthorized(r, user) {
+		jsonError(w, http.StatusForbidden, "Action réservée au propriétaire du compte")
+		return
+	}
+	var req struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request JSON payload")
+		return
+	}
+	status := strings.ToUpper(strings.TrimSpace(req.Status))
+	if err := s.repo.RespondToMessageRequest(userID, r.PathValue("requestId"), status); err != nil {
+		if errors.Is(err, database.ErrMessageRequestNotFound) {
+			jsonError(w, http.StatusNotFound, err.Error())
+		} else {
+			jsonError(w, http.StatusBadRequest, err.Error())
+		}
+		return
+	}
+	jsonResponse(w, http.StatusOK, map[string]string{"status": status})
 }
 
 type LoginRequest struct {

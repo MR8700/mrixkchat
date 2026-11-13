@@ -31,7 +31,8 @@ class _AddContactDialogState extends State<AddContactDialog> {
     _triggerOnlineSearch('');
     // Newly registered users appear automatically without manual refresh.
     _autoRefresh = Timer.periodic(const Duration(seconds: 20), (_) {
-      if (mounted && !_isSearchingOnline) _triggerOnlineSearch(_queryController.text);
+      if (mounted && !_isSearchingOnline)
+        _triggerOnlineSearch(_queryController.text);
     });
   }
 
@@ -42,12 +43,14 @@ class _AddContactDialogState extends State<AddContactDialog> {
     _searchDebounce = Timer(const Duration(milliseconds: 300), () async {
       try {
         final results = await IdentityDirectoryService.searchUsersOnline(q);
-        if (mounted && version == _searchVersion) setState(() {
+        if (mounted && version == _searchVersion)
+          setState(() {
           _onlineResults = results;
           _isSearchingOnline = false;
         });
       } catch (_) {
-        if (mounted && version == _searchVersion) setState(() {
+        if (mounted && version == _searchVersion)
+          setState(() {
           _onlineResults = const [];
           _isSearchingOnline = false;
         });
@@ -67,24 +70,29 @@ class _AddContactDialogState extends State<AddContactDialog> {
   Future<void> _validateAndSubmit() async {
     final query = _queryController.text.trim();
     if (query.isEmpty) {
-      setState(() => _errorMessage = 'Veuillez saisir un identifiant ou nom d\'utilisateur.');
+      setState(() => _errorMessage =
+          'Veuillez saisir un identifiant ou nom d\'utilisateur.');
       return;
     }
 
     final myProfile = context.read<ProfileRepository>().getProfile();
     final queryLower = query.toLowerCase().trim();
-    final myHandleClean = myProfile.handle.toLowerCase().replaceAll('@', '').trim();
+    final myHandleClean =
+        myProfile.handle.toLowerCase().replaceAll('@', '').trim();
     final queryClean = queryLower.replaceAll('@', '');
-    if ((myProfile.displayName.isNotEmpty && queryLower == myProfile.displayName.toLowerCase().trim()) ||
+    if ((myProfile.displayName.isNotEmpty &&
+            queryLower == myProfile.displayName.toLowerCase().trim()) ||
         (myHandleClean.isNotEmpty && queryClean == myHandleClean)) {
-      setState(() => _errorMessage = 'Vous ne pouvez pas vous ajouter vous-même comme contact.');
+      setState(() => _errorMessage =
+          'Vous ne pouvez pas vous ajouter vous-même comme contact.');
       return;
     }
 
     setState(() => _isSearchingOnline = true);
 
     // Verify against the online backend server first
-    final verifiedUser = _selectedUser ?? await IdentityDirectoryService.verifyUserOnline(query);
+    final verifiedUser =
+        _selectedUser ?? await IdentityDirectoryService.verifyUserOnline(query);
     if (mounted) setState(() => _isSearchingOnline = false);
 
     if (verifiedUser == null) {
@@ -107,13 +115,15 @@ class _AddContactDialogState extends State<AddContactDialog> {
         c.handle.toLowerCase() == verifiedUser.handle.toLowerCase())) {
       if (mounted) {
         setState(() {
-          _errorMessage = '${verifiedUser.name} est déjà présent dans vos contacts.';
+          _errorMessage =
+              '${verifiedUser.name} est déjà présent dans vos contacts.';
         });
       }
       return;
     }
 
-    final firstLetter = verifiedUser.name.isNotEmpty ? verifiedUser.name[0].toUpperCase() : 'U';
+    final firstLetter =
+        verifiedUser.name.isNotEmpty ? verifiedUser.name[0].toUpperCase() : 'U';
     final newContact = Contact(
       id: verifiedUser.id,
       name: verifiedUser.name,
@@ -131,7 +141,8 @@ class _AddContactDialogState extends State<AddContactDialog> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: const Color(0xFF059669),
-          content: Text('${verifiedUser.name} (${verifiedUser.handle}) a été vérifié sur le serveur et ajouté à vos contacts.'),
+          content: Text(
+              '${verifiedUser.name} (${verifiedUser.handle}) a été vérifié sur le serveur et ajouté à vos contacts.'),
         ),
       );
     }
@@ -144,12 +155,14 @@ class _AddContactDialogState extends State<AddContactDialog> {
         c.name.toLowerCase() == verifiedUser.name.toLowerCase() ||
         c.handle.toLowerCase() == verifiedUser.handle.toLowerCase())) {
       setState(() {
-        _errorMessage = '${verifiedUser.name} est déjà présent dans vos contacts.';
+        _errorMessage =
+            '${verifiedUser.name} est déjà présent dans vos contacts.';
       });
       return;
     }
 
-    final firstLetter = verifiedUser.name.isNotEmpty ? verifiedUser.name[0].toUpperCase() : 'U';
+    final firstLetter =
+        verifiedUser.name.isNotEmpty ? verifiedUser.name[0].toUpperCase() : 'U';
     final newContact = Contact(
       id: verifiedUser.id,
       name: verifiedUser.name,
@@ -167,7 +180,8 @@ class _AddContactDialogState extends State<AddContactDialog> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: const Color(0xFF059669),
-          content: Text('${verifiedUser.name} (${verifiedUser.handle}) a été vérifié sur le serveur et ajouté à vos contacts.'),
+          content: Text(
+              '${verifiedUser.name} (${verifiedUser.handle}) a été vérifié sur le serveur et ajouté à vos contacts.'),
         ),
       );
     }
@@ -177,13 +191,17 @@ class _AddContactDialogState extends State<AddContactDialog> {
   Widget build(BuildContext context) {
     final myProfile = context.read<ProfileRepository>().getProfile();
     final myId = myProfile.id.trim();
-    final myHandleClean = myProfile.handle.toLowerCase().replaceAll('@', '').trim();
+    final myHandleClean =
+        myProfile.handle.toLowerCase().replaceAll('@', '').trim();
     final myNameLower = myProfile.displayName.toLowerCase().trim();
 
     final existingContacts = context.read<ContactRepository>().getAllContacts();
     final existingIds = existingContacts.map((c) => c.id).toSet();
-    final existingHandles = existingContacts.map((c) => c.handle.toLowerCase().replaceAll('@', '').trim()).toSet();
-    final existingNames = existingContacts.map((c) => c.name.toLowerCase().trim()).toSet();
+    final existingHandles = existingContacts
+        .map((c) => c.handle.toLowerCase().replaceAll('@', '').trim())
+        .toSet();
+    final existingNames =
+        existingContacts.map((c) => c.name.toLowerCase().trim()).toSet();
 
     final allResults = _onlineResults;
 
@@ -207,7 +225,8 @@ class _AddContactDialogState extends State<AddContactDialog> {
                 children: [
                   Row(
                     children: const [
-                      Icon(Icons.person_add_rounded, color: Color(0xFF0043B8), size: 22),
+                Icon(Icons.person_add_rounded,
+                    color: Color(0xFF0043B8), size: 22),
                       SizedBox(width: 8),
                       Text(
                         'Ajouter un contact',
@@ -239,7 +258,8 @@ class _AddContactDialogState extends State<AddContactDialog> {
                 decoration: InputDecoration(
                   labelText: 'Nom ou identifiant (ex: @alice ou Alice)',
                   prefixIcon: const Icon(Icons.search, size: 20),
-                  border: const OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(12))),
+            border: const OutlineInputBorder(
+                borderRadius: BorderRadius.all(Radius.circular(12))),
                   errorText: _errorMessage,
                   suffixIcon: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -293,19 +313,24 @@ class _AddContactDialogState extends State<AddContactDialog> {
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.cloud_off_rounded, size: 18, color: Color(0xFFB91C1C)),
+                  const Icon(Icons.cloud_off_rounded,
+                      size: 18, color: Color(0xFFB91C1C)),
                         const SizedBox(width: 8),
                         const Expanded(
                           child: Text(
                             'Serveur injoignable ou en cours de démarrage. La liste peut être incomplète.',
-                            style: TextStyle(fontSize: 11.5, color: Color(0xFF991B1B)),
+                      style:
+                          TextStyle(fontSize: 11.5, color: Color(0xFF991B1B)),
                           ),
                         ),
                         TextButton(
-                          onPressed: () => _triggerOnlineSearch(_queryController.text),
-                          child: const Text('Réessayer', style: TextStyle(fontSize: 11.5)),
+                    onPressed: () =>
+                        _triggerOnlineSearch(_queryController.text),
+                    child: const Text('Réessayer',
+                        style: TextStyle(fontSize: 11.5)),
                         ),
           ],
+              ),
           );
                 },
               ),
@@ -318,10 +343,14 @@ class _AddContactDialogState extends State<AddContactDialog> {
                     _queryController.text.trim().isEmpty
                         ? 'Membres inscrits sur le réseau (${nonSelfResults.length}) :'
                         : 'Utilisateurs certifiés correspondants (${nonSelfResults.length}) :',
-                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF0043B8)),
+              style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF0043B8)),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.refresh_rounded, size: 16, color: Color(0xFF0043B8)),
+              icon: const Icon(Icons.refresh_rounded,
+                  size: 16, color: Color(0xFF0043B8)),
                     tooltip: 'Rafraîchir les utilisateurs en ligne',
                     onPressed: () => _triggerOnlineSearch(_queryController.text),
                   ),
@@ -342,7 +371,9 @@ class _AddContactDialogState extends State<AddContactDialog> {
                   child: Column(
                     children: [
                       Icon(
-                        _isSearchingOnline ? Icons.cloud_sync_rounded : Icons.person_search_outlined,
+                  _isSearchingOnline
+                      ? Icons.cloud_sync_rounded
+                      : Icons.person_search_outlined,
                         size: 36,
                         color: const Color(0xFF94A3B8),
                       ),
@@ -356,7 +387,10 @@ class _AddContactDialogState extends State<AddContactDialog> {
                                 ? 'Aucun autre utilisateur inscrit sur le réseau pour le moment.'
                                 : 'Aucun utilisateur certifié ne correspond à « ${_queryController.text.trim()} ».'),
                         textAlign: TextAlign.center,
-                        style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: Color(0xFF475569)),
+                  style: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF475569)),
                       ),
                       const SizedBox(height: 4),
                       Text(
@@ -366,14 +400,17 @@ class _AddContactDialogState extends State<AddContactDialog> {
                                 ? 'Dès qu\'un utilisateur crée un compte sur le réseau, il apparaîtra ici automatiquement.'
                                 : 'Vérifiez l\'orthographe du pseudonyme ou du @handle.'),
                         textAlign: TextAlign.center,
-                        style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                  style:
+                      const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
                       ),
                       if (!_isSearchingOnline) ...[
                         const SizedBox(height: 12),
                         OutlinedButton.icon(
                           icon: const Icon(Icons.refresh_rounded, size: 16),
-                          label: const Text('Actualiser la liste en ligne', style: TextStyle(fontSize: 12)),
-                          onPressed: () => _triggerOnlineSearch(_queryController.text),
+                    label: const Text('Actualiser la liste en ligne',
+                        style: TextStyle(fontSize: 12)),
+                    onPressed: () =>
+                        _triggerOnlineSearch(_queryController.text),
                         ),
                       ],
                     ],
@@ -395,34 +432,44 @@ class _AddContactDialogState extends State<AddContactDialog> {
                     itemBuilder: (context, index) {
                       final u = nonSelfResults[index];
                       final isSelected = _selectedUser?.id == u.id;
-                      final uHandleClean = u.handle.toLowerCase().replaceAll('@', '').trim();
+                final uHandleClean =
+                    u.handle.toLowerCase().replaceAll('@', '').trim();
                       final isAlreadyContact = existingIds.contains(u.id) ||
                           existingHandles.contains(uHandleClean) ||
                           existingNames.contains(u.name.toLowerCase().trim());
 
                       return ListTile(
                         dense: true,
-                        leading: AppAvatar(name: u.name, radius: 17, isVerified: true, isClickable: false),
+                  leading: AppAvatar(
+                      name: u.name,
+                      radius: 17,
+                      isVerified: true,
+                      isClickable: false),
                         title: Row(
                           children: [
                             Flexible(
                               child: Text(
                                 u.name,
-                                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                          style: const TextStyle(
+                              fontSize: 13, fontWeight: FontWeight.bold),
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
                             if (isAlreadyContact) ...[
                               const SizedBox(width: 6),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 1.5),
                                 decoration: BoxDecoration(
                                   color: const Color(0xFFE2E8F0),
                                   borderRadius: BorderRadius.circular(6),
                                 ),
                                 child: const Text(
                                   'Déjà contact',
-                                  style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Color(0xFF475569)),
+                            style: TextStyle(
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF475569)),
                                 ),
                               ),
                             ],
@@ -430,29 +477,35 @@ class _AddContactDialogState extends State<AddContactDialog> {
                         ),
                         subtitle: Text(
                           '${u.handle} • ${u.statusText}',
-                          style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                    style:
+                        const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
                           overflow: TextOverflow.ellipsis,
                         ),
                         trailing: isAlreadyContact
-                            ? const Icon(Icons.check_circle_outline_rounded, color: Color(0xFF059669), size: 20)
+                      ? const Icon(Icons.check_circle_outline_rounded,
+                          color: Color(0xFF059669), size: 20)
                             : Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   IconButton(
-                                    icon: const Icon(Icons.person_add_alt_1_rounded, color: Color(0xFF0043B8), size: 20),
+                              icon: const Icon(Icons.person_add_alt_1_rounded,
+                                  color: Color(0xFF0043B8), size: 20),
                                     tooltip: 'Ajouter aux contacts',
                                     onPressed: () => _addContactDirectly(u),
                                   ),
                                   if (isSelected)
-                                    const Icon(Icons.check_circle, color: Color(0xFF0043B8), size: 20)
+                              const Icon(Icons.check_circle,
+                                  color: Color(0xFF0043B8), size: 20)
                                   else
-                                    const Icon(Icons.arrow_forward_ios, size: 12, color: Colors.grey),
+                              const Icon(Icons.arrow_forward_ios,
+                                  size: 12, color: Colors.grey),
                                 ],
                               ),
                         onTap: () {
                           if (isAlreadyContact) {
                             setState(() {
-                              _errorMessage = '${u.name} est déjà présent dans vos contacts.';
+                        _errorMessage =
+                            '${u.name} est déjà présent dans vos contacts.';
                             });
                             return;
                           }
@@ -475,14 +528,16 @@ class _AddContactDialogState extends State<AddContactDialog> {
                 children: [
                   TextButton(
                     onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('Annuler', style: TextStyle(color: AppTheme.onSurfaceVariant)),
+              child: const Text('Annuler',
+                  style: TextStyle(color: AppTheme.onSurfaceVariant)),
                   ),
                   const SizedBox(width: 8),
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF0043B8),
                       foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
                     ),
                     onPressed: _validateAndSubmit,
                     child: const Text('Ajouter'),

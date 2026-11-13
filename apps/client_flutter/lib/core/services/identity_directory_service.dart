@@ -39,7 +39,8 @@ class SovereignUser {
     name: json['name'] as String,
     handle: json['handle'] as String,
     avatarUrl: json['avatarUrl'] as String? ?? '',
-    statusText: json['statusText'] as String? ?? 'Membre du réseau souverain MRixk',
+        statusText:
+            json['statusText'] as String? ?? 'Membre du réseau souverain MRixk',
     isVerified: json['isVerified'] as bool? ?? true,
     isOnline: json['isOnline'] as bool? ?? true,
   );
@@ -52,7 +53,8 @@ class IdentityDirectoryService {
   /// Explicitly registers or updates a user in the sovereign directory
   static void registerUser(SovereignUser user) {
     final cleanHandle = user.handle.toLowerCase();
-    registeredUsers.removeWhere((u) => u.handle.toLowerCase() == cleanHandle || u.id == user.id);
+    registeredUsers.removeWhere(
+        (u) => u.handle.toLowerCase() == cleanHandle || u.id == user.id);
     registeredUsers.add(user);
   }
 
@@ -70,7 +72,8 @@ class IdentityDirectoryService {
         '@sarah.c',
         '@toto',
       };
-      registeredUsers.removeWhere((u) => legacyHandles.contains(u.handle.toLowerCase()));
+      registeredUsers
+          .removeWhere((u) => legacyHandles.contains(u.handle.toLowerCase()));
 
       final contacts = db.getAll('contacts');
       for (final c in contacts) {
@@ -78,7 +81,9 @@ class IdentityDirectoryService {
         final name = (c['name'] ?? '').toString();
         final handle = (c['handle'] ?? '').toString();
         final formattedHandle = handle.startsWith('@') ? handle : '@$handle';
-        if (id.isNotEmpty && handle.isNotEmpty && !legacyHandles.contains(formattedHandle.toLowerCase())) {
+        if (id.isNotEmpty &&
+            handle.isNotEmpty &&
+            !legacyHandles.contains(formattedHandle.toLowerCase())) {
           registerUser(SovereignUser(
             id: id,
             name: name.isNotEmpty ? name : handle,
@@ -97,7 +102,9 @@ class IdentityDirectoryService {
         final name = (u['displayName'] ?? '').toString();
         final handle = (u['handle'] ?? '').toString();
         final formattedHandle = handle.startsWith('@') ? handle : '@$handle';
-        if (id.isNotEmpty && handle.isNotEmpty && !legacyHandles.contains(formattedHandle.toLowerCase())) {
+        if (id.isNotEmpty &&
+            handle.isNotEmpty &&
+            !legacyHandles.contains(formattedHandle.toLowerCase())) {
           registerUser(SovereignUser(
             id: id,
             name: name.isNotEmpty ? name : handle,
@@ -111,10 +118,10 @@ class IdentityDirectoryService {
       }
     } on ApiUnavailableException catch (e) {
       lastOnlineError.value = e.message;
-      return [];
+      return;
     } catch (e) {
       lastOnlineError.value = 'Erreur réseau : $e';
-      return [];
+      return;
     }
   }
 
@@ -125,12 +132,16 @@ class IdentityDirectoryService {
     if (clean.isEmpty) return null;
 
     final cleanLower = clean.toLowerCase();
-    final cleanHandle = cleanLower.startsWith('@') ? cleanLower : '@$cleanLower';
-    final queryHandleWithoutAt = cleanLower.startsWith('@') ? cleanLower.substring(1) : cleanLower;
+    final cleanHandle =
+        cleanLower.startsWith('@') ? cleanLower : '@$cleanLower';
+    final queryHandleWithoutAt =
+        cleanLower.startsWith('@') ? cleanLower.substring(1) : cleanLower;
 
     for (final user in registeredUsers) {
       final userHandleLower = user.handle.toLowerCase();
-      final userHandleWithoutAt = userHandleLower.startsWith('@') ? userHandleLower.substring(1) : userHandleLower;
+      final userHandleWithoutAt = userHandleLower.startsWith('@')
+          ? userHandleLower.substring(1)
+          : userHandleLower;
       final userNameLower = user.name.toLowerCase();
 
       if (userHandleLower == cleanHandle ||
@@ -151,14 +162,18 @@ class IdentityDirectoryService {
     if (clean.isEmpty) return registeredUsers;
 
     final cleanLower = clean.toLowerCase();
-    final cleanHandle = cleanLower.startsWith('@') ? cleanLower : '@$cleanLower';
-    final queryHandleWithoutAt = cleanLower.startsWith('@') ? cleanLower.substring(1) : cleanLower;
+    final cleanHandle =
+        cleanLower.startsWith('@') ? cleanLower : '@$cleanLower';
+    final queryHandleWithoutAt =
+        cleanLower.startsWith('@') ? cleanLower.substring(1) : cleanLower;
 
     final results = <SovereignUser>[];
 
     for (final u in registeredUsers) {
       final uHandleLower = u.handle.toLowerCase();
-      final uHandleWithoutAt = uHandleLower.startsWith('@') ? uHandleLower.substring(1) : uHandleLower;
+      final uHandleWithoutAt = uHandleLower.startsWith('@')
+          ? uHandleLower.substring(1)
+          : uHandleLower;
       final uNameLower = u.name.toLowerCase();
 
       if (uNameLower.contains(cleanLower) ||
@@ -173,7 +188,8 @@ class IdentityDirectoryService {
   }
 
   /// Last online discovery error (null when the last fetch succeeded). Drives UI banners.
-  static final ValueNotifier<String?> lastOnlineError = ValueNotifier<String?>(null);
+  static final ValueNotifier<String?> lastOnlineError =
+      ValueNotifier<String?>(null);
 
   /// Discovers users online from the backend server in real-time.
   /// An empty query is authoritative: the directory then mirrors exactly the server's accounts
@@ -187,8 +203,13 @@ class IdentityDirectoryService {
         final id = (u['id'] ?? '').toString();
         final name = (u['display_name'] ?? u['displayName'] ?? '').toString();
         final handle = (u['handle'] ?? '').toString();
-        final avatar = (u['avatar_ref'] ?? u['avatar_url'] ?? u['avatarUrl'] ?? '').toString();
-        final status = (u['status_message'] ?? u['statusMessage'] ?? 'Membre du réseau souverain').toString();
+        final avatar =
+            (u['avatar_ref'] ?? u['avatar_url'] ?? u['avatarUrl'] ?? '')
+                .toString();
+        final status = (u['status_message'] ??
+                u['statusMessage'] ??
+                'Membre du réseau souverain')
+            .toString();
         if (id.isNotEmpty && handle.isNotEmpty) {
           remote.add(SovereignUser(
             id: id,
@@ -230,7 +251,8 @@ class IdentityDirectoryService {
           name: (u['display_name'] ?? '').toString(),
           handle: (u['handle'] ?? '').toString(),
           avatarUrl: (u['avatar_ref'] ?? u['avatar_url'] ?? '').toString(),
-          statusText: (u['status_message'] ?? 'Membre du réseau souverain').toString(),
+          statusText:
+              (u['status_message'] ?? 'Membre du réseau souverain').toString(),
           isVerified: true,
           isOnline: true,
         );
