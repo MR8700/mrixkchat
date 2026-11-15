@@ -13,6 +13,7 @@ import 'moe_interactive_table_widget.dart';
 import 'moe_interactive_chart_widget.dart';
 import 'moe_interactive_diagram_widget.dart';
 import 'moe_object_code_modal.dart';
+import 'math_formula_renderer.dart';
 
 /// Sanitizes untrusted HTML/SVG inputs to strictly prevent script injection, active elements or unsafe attributes.
 String sanitizeHtml(String input) {
@@ -137,15 +138,51 @@ class GroupNoteRenderer extends StatelessWidget {
     // 4. Parse into visual content blocks
     final blocks = _parseBlocks(safeContent, computedVars, scientificWidgets, extractedMoe);
 
-    return ListView.builder(
-      shrinkWrap: true,
-      physics: const ClampingScrollPhysics(),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      itemCount: blocks.length,
-      itemBuilder: (context, index) {
-        final block = blocks[index];
-        return _buildBlock(context, block, computedVars);
-      },
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isMobile = screenWidth < 680;
+
+    return Container(
+      color: const Color(0xFFF4F6F9),
+      child: Center(
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 820),
+          margin: EdgeInsets.symmetric(
+            horizontal: isMobile ? 0 : 8,
+            vertical: isMobile ? 0 : 12,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(isMobile ? 0 : 12),
+            boxShadow: isMobile
+                ? null
+                : const [
+                    BoxShadow(
+                      color: Color(0x0A000000),
+                      blurRadius: 18,
+                      offset: Offset(0, 4),
+                    ),
+                    BoxShadow(
+                      color: Color(0x05000000),
+                      blurRadius: 4,
+                      offset: Offset(0, 1),
+                    ),
+                  ],
+          ),
+          child: ListView.builder(
+            shrinkWrap: true,
+            physics: const ClampingScrollPhysics(),
+            padding: EdgeInsets.symmetric(
+              horizontal: isMobile ? 16 : 20,
+              vertical: isMobile ? 14 : 24,
+            ),
+            itemCount: blocks.length,
+            itemBuilder: (context, index) {
+              final block = blocks[index];
+              return _buildBlock(context, block, computedVars);
+            },
+          ),
+        ),
+      ),
     );
   }
 
@@ -726,6 +763,10 @@ class GroupNoteRenderer extends StatelessWidget {
             ),
           ),
         );
+        break;
+
+      case _BlockType.callout:
+        child = _buildCalloutCard(block);
         break;
 
       case _BlockType.math:
@@ -1418,6 +1459,12 @@ class GroupNoteRenderer extends StatelessWidget {
     text = text.replaceAllMapped(RegExp(r'~~(.*?)~~'), (m) => '<s>${m.group(1)}</s>');
     text = text.replaceAllMapped(RegExp(r'`(.*?)`'), (m) => '<code>${m.group(1)}</code>');
 
+    // Replace inline math $ ... $
+    text = text.replaceAllMapped(RegExp(r'\$([^\$\n]+)\$'), (m) {
+      final expr = Uri.encodeComponent(m.group(1)!.trim());
+      return '<math expr="$expr"/>';
+    });
+
     // Replace subscripts: {{A_1}} -> <sub>
     text = text.replaceAllMapped(RegExp(r'\{\{([a-zA-Z0-9]+)_([a-zA-Z0-9]+)\}\}'), (m) {
       return '${m.group(1)}<sub val="${m.group(2)}"/>';
@@ -1659,7 +1706,7 @@ class GroupNoteRenderer extends StatelessWidget {
 
     final spans = <InlineSpan>[];
     final tagRegex = RegExp(
-      r'<(b|strong|i|em|u|s|strike|del|mark|code|font|sub|sup|calc|frac|integral|sigma|sqrt|limit|derivative|gradient|matrix)\b((?:\"[^\"]*\"|\x27[^\x27]*\x27|[^>])*)>(.*?)<\/\1>|<(sub|sup|calc|frac|integral|sigma|sqrt|limit|derivative|gradient|matrix)\b((?:\"[^\"]*\"|\x27[^\x27]*\x27|[^>])*)\/>',
+      r'<(b|strong|i|em|u|s|strike|del|mark|code|font|sub|sup|calc|frac|integral|sigma|sqrt|limit|derivative|gradient|matrix|math)\b((?:\"[^\"]*\"|\x27[^\x27]*\x27|[^>])*)>(.*?)<\/\1>|<(sub|sup|calc|frac|integral|sigma|sqrt|limit|derivative|gradient|matrix|math)\b((?:\"[^\"]*\"|\x27[^\x27]*\x27|[^>])*)\/>',
       caseSensitive: false,
       dotAll: true,
     );
@@ -2020,6 +2067,22 @@ class GroupNoteRenderer extends StatelessWidget {
             ),
           ));
           break;
+        case 'math':
+          final exprAttr = RegExp(r'expr="([^"]*)"').firstMatch(attrs)?.group(1);
+          final rawFormula = exprAttr != null ? Uri.decodeComponent(exprAttr) : innerText;
+          spans.add(WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2.5),
+              child: MathFormulaRenderer(
+                formula: rawFormula,
+                isDisplayMode: false,
+                fontSize: (currentStyle.fontSize ?? 14.0) * 1.05,
+                color: currentStyle.color ?? const Color(0xFF0F172A),
+              ),
+            ),
+          ));
+          break;
         default:
           spans.addAll(_parsePlainSpans(innerText, currentStyle));
       }
@@ -2064,154 +2127,195 @@ class GroupNoteRenderer extends StatelessWidget {
   }
 
   Widget _buildMathCard(String formula, String? macroName) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: const [
-          BoxShadow(color: Color(0x06000000), blurRadius: 4, offset: Offset(0, 2)),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.functions_rounded, size: 16, color: AppTheme.primary),
-              const SizedBox(width: 6),
-              Text(
-                macroName != null ? 'Composant Formule : {{$macroName}}' : 'Formule Mathématique Exécutée',
-                style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: AppTheme.primary),
-              ),
-              const Spacer(),
-              if (macroName != null && onEditComponent != null)
-                InkWell(
-                  onTap: () => onEditComponent!(macroName),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFEFF6FF),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: const Text('Modifier', style: TextStyle(fontSize: 10, color: AppTheme.primary, fontWeight: FontWeight.bold)),
-                  ),
+    if (macroName != null) {
+      return Container(
+        margin: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+          boxShadow: const [
+            BoxShadow(color: Color(0x04000000), blurRadius: 4, offset: Offset(0, 1)),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.functions_rounded, size: 16, color: AppTheme.primary),
+                const SizedBox(width: 6),
+                Text(
+                  'Composant Formule : {{$macroName}}',
+                  style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: AppTheme.primary),
                 ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Center(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: _renderMathExpression(formula.trim()),
+                const Spacer(),
+                if (onEditComponent != null)
+                  InkWell(
+                    onTap: () => onEditComponent!(macroName),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEFF6FF),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Text('Modifier', style: TextStyle(fontSize: 10, color: AppTheme.primary, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+              ],
             ),
-          ),
-        ],
-      ),
+            const SizedBox(height: 10),
+            Center(
+              child: MathFormulaRenderer(
+                formula: formula,
+                isDisplayMode: false,
+                fontSize: 17.0,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return MathFormulaRenderer(
+      formula: formula,
+      isDisplayMode: true,
+      fontSize: 17.0,
     );
   }
 
-  Widget _renderMathExpression(String expr) {
-    if (expr.contains(r'\frac') && expr.contains(r'\sqrt')) {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          const Text('x = ', style: TextStyle(fontSize: 18, fontStyle: FontStyle.italic, fontWeight: FontWeight.bold)),
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text('-b ± ', style: TextStyle(fontSize: 16, fontStyle: FontStyle.italic, fontWeight: FontWeight.bold)),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                    decoration: const BoxDecoration(
-                      border: Border(top: BorderSide(color: Colors.black87, width: 1.5)),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: const [
-                        Text('√', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
-                        Text('(b² - 4ac)', style: TextStyle(fontSize: 15, fontStyle: FontStyle.italic)),
+  Widget _buildCalloutCard(_ContentBlock block) {
+    final type = block.calloutType ?? CalloutType.note;
+    final title = block.title;
+    final text = block.text;
+
+    Color borderColor;
+    Color bgColor;
+    Color headerColor;
+    IconData icon;
+    String defaultLabel;
+
+    switch (type) {
+      case CalloutType.theorem:
+        borderColor = const Color(0xFF2563EB);
+        bgColor = const Color(0xFFF8FAFC);
+        headerColor = const Color(0xFF1E40AF);
+        icon = Icons.school_rounded;
+        defaultLabel = 'THÉORÈME';
+        break;
+      case CalloutType.definition:
+        borderColor = const Color(0xFF059669);
+        bgColor = const Color(0xFFF0FDF4);
+        headerColor = const Color(0xFF065F46);
+        icon = Icons.menu_book_rounded;
+        defaultLabel = 'DÉFINITION';
+        break;
+      case CalloutType.tip:
+        borderColor = const Color(0xFF7C3AED);
+        bgColor = const Color(0xFFF5F3FF);
+        headerColor = const Color(0xFF5B21B6);
+        icon = Icons.lightbulb_outline_rounded;
+        defaultLabel = 'ASTUCE';
+        break;
+      case CalloutType.warning:
+        borderColor = const Color(0xFFDC2626);
+        bgColor = const Color(0xFFFEF2F2);
+        headerColor = const Color(0xFF991B1B);
+        icon = Icons.warning_amber_rounded;
+        defaultLabel = 'ATTENTION';
+        break;
+      case CalloutType.example:
+        borderColor = const Color(0xFF0D9488);
+        bgColor = const Color(0xFFF0FDFA);
+        headerColor = const Color(0xFF115E59);
+        icon = Icons.auto_awesome_outlined;
+        defaultLabel = 'EXEMPLE';
+        break;
+      case CalloutType.proof:
+        borderColor = const Color(0xFF475569);
+        bgColor = const Color(0xFFF8FAFC);
+        headerColor = const Color(0xFF334155);
+        icon = Icons.psychology_outlined;
+        defaultLabel = 'DÉMONSTRATION';
+        break;
+      case CalloutType.note:
+      default:
+        borderColor = const Color(0xFFD97706);
+        bgColor = const Color(0xFFFFFBEB);
+        headerColor = const Color(0xFF92400E);
+        icon = Icons.info_outline_rounded;
+        defaultLabel = 'REMARQUE';
+        break;
+    }
+
+    final headerText = (title != null && title.trim().isNotEmpty)
+        ? '$defaultLabel : ${title.trim()}'
+        : defaultLabel;
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 6),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: const [
+          BoxShadow(color: Color(0x04000000), blurRadius: 4, offset: Offset(0, 1)),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(width: 4.5, color: borderColor),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(icon, size: 16, color: headerColor),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            headerText,
+                            style: TextStyle(
+                              fontFamily: 'serif',
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.5,
+                              color: headerColor,
+                            ),
+                          ),
+                        ),
                       ],
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 8),
+                    _buildRichParagraph(text),
+                    if (type == CalloutType.proof) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: const [
+                          Text(
+                            '∎',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF475569),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
               ),
-              Container(margin: const EdgeInsets.symmetric(vertical: 3), height: 1.5, width: 130, color: Colors.black87),
-              const Text('2a', style: TextStyle(fontSize: 16, fontStyle: FontStyle.italic, fontWeight: FontWeight.bold)),
-            ],
-          ),
-        ],
-      );
-    }
-
-    if (expr.contains(r'\int')) {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            children: const [
-              Text('+∞', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
-              Text('∫', style: TextStyle(fontSize: 34, fontWeight: FontWeight.w200, height: 0.9)),
-              Text('-∞', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
-            ],
-          ),
-          const SizedBox(width: 6),
-          const Text('e⁻ˣ² dx  =  ', style: TextStyle(fontSize: 17, fontStyle: FontStyle.italic, fontWeight: FontWeight.w600)),
-          const Text('√π', style: TextStyle(fontSize: 18, fontStyle: FontStyle.italic, fontWeight: FontWeight.bold)),
-        ],
-      );
-    }
-
-    if (expr.contains(r'\sum')) {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            children: const [
-              Text('n', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-              Text('∑', style: TextStyle(fontSize: 28, height: 0.9, fontWeight: FontWeight.w400)),
-              Text('k=1', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
-            ],
-          ),
-          const SizedBox(width: 6),
-          const Text('k  =  ', style: TextStyle(fontSize: 17, fontStyle: FontStyle.italic, fontWeight: FontWeight.w600)),
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('n(n + 1)', style: TextStyle(fontSize: 15, fontStyle: FontStyle.italic)),
-              Container(margin: const EdgeInsets.symmetric(vertical: 2), height: 1.5, width: 65, color: Colors.black87),
-              const Text('2', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-            ],
-          ),
-        ],
-      );
-    }
-
-    final cleanExpr = expr
-        .replaceAll(r'\frac', '')
-        .replaceAll(r'\sqrt', '√')
-        .replaceAll(r'\pm', '±')
-        .replaceAll(r'\infty', '∞')
-        .replaceAll('{', '(')
-        .replaceAll('}', ')');
-
-    return Text(
-      cleanExpr,
-      style: const TextStyle(
-        fontSize: 16,
-        fontFamily: 'serif',
-        fontStyle: FontStyle.italic,
-        fontWeight: FontWeight.bold,
-        color: Color(0xFF0F172A),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -2829,6 +2933,137 @@ class GroupNoteRenderer extends StatelessWidget {
         continue;
       }
 
+      // Display Math block $$ ... $$ or \begin{equation} ... \end{equation}
+      if (line.startsWith(r'$$') || line.startsWith(r'\begin{equation}')) {
+        final mathLines = <String>[];
+        if (line.startsWith(r'$$') && line.endsWith(r'$$') && line.length > 2) {
+          final expr = line.substring(2, line.length - 2).trim();
+          blocks.add(_ContentBlock(type: _BlockType.math, text: expr, macroName: currentMacroName));
+          i++;
+          continue;
+        } else if (line.startsWith(r'\begin{equation}') && line.endsWith(r'\end{equation}')) {
+          final expr = line.replaceAll(r'\begin{equation}', '').replaceAll(r'\end{equation}', '').trim();
+          blocks.add(_ContentBlock(type: _BlockType.math, text: expr, macroName: currentMacroName));
+          i++;
+          continue;
+        } else {
+          var firstLine = line.startsWith(r'$$') ? line.substring(2).trim() : line.replaceAll(r'\begin{equation}', '').trim();
+          if (firstLine.isNotEmpty) mathLines.add(firstLine);
+          i++;
+          while (i < lines.length && !lines[i].trim().endsWith(r'$$') && !lines[i].trim().contains(r'\end{equation}')) {
+            mathLines.add(lines[i]);
+            i++;
+          }
+          if (i < lines.length) {
+            var lastLine = lines[i].trim();
+            lastLine = lastLine.replaceAll(r'$$', '').replaceAll(r'\end{equation}', '').trim();
+            if (lastLine.isNotEmpty) mathLines.add(lastLine);
+            i++;
+          }
+          blocks.add(_ContentBlock(type: _BlockType.math, text: mathLines.join('\n').trim(), macroName: currentMacroName));
+          continue;
+        }
+      }
+
+      // Intuitive Callout detection: !theoreme, !definition, !note, !astuce, !attention, !exemple, !preuve
+      final calloutMatch = RegExp(
+        r'^!(theoreme|théorème|theorem|definition|définition|note|remarque|astuce|tip|attention|warning|alerte|exemple|example|preuve|demonstration|démonstration|proof)(?:\s+(.*))?$',
+        caseSensitive: false,
+      ).firstMatch(line);
+      if (calloutMatch != null) {
+        final kindStr = calloutMatch.group(1)!.toLowerCase();
+        final inlineArg = calloutMatch.group(2)?.trim() ?? '';
+        final calloutType = switch (kindStr) {
+          'theoreme' || 'théorème' || 'theorem' => CalloutType.theorem,
+          'definition' || 'définition' => CalloutType.definition,
+          'astuce' || 'tip' => CalloutType.tip,
+          'attention' || 'warning' || 'alerte' => CalloutType.warning,
+          'exemple' || 'example' => CalloutType.example,
+          'preuve' || 'demonstration' || 'démonstration' || 'proof' => CalloutType.proof,
+          _ => CalloutType.note,
+        };
+
+        String calloutTitle = '';
+        final bodyLines = <String>[];
+
+        i++;
+        while (i < lines.length &&
+            lines[i].trim().isNotEmpty &&
+            !lines[i].trim().startsWith('!') &&
+            !lines[i].trim().startsWith('#') &&
+            !lines[i].trim().startsWith(r'$$')) {
+          bodyLines.add(lines[i].trim());
+          i++;
+        }
+
+        String bodyText;
+        if (bodyLines.isEmpty) {
+          bodyText = inlineArg;
+        } else {
+          calloutTitle = inlineArg;
+          bodyText = bodyLines.join('\n');
+        }
+
+        blocks.add(_ContentBlock(
+          type: _BlockType.callout,
+          text: bodyText,
+          title: calloutTitle.isNotEmpty ? calloutTitle : null,
+          calloutType: calloutType,
+        ));
+        continue;
+      }
+
+      // Markdown Callout detection: > [!note], > [!warning], etc.
+      final mdCalloutMatch = RegExp(
+        r'^>\s*\[!(note|theorem|theoreme|warning|tip|important|caution|example|proof)\](?:\s+(.*))?$',
+        caseSensitive: false,
+      ).firstMatch(line);
+      if (mdCalloutMatch != null) {
+        final kindStr = mdCalloutMatch.group(1)!.toLowerCase();
+        final title = mdCalloutMatch.group(2)?.trim();
+        final calloutType = switch (kindStr) {
+          'theorem' || 'theoreme' => CalloutType.theorem,
+          'tip' => CalloutType.tip,
+          'warning' || 'caution' || 'important' => CalloutType.warning,
+          'example' => CalloutType.example,
+          'proof' => CalloutType.proof,
+          _ => CalloutType.note,
+        };
+
+        final bodyLines = <String>[];
+        i++;
+        while (i < lines.length && (lines[i].trim().startsWith('>') || lines[i].trim().isNotEmpty)) {
+          var bLine = lines[i].trim();
+          if (bLine.startsWith('>')) bLine = bLine.substring(1).trim();
+          bodyLines.add(bLine);
+          i++;
+        }
+
+        blocks.add(_ContentBlock(
+          type: _BlockType.callout,
+          text: bodyLines.join('\n'),
+          title: title,
+          calloutType: calloutType,
+        ));
+        continue;
+      }
+
+      // LaTeX Sectioning: \section{...}, \subsection{...}, \title{...}
+      final latexSecMatch = RegExp(r'^\\(title|section|subsection|subsubsection)\{(.*)\}$').firstMatch(line);
+      if (latexSecMatch != null) {
+        final secKind = latexSecMatch.group(1)!;
+        final secText = latexSecMatch.group(2)!.trim();
+        final level = secKind == 'title' || secKind == 'section' ? 1 : secKind == 'subsection' ? 2 : 3;
+        blocks.add(_ContentBlock(
+          type: _BlockType.heading,
+          text: secText,
+          headingLevel: level,
+          alignment: lineAlign,
+        ));
+        i++;
+        continue;
+      }
+
       // Math block detection
       if (line.toLowerCase().startsWith('<math>') || line.toLowerCase().startsWith('<formula>')) {
         final mathLines = <String>[];
@@ -3085,11 +3320,22 @@ class GroupNoteRenderer extends StatelessWidget {
   }
 }
 
+enum CalloutType {
+  theorem,
+  definition,
+  note,
+  tip,
+  warning,
+  example,
+  proof,
+}
+
 enum _BlockType {
   heading,
   paragraph,
   hr,
   blockquote,
+  callout,
   bulletList,
   numberedList,
   checkboxList,
@@ -3118,6 +3364,7 @@ class _ContentBlock {
   final List<MapEntry<String, double>>? graphData;
   final DwsMedia? mediaData;
   final Widget? customWidget;
+  final CalloutType? calloutType;
 
   _ContentBlock({
     required this.type,
@@ -3133,6 +3380,7 @@ class _ContentBlock {
     this.graphData,
     this.mediaData,
     this.customWidget,
+    this.calloutType,
   });
 }
 

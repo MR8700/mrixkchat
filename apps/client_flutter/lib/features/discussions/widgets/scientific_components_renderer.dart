@@ -241,7 +241,14 @@ class DwsScientificChart extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: const [
-              Text('Pic FFT principal : f = 1000 Hz • A = 2.0 V', style: TextStyle(color: Color(0xFF38BDF8), fontSize: 11, fontFamily: 'monospace', fontWeight: FontWeight.bold)),
+              Flexible(
+                child: Text(
+                  'Pic FFT principal : f = 1000 Hz • A = 2.0 V',
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: Color(0xFF38BDF8), fontSize: 11, fontFamily: 'monospace', fontWeight: FontWeight.bold),
+                ),
+              ),
+              SizedBox(width: 8),
               Text('Résolution : 7.81 Hz', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 10, fontFamily: 'monospace')),
             ],
           ),
@@ -809,8 +816,14 @@ class DwsUmlDiagramWidget extends StatelessWidget {
             children: [
               Icon(diagramType == 'sequence' ? Icons.linear_scale_rounded : Icons.hub_rounded, size: 19, color: const Color(0xFF6366F1)),
               const SizedBox(width: 8),
-              Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
-              const Spacer(),
+              Expanded(
+                child: Text(
+                  title,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                ),
+              ),
+              const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(color: const Color(0xFFEEF2FF), borderRadius: BorderRadius.circular(6)),

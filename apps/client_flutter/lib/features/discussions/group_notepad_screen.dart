@@ -468,6 +468,197 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
     setState(() => _showFormulaGuide = false);
   }
 
+  void _insertQuickSnippet(String snippet, {int cursorOffsetFromEnd = 0}) {
+    if (!_canEdit()) return;
+    final text = _textController.text;
+    final sel = _textController.selection;
+    final start = sel.start >= 0 ? sel.start : text.length;
+    final end = sel.end >= 0 ? sel.end : text.length;
+
+    final newText = text.replaceRange(start, end, snippet);
+    final newOffset = start + snippet.length - cursorOffsetFromEnd;
+    _textController.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: newOffset.clamp(0, newText.length)),
+    );
+    setState(() => _showFormulaGuide = false);
+  }
+
+  void _showQuickInsertPalette() {
+    if (!_canEdit()) return;
+    showResponsiveSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: const [
+                Icon(Icons.auto_awesome_rounded, color: AppTheme.primary, size: 20),
+                SizedBox(width: 8),
+                Text(
+                  'Insérer dans le document',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Des éléments propres, faciles et sans syntaxe lourde.',
+              style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+            ),
+            const SizedBox(height: 16),
+            Flexible(
+              child: SingleChildScrollView(
+                child: Column(
+                  children: [
+                    _buildInsertOption(
+                      icon: Icons.functions_rounded,
+                      color: const Color(0xFF2563EB),
+                      title: 'Formule Mathématique (\$ ... \$)',
+                      subtitle: 'Écriture naturelle : a/b, sqrt(x), x^2, int_0^1...',
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        _insertQuickSnippet(r'$ $', cursorOffsetFromEnd: 2);
+                      },
+                    ),
+                    _buildInsertOption(
+                      icon: Icons.school_rounded,
+                      color: const Color(0xFF2563EB),
+                      title: 'Théorème (!theoreme)',
+                      subtitle: 'Boîte d\'édition noble avec liseré distinctif',
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        _insertQuickSnippet('\n!theoreme Nom du théorème\nÉnoncé du théorème...\n');
+                      },
+                    ),
+                    _buildInsertOption(
+                      icon: Icons.menu_book_rounded,
+                      color: const Color(0xFF059669),
+                      title: 'Définition (!definition)',
+                      subtitle: 'Encadré vert sauge sobre pour concepts clés',
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        _insertQuickSnippet('\n!definition Terme clé\nÉnoncé de la définition...\n');
+                      },
+                    ),
+                    _buildInsertOption(
+                      icon: Icons.info_outline_rounded,
+                      color: const Color(0xFFD97706),
+                      title: 'Note / Remarque (!note)',
+                      subtitle: 'Annotation élégante et feutrée',
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        _insertQuickSnippet('\n!note Remarque importante...\n');
+                      },
+                    ),
+                    _buildInsertOption(
+                      icon: Icons.lightbulb_outline_rounded,
+                      color: const Color(0xFF7C3AED),
+                      title: 'Astuce (!astuce)',
+                      subtitle: 'Conseil pratique ou méthode de résolution',
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        _insertQuickSnippet('\n!astuce Astuce de calcul...\n');
+                      },
+                    ),
+                    _buildInsertOption(
+                      icon: Icons.warning_amber_rounded,
+                      color: const Color(0xFFDC2626),
+                      title: 'Attention (!attention)',
+                      subtitle: 'Mise en garde et points de vigilance',
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        _insertQuickSnippet('\n!attention Attention aux cas particuliers...\n');
+                      },
+                    ),
+                    _buildInsertOption(
+                      icon: Icons.psychology_outlined,
+                      color: const Color(0xFF475569),
+                      title: 'Démonstration (!preuve)',
+                      subtitle: 'Preuve mathématique avec carré Q.E.D. (∎)',
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        _insertQuickSnippet('\n!preuve Démonstration...\n');
+                      },
+                    ),
+                    _buildInsertOption(
+                      icon: Icons.table_rows_rounded,
+                      color: const Color(0xFF0F172A),
+                      title: 'Tableau épuré (Booktabs)',
+                      subtitle: 'Lignes horizontales nobles, sans surcharge',
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        _insertQuickSnippet('\n| Colonne 1 | Colonne 2 | Colonne 3 |\n| :--- | :--- | :--- |\n| Donnée A | Donnée B | Donnée C |\n');
+                      },
+                    ),
+                    _buildInsertOption(
+                      icon: Icons.horizontal_rule_rounded,
+                      color: const Color(0xFF64748B),
+                      title: 'Filet Typographique (---)',
+                      subtitle: 'Ligne de séparation fine style édition',
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        _insertQuickSnippet('\n---\n');
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInsertOption({
+    required IconData icon,
+    required Color color,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, size: 18, color: color),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+                  Text(subtitle, style: const TextStyle(fontSize: 11.5, color: Color(0xFF64748B))),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded, size: 18, color: Color(0xFFCBD5E1)),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _toggleWordBold() {
     if (!_canEdit()) return;
     _textController.toggleBoldSelection();
@@ -2067,7 +2258,7 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
               ],
             ),
             Text(
-              '${widget.conversation.title} • Instantané ⚡',
+              '${widget.conversation.title} • Document partagé',
               style: const TextStyle(fontSize: 11, color: AppTheme.onSurfaceVariant),
               overflow: TextOverflow.ellipsis,
             ),
@@ -2302,7 +2493,7 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           decoration: const BoxDecoration(
-            color: Color(0xFFF8FAFC),
+            color: Colors.white,
             border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
           ),
           child: Row(
@@ -2313,7 +2504,7 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
                   children: [
                     Text(
                       _titleController.text.isNotEmpty ? _titleController.text : 'Bloc-Note Collaboratif',
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                       overflow: TextOverflow.ellipsis,
                     ),
                     const Text(
@@ -2333,15 +2524,6 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
                 icon: const Icon(Icons.picture_as_pdf_rounded, size: 19, color: Color(0xFFDC2626)),
                 tooltip: 'Exporter en PDF certifié',
                 onPressed: _exportDocumentPdf,
-              ),
-              const SizedBox(width: 4),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFECFDF5),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Text('Rendu Actif ✅', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF047857))),
               ),
             ],
           ),
@@ -2707,6 +2889,70 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
                   ],
                 ),
               ),
+            ),
+
+            const VerticalDivider(width: 16, thickness: 1, color: Color(0xFFE2E8F0)),
+
+            // 1-Tap Quick Insert Palette & Chips
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primary,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: _showQuickInsertPalette,
+              icon: const Icon(Icons.add_rounded, size: 16),
+              label: const Text('Insérer', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
+            ),
+            const SizedBox(width: 6),
+            ActionChip(
+              avatar: const Icon(Icons.functions_rounded, size: 15, color: Color(0xFF2563EB)),
+              label: const Text('Math \$', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF1E40AF))),
+              backgroundColor: const Color(0xFFEFF6FF),
+              side: const BorderSide(color: Color(0xFFBFDBFE)),
+              onPressed: () => _insertQuickSnippet(r'$ $', cursorOffsetFromEnd: 2),
+            ),
+            const SizedBox(width: 4),
+            ActionChip(
+              avatar: const Icon(Icons.info_outline_rounded, size: 14, color: Color(0xFFD97706)),
+              label: const Text('!Note', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF92400E))),
+              backgroundColor: const Color(0xFFFFFBEB),
+              side: const BorderSide(color: Color(0xFFFDE68A)),
+              onPressed: () => _insertQuickSnippet('\n!note Remarque...\n'),
+            ),
+            const SizedBox(width: 4),
+            ActionChip(
+              avatar: const Icon(Icons.school_rounded, size: 14, color: Color(0xFF2563EB)),
+              label: const Text('!Théorème', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF1E40AF))),
+              backgroundColor: const Color(0xFFEFF6FF),
+              side: const BorderSide(color: Color(0xFFBFDBFE)),
+              onPressed: () => _insertQuickSnippet('\n!theoreme Nom du théorème\nÉnoncé...\n'),
+            ),
+            const SizedBox(width: 4),
+            ActionChip(
+              avatar: const Icon(Icons.lightbulb_outline_rounded, size: 14, color: Color(0xFF7C3AED)),
+              label: const Text('!Astuce', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF5B21B6))),
+              backgroundColor: const Color(0xFFF5F3FF),
+              side: const BorderSide(color: Color(0xFFDDD6FE)),
+              onPressed: () => _insertQuickSnippet('\n!astuce Astuce...\n'),
+            ),
+            const SizedBox(width: 4),
+            ActionChip(
+              avatar: const Icon(Icons.table_rows_rounded, size: 14, color: Color(0xFF0F172A)),
+              label: const Text('Tableau', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+              backgroundColor: const Color(0xFFF1F5F9),
+              side: const BorderSide(color: Color(0xFFCBD5E1)),
+              onPressed: () => _insertQuickSnippet('\n| Colonne 1 | Colonne 2 |\n| :--- | :--- |\n| Donnée A | Donnée B |\n'),
+            ),
+            const SizedBox(width: 4),
+            ActionChip(
+              avatar: const Icon(Icons.horizontal_rule_rounded, size: 14, color: Color(0xFF64748B)),
+              label: const Text('Filet', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF475569))),
+              backgroundColor: const Color(0xFFF8FAFC),
+              side: const BorderSide(color: Color(0xFFE2E8F0)),
+              onPressed: () => _insertQuickSnippet('\n---\n'),
             ),
           ],
         ),
