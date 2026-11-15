@@ -33,8 +33,9 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
       builder: (ctx) => CallDialog(
         peerName: log.peerName,
         peerAvatar: log.peerAvatar,
+        peerUserId: conv.peerUserId ??
+            (conv.id.startsWith('conv_') ? conv.id.substring(5) : ''),
         isVideo: log.isVideo,
-        isPeerOnline: conv.isOnline,
       ),
     );
   }
@@ -123,14 +124,18 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
           Container(
             color: Colors.white,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            child: Row(
-              children: [
-                _filterPill('Tous', count: allLogs.length),
-                const SizedBox(width: 8),
-                _filterPill('Manqués', count: missedCount, isAlert: missedCount > 0),
-                const SizedBox(width: 8),
-                _filterPill('Vidéos', count: callRepo.getVideoLogs().length),
-              ],
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _filterPill('Tous', count: allLogs.length),
+                  const SizedBox(width: 8),
+                  _filterPill('Manqués',
+                      count: missedCount, isAlert: missedCount > 0),
+                  const SizedBox(width: 8),
+                  _filterPill('Vidéos', count: callRepo.getVideoLogs().length),
+                ],
+              ),
             ),
           ),
           const Divider(height: 1, thickness: 1, color: Color(0xFFDFE4ED)),
@@ -274,10 +279,14 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
                 children: [
                   Text(
                     log.peerName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.bold,
-                      color: isMissed ? const Color(0xFFDC2626) : AppTheme.onSurface,
+                      color: isMissed
+                          ? const Color(0xFFDC2626)
+                          : AppTheme.onSurface,
                     ),
                   ),
                   const SizedBox(height: 3),
@@ -285,21 +294,30 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
                     children: [
                       Icon(directionIcon, size: 14, color: directionColor),
                       const SizedBox(width: 4),
-                      Text(
-                        '${log.timestamp} • ${log.duration}',
-                        style: const TextStyle(fontSize: 11, color: AppTheme.onSurfaceVariant),
+                      Flexible(
+                        child: Text(
+                          '${log.timestamp} • ${log.duration}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 11, color: AppTheme.onSurfaceVariant),
+                        ),
                       ),
                       if (log.isVideo) ...[
                         const SizedBox(width: 6),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 4, vertical: 1),
                           decoration: BoxDecoration(
                             color: const Color(0xFFEFF6FF),
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: const Text(
                             'VIDÉO',
-                            style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.bold, color: Color(0xFF1D4ED8)),
+                            style: TextStyle(
+                                fontSize: 8.5,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF1D4ED8)),
                           ),
                         ),
                       ],

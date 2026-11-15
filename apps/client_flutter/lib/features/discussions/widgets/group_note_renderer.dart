@@ -151,11 +151,13 @@ class GroupNoteRenderer extends StatelessWidget {
 
   Widget _buildEmptyState(BuildContext context) {
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
             Container(
               padding: const EdgeInsets.all(22),
               decoration: BoxDecoration(
@@ -211,6 +213,7 @@ class GroupNoteRenderer extends StatelessWidget {
             ],
           ],
         ),
+      ),
       ),
     );
   }

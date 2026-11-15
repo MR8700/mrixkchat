@@ -597,178 +597,205 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
   }
 
   Widget _buildHeader(dynamic profile) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          // Logo & Title
-          Row(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxWidth < 450;
+        final isNarrow = constraints.maxWidth < 310;
+        return Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: isCompact ? 8.0 : 16.0,
+            vertical: 8.0,
+          ),
+          child: Row(
             children: [
-              const MRixkLogo(size: 40),
-              const SizedBox(width: 10),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              // Logo & Title
+              Expanded(
+                child: Row(
+                  children: [
+                    MRixkLogo(size: isCompact ? 32 : 40),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Text(
+                                'MRixk',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: -0.5,
+                                  color: AppTheme.onSurface,
+                                ),
+                              ),
+                              if (!isNarrow) ...[
+                                const SizedBox(width: 4),
+                                Container(
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: isCompact ? 4 : 5,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFECFDF5),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                        color: const Color(0xFFA7F3D0)),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Container(
+                                        width: 5,
+                                        height: 5,
+                                        decoration: const BoxDecoration(
+                                          color: AppTheme.statusGreen,
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                      if (!isCompact) ...[
+                                        const SizedBox(width: 3),
+                                        const Text(
+                                          'En ligne',
+                                          style: TextStyle(
+                                            fontSize: 9,
+                                            fontWeight: FontWeight.bold,
+                                            color: Color(0xFF047857),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                          Text(
+                            isCompact
+                                ? 'Messagerie'
+                                : 'Messagerie privée & sécurisée',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w500,
+                              color: AppTheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 4),
+              // Actions: Calls, Media Vault, Tune & Profile
+              Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Row(
-                    children: [
-                      const Text(
-                        'MRixk',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -0.5,
-                          color: AppTheme.onSurface,
+                  _buildHeaderIconBtn(
+                    icon: Icons.phone_outlined,
+                    tooltip: 'Historique des appels',
+                    isCompact: isCompact,
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const CallHistoryScreen(),
                         ),
-                      ),
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFECFDF5),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: const Color(0xFFA7F3D0)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 5,
-                              height: 5,
-                              decoration: const BoxDecoration(
-                                color: AppTheme.statusGreen,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            const Text(
-                              'En ligne',
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF047857),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+                      );
+                    },
                   ),
-                  const Text(
-                    'Messagerie privée & sécurisée',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500,
-                      color: AppTheme.onSurfaceVariant,
+                  const SizedBox(width: 3),
+                  _buildHeaderIconBtn(
+                    icon: Icons.folder_special_outlined,
+                    tooltip: 'Dossier Médias & Coffre-fort',
+                    isCompact: isCompact,
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const MediaVaultScreen(),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(width: 3),
+                  _buildHeaderIconBtn(
+                    icon: Icons.tune,
+                    tooltip: 'Options des discussions',
+                    isCompact: isCompact,
+                    hasBadge: context
+                        .watch<MessageRepository>()
+                        .getPendingMessageRequests()
+                        .isNotEmpty,
+                    onPressed: _showDiscussionOptionsMenu,
+                  ),
+                  const SizedBox(width: 4),
+                  GestureDetector(
+                    onTap: () {
+                      if (widget.onNavigateTab != null) {
+                        widget.onNavigateTab!(4); // Navigate to Profil
+                      }
+                    },
+                    child: AppAvatar(
+                      name: profile.displayName,
+                      avatarUrl: profile.avatarUrl,
+                      radius: isCompact ? 15 : 20,
+                      isOnline: profile.isOnline,
                     ),
                   ),
                 ],
               ),
             ],
           ),
+        );
+      },
+    );
+  }
 
-          // Actions: Calls, Media Vault, Tune & Profile
-          Row(
+  Widget _buildHeaderIconBtn({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onPressed,
+    bool isCompact = false,
+    bool hasBadge = false,
+  }) {
+    final size = isCompact ? 30.0 : 34.0;
+    return InkWell(
+      onTap: onPressed,
+      borderRadius: BorderRadius.circular(10),
+      child: Tooltip(
+        message: tooltip,
+        child: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: const Color(0xFFDFE4ED)),
+          ),
+          child: Stack(
+            clipBehavior: Clip.none,
+            alignment: Alignment.center,
             children: [
-              IconButton(
-                icon: Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: const Color(0xFFDFE4ED)),
-                  ),
-                  child: const Icon(Icons.phone_outlined,
-                      size: 18, color: AppTheme.primary),
-                ),
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const CallHistoryScreen(),
+              Icon(icon, size: isCompact ? 15 : 17, color: AppTheme.primary),
+              if (hasBadge)
+                Positioned(
+                  right: 2,
+                  top: 2,
+                  child: Container(
+                    width: 6,
+                    height: 6,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFDC2626),
+                      shape: BoxShape.circle,
                     ),
-                  );
-                },
-                tooltip: 'Historique des appels',
-              ),
-              const SizedBox(width: 6),
-              IconButton(
-                icon: Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: const Color(0xFFDFE4ED)),
-                  ),
-                  child: const Icon(Icons.folder_special_outlined,
-                      size: 18, color: AppTheme.primary),
-                ),
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const MediaVaultScreen(),
-                    ),
-                  );
-                },
-                tooltip: 'Dossier Médias & Coffre-fort',
-              ),
-              const SizedBox(width: 6),
-              IconButton(
-                icon: Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: const Color(0xFFCBD5E1)),
-                  ),
-                  child: Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      const Center(
-                          child: Icon(Icons.tune,
-                              size: 18, color: AppTheme.primary)),
-                      if (context
-                          .watch<MessageRepository>()
-                          .getPendingMessageRequests()
-                          .isNotEmpty)
-                        Positioned(
-                          right: 1,
-                          top: 1,
-                          child: Container(
-                            width: 8,
-                            height: 8,
-                            decoration: const BoxDecoration(
-                                color: Color(0xFFDC2626),
-                                shape: BoxShape.circle),
-                          ),
-                        ),
-                    ],
                   ),
                 ),
-                onPressed: _showDiscussionOptionsMenu,
-                tooltip: 'Options des discussions',
-              ),
-              const SizedBox(width: 6),
-              GestureDetector(
-                onTap: () {
-                  if (widget.onNavigateTab != null) {
-                    widget.onNavigateTab!(4); // Navigate to Profil
-                  }
-                },
-                child: AppAvatar(
-                  name: profile.displayName,
-                  avatarUrl: profile.avatarUrl,
-                  radius: 20,
-                  isOnline: profile.isOnline,
-                ),
-              ),
             ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -825,15 +852,20 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
-                'MOMENTS DU JOUR',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.5,
-                  color: AppTheme.onSurfaceVariant,
+              const Flexible(
+                child: Text(
+                  'MOMENTS DU JOUR',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.5,
+                    color: AppTheme.onSurfaceVariant,
+                  ),
                 ),
               ),
+              const SizedBox(width: 8),
               GestureDetector(
                 onTap: () {
                   if (widget.onNavigateTab != null) widget.onNavigateTab!(1);
@@ -1373,8 +1405,8 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
       builder: (ctx) => CallDialog(
         peerName: user.name,
         peerAvatar: user.avatarUrl,
+        peerUserId: user.id,
         isVideo: isVideo,
-        isPeerOnline: user.isOnline,
       ),
     );
   }
@@ -1481,12 +1513,15 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
               size: 24,
             ),
             const SizedBox(width: 8),
-            Text(
-              conv.isArchived ? 'Désarchiver' : 'Archiver',
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 13.5,
+            Flexible(
+              child: Text(
+                conv.isArchived ? 'Désarchiver' : 'Archiver',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13.5,
+                ),
+                overflow: TextOverflow.ellipsis,
               ),
             ),
           ],
@@ -1503,12 +1538,15 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: const [
-            Text(
-              'Supprimer',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 13.5,
+            Flexible(
+              child: Text(
+                'Supprimer',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13.5,
+                ),
+                overflow: TextOverflow.ellipsis,
               ),
             ),
             SizedBox(width: 8),
@@ -1689,48 +1727,56 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                 children: [
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      Row(
-                        children: [
-                          Text(
-                            conv.title,
-                            style: const TextStyle(
-                              fontSize: 14.5,
-                              fontWeight: FontWeight.bold,
-                              color: AppTheme.onSurface,
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                conv.title,
+                                style: const TextStyle(
+                                  fontSize: 14.5,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppTheme.onSurface,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
-                          ),
-                          if (conv.isVerified) ...[
-                            const SizedBox(width: 4),
-                            Container(
+                            if (conv.isVerified) ...[
+                              const SizedBox(width: 4),
+                              Container(
                                 padding: const EdgeInsets.symmetric(
                                     horizontal: 5, vertical: 1),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFECFDF5),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: const Text(
-                                'Vérifié',
-                                style: TextStyle(
-                                  fontSize: 9.5,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF059669),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFECFDF5),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Text(
+                                  'Vérifié',
+                                  style: TextStyle(
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF059669),
+                                  ),
                                 ),
                               ),
-                            ),
+                            ],
                           ],
-                        ],
+                        ),
                       ),
+                      const SizedBox(width: 8),
                       Text(
                         conv.lastMessageTime,
                         style: TextStyle(
                           fontSize: 11.5,
-                            fontWeight: conv.unreadCount > 0
-                                ? FontWeight.bold
-                                : FontWeight.w500,
-                            color: conv.unreadCount > 0
-                                ? AppTheme.primary
-                                : AppTheme.onSurfaceVariant,
+                          fontWeight: conv.unreadCount > 0
+                              ? FontWeight.bold
+                              : FontWeight.w500,
+                          color: conv.unreadCount > 0
+                              ? AppTheme.primary
+                              : AppTheme.onSurfaceVariant,
                         ),
                       ),
                     ],
@@ -1817,40 +1863,43 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                     ],
                   ),
 
-                  // Tag row (e.g. "Connexion sécurisée", "Projet équipe", "Mémoire protégée")
+                  // Tag row (e.g. "Sécurisé", "Projet équipe", "Mémoire protégée")
                   if (conv.tagText != null) ...[
                     const SizedBox(height: 8),
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Row(
-                          children: const [
-                              Icon(Icons.lock,
-                                  size: 12, color: Color(0xFF059669)),
-                            SizedBox(width: 3),
-                            Text(
-                              'Connexion sécurisée',
-                              style: TextStyle(
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w500,
-                                color: Color(0xFF059669),
-                              ),
+                        const Icon(Icons.lock,
+                            size: 12, color: Color(0xFF059669)),
+                        const SizedBox(width: 3),
+                        const Flexible(
+                          child: Text(
+                            'Sécurisé',
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w500,
+                              color: Color(0xFF059669),
                             ),
-                          ],
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
-                        Container(
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Container(
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 6, vertical: 1.5),
-                          decoration: BoxDecoration(
-                            color: AppTheme.primarySoft,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            conv.tagText!,
-                            style: const TextStyle(
-                              fontSize: 9.5,
-                              fontWeight: FontWeight.bold,
-                              color: AppTheme.primary,
+                            decoration: BoxDecoration(
+                              color: AppTheme.primarySoft,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              conv.tagText!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.bold,
+                                color: AppTheme.primary,
+                              ),
                             ),
                           ),
                         ),

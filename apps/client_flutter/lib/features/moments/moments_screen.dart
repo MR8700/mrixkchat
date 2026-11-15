@@ -403,65 +403,73 @@ class MomentsScreen extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  children: [
-                    AppAvatar(
-                      name: moment.authorName,
-                      avatarUrl: moment.authorAvatar,
-                      radius: 20,
-                      isVerified: moment.authorBadge == 'verified',
-                    ),
-                    const SizedBox(width: 10),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
+                Expanded(
+                  child: Row(
+                    children: [
+                      AppAvatar(
+                        name: moment.authorName,
+                        avatarUrl: moment.authorAvatar,
+                        radius: 20,
+                        isVerified: moment.authorBadge == 'verified',
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              moment.authorName,
-                              style: const TextStyle(
-                                fontSize: 14.5,
-                                fontWeight: FontWeight.bold,
-                                color: AppTheme.onSurface,
-                              ),
-                            ),
-                            if (moment.authorBadge == 'verified') ...[
-                              const SizedBox(width: 4),
-                              const Icon(Icons.verified, size: 15, color: AppTheme.secondary),
-                            ] else if (moment.authorBadge == 'Conseil') ...[
-                              const SizedBox(width: 6),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                                decoration: BoxDecoration(
-                                  color: AppTheme.primarySoft,
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: const Text(
-                                  'Conseil',
-                                  style: TextStyle(
-                                    fontSize: 9.5,
-                                    fontWeight: FontWeight.bold,
-                                    color: AppTheme.primary,
+                            Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    moment.authorName,
+                                    style: const TextStyle(
+                                      fontSize: 14.5,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppTheme.onSurface,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
+                                if (moment.authorBadge == 'verified') ...[
+                                  const SizedBox(width: 4),
+                                  const Icon(Icons.verified, size: 15, color: AppTheme.secondary),
+                                ] else if (moment.authorBadge == 'Conseil') ...[
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                    decoration: BoxDecoration(
+                                      color: AppTheme.primarySoft,
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: const Text(
+                                      'Conseil',
+                                      style: TextStyle(
+                                        fontSize: 9.5,
+                                        fontWeight: FontWeight.bold,
+                                        color: AppTheme.primary,
+                                      ),
+                                    ),
+                                  ),
+                                ] else if (moment.authorBadge == 'stars') ...[
+                                  const SizedBox(width: 4),
+                                  const Icon(Icons.stars, size: 15, color: AppTheme.primary),
+                                ],
+                              ],
+                            ),
+                            Text(
+                              moment.timeAgo,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: AppTheme.onSurfaceVariant,
                               ),
-                            ] else if (moment.authorBadge == 'stars') ...[
-                              const SizedBox(width: 4),
-                              const Icon(Icons.stars, size: 15, color: AppTheme.primary),
-                            ],
+                            ),
                           ],
                         ),
-                        Text(
-                          moment.timeAgo,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: AppTheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                      ),
+                    ],
+                  ),
                 ),
+                const SizedBox(width: 4),
                 IconButton(
                   icon: const Icon(Icons.more_horiz, color: AppTheme.onSurfaceVariant),
                   tooltip: 'Options du moment',

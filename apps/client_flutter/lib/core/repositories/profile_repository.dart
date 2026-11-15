@@ -5,6 +5,7 @@ import '../database/database_seed.dart';
 import '../database/local_database.dart';
 import '../models/user_profile.dart';
 import '../network/api_client.dart';
+import '../network/websocket_client.dart';
 import '../services/identity_directory_service.dart';
 
 class ProfileRepository extends ChangeNotifier {
@@ -32,6 +33,13 @@ class ProfileRepository extends ChangeNotifier {
   bool get hasConfiguredIdentity {
     final setting = _db.get('settings', 'identity_configured');
     return setting != null && setting['value'] == true;
+  }
+
+  String? getRealtimeSessionToken() =>
+      _db.get('settings', 'realtime_session')?['token'] as String?;
+
+  Future<void> saveRealtimeSessionToken(String token) async {
+    await _db.insert('settings', 'realtime_session', {'token': token});
   }
 
   // --- CRUD: READ ---
@@ -361,6 +369,9 @@ class ProfileRepository extends ChangeNotifier {
 
   // --- LOGOUT / SWITCH ACCOUNT ---
   Future<void> logout() async {
+    WebSocketClient().disconnect();
+    ApiClient().clearSessionToken();
+    await _db.delete('settings', 'realtime_session');
     await _db.delete('settings', 'identity_configured');
     final allUsers = _db.getAll('users');
     for (final u in allUsers) {
@@ -390,6 +401,8 @@ class ProfileRepository extends ChangeNotifier {
 
   /// Wipes every local trace of the account (data, sessions, credentials, directory cache).
   Future<void> wipeLocalAccount() async {
+    WebSocketClient().disconnect();
+    ApiClient().clearSessionToken();
     await _db.clearAll();
     await seedCleanProductionDatabase(_db);
     await _db.saveState();

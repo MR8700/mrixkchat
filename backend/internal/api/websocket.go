@@ -36,6 +36,7 @@ type ClientConnection struct {
 	sendChan chan []byte
 	closed   bool
 	mu       sync.Mutex
+	writeMu  sync.Mutex
 }
 
 // Hub manages active WebSocket connections for users and devices.
@@ -62,6 +63,9 @@ func (h *Hub) Register(c *ClientConnection) {
 		userDevs = make(map[string]*ClientConnection)
 		h.clients[c.UserID] = userDevs
 	}
+	if previous := userDevs[c.DeviceID]; previous != nil && previous != c {
+		previous.Close()
+	}
 	userDevs[c.DeviceID] = c
 }
 
@@ -78,6 +82,20 @@ func (h *Hub) Unregister(userID, deviceID string) {
 		if len(userDevs) == 0 {
 			delete(h.clients, userID)
 		}
+	}
+}
+
+func (h *Hub) unregisterClient(c *ClientConnection) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	userDevs := h.clients[c.UserID]
+	if userDevs == nil || userDevs[c.DeviceID] != c {
+		return
+	}
+	c.Close()
+	delete(userDevs, c.DeviceID)
+	if len(userDevs) == 0 {
+		delete(h.clients, c.UserID)
 	}
 }
 
@@ -194,19 +212,23 @@ func UpgradeToWebSocket(w http.ResponseWriter, r *http.Request) (net.Conn, *bufi
 
 // WriteWebSocketTextFrame sends a standard unfragmented text frame (opcode 0x1).
 func WriteWebSocketTextFrame(w io.Writer, payload []byte) error {
+	return writeWebSocketFrame(w, 0x1, payload)
+}
+
+func writeWebSocketFrame(w io.Writer, opcode byte, payload []byte) error {
 	length := len(payload)
 	var header []byte
 
 	if length <= 125 {
-		header = []byte{0x81, byte(length)}
+		header = []byte{0x80 | opcode, byte(length)}
 	} else if length <= 65535 {
 		header = make([]byte, 4)
-		header[0] = 0x81
+		header[0] = 0x80 | opcode
 		header[1] = 126
 		binary.BigEndian.PutUint16(header[2:4], uint16(length))
 	} else {
 		header = make([]byte, 10)
-		header[0] = 0x81
+		header[0] = 0x80 | opcode
 		header[1] = 127
 		binary.BigEndian.PutUint64(header[2:10], uint64(length))
 	}
@@ -279,17 +301,21 @@ func (h *Hub) HandleWebSocketConnection(userID, deviceID string, conn net.Conn, 
 	}
 
 	h.Register(client)
-	defer h.Unregister(userID, deviceID)
+	defer h.unregisterClient(client)
 
 	// Writer goroutine
 	go func() {
 		for msg := range client.sendChan {
+			client.writeMu.Lock()
 			if err := WriteWebSocketTextFrame(bufrw, msg); err != nil {
+				client.writeMu.Unlock()
 				break
 			}
 			if err := bufrw.Flush(); err != nil {
+				client.writeMu.Unlock()
 				break
 			}
+			client.writeMu.Unlock()
 		}
 	}()
 
@@ -303,8 +329,10 @@ func (h *Hub) HandleWebSocketConnection(userID, deviceID string, conn net.Conn, 
 			break
 		}
 		if opcode == 0x9 { // Ping -> send Pong
-			_ = WriteWebSocketTextFrame(bufrw, []byte("pong"))
+			client.writeMu.Lock()
+			_ = writeWebSocketFrame(bufrw, 0xA, payload)
 			_ = bufrw.Flush()
+			client.writeMu.Unlock()
 		}
 		if opcode == 0x1 { // Text JSON message from client
 			log.Printf("[WebSocket] Received frame from user %s, dev %s (%d bytes)", userID, deviceID, len(payload))

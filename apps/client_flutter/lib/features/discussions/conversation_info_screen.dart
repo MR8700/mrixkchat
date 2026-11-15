@@ -432,9 +432,18 @@ class _ConversationInfoScreenState extends State<ConversationInfoScreen> {
                   ),
                 ),
                 const SizedBox(width: 6),
-                Text(
-                  _conv.isGroup ? 'Groupe Chiffré de Bout en Bout' : 'Session Sécurisée Établie',
-                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF047857)),
+                Flexible(
+                  child: Text(
+                    _conv.isGroup
+                        ? 'Groupe Chiffré de Bout en Bout'
+                        : 'Session Sécurisée Établie',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF047857)),
+                  ),
                 ),
               ],
             ),
@@ -492,24 +501,32 @@ class _ConversationInfoScreenState extends State<ConversationInfoScreen> {
                     children: [
                       Row(
                         children: [
-                          const Text(
-                            'Bloc-Note Collaboratif',
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
+                          const Flexible(
+                            child: Text(
+                              'Bloc-Note Collaboratif',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
                             ),
                           ),
                           const SizedBox(width: 6),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
                               color: const Color(0xFF0D9488),
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: const Text(
                               'NOUVEAU',
-                              style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Colors.white),
+                              style: TextStyle(
+                                  fontSize: 9.5,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white),
                             ),
                           ),
                         ],
@@ -547,22 +564,33 @@ class _ConversationInfoScreenState extends State<ConversationInfoScreen> {
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
             child: Row(
               children: [
-                const Icon(Icons.admin_panel_settings_rounded, color: AppTheme.primary, size: 20),
+                const Icon(Icons.admin_panel_settings_rounded,
+                    color: AppTheme.primary, size: 20),
                 const SizedBox(width: 8),
-                const Text(
-                  'Permissions Administrateur du Groupe',
-                  style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
+                const Expanded(
+                  child: Text(
+                    'Permissions Administrateur du Groupe',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
+                  ),
                 ),
-                const Spacer(),
-                if (!isAdmin)
+                if (!isAdmin) ...[
+                  const SizedBox(width: 6),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
                       color: const Color(0xFFF1F5F9),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: const Text('Consultation', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
+                    child: const Text('Consultation',
+                        style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF64748B))),
                   ),
+                ],
               ],
             ),
           ),
@@ -664,19 +692,28 @@ class _ConversationInfoScreenState extends State<ConversationInfoScreen> {
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
             child: Row(
               children: [
-                const Icon(Icons.people_outline_rounded, color: AppTheme.primary, size: 20),
+                const Icon(Icons.people_outline_rounded,
+                    color: AppTheme.primary, size: 20),
                 const SizedBox(width: 8),
-                Text(
-                  'Membres du groupe ($totalAccounts)',
-                  style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
+                Expanded(
+                  child: Text(
+                    'Membres du groupe ($totalAccounts)',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 13.5, fontWeight: FontWeight.bold),
+                  ),
                 ),
-                const Spacer(),
-                if (canAdd)
+                if (canAdd) ...[
+                  const SizedBox(width: 6),
                   TextButton.icon(
                     onPressed: _showAddMemberDialog,
                     icon: const Icon(Icons.person_add_alt_1, size: 16),
-                    label: const Text('Ajouter', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    label: const Text('Ajouter',
+                        style: TextStyle(
+                            fontSize: 12, fontWeight: FontWeight.bold)),
                   ),
+                ],
               ],
             ),
           ),
@@ -942,11 +979,17 @@ class _ConversationInfoScreenState extends State<ConversationInfoScreen> {
         children: [
           Row(
             children: const [
-              Icon(Icons.lock_clock_outlined, color: AppTheme.secondary, size: 20),
+              Icon(Icons.lock_clock_outlined,
+                  color: AppTheme.secondary, size: 20),
               SizedBox(width: 8),
-              Text(
-                'Chiffrement et Empreinte de Sécurité',
-                style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
+              Expanded(
+                child: Text(
+                  'Chiffrement et Empreinte de Sécurité',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontSize: 13.5, fontWeight: FontWeight.bold),
+                ),
               ),
             ],
           ),

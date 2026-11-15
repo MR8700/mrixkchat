@@ -26,23 +26,29 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
 
   @override
   Widget build(BuildContext context) {
-    final width = MediaQuery.of(context).size.width;
-    final isDesktop = width >= 1200;
-    final isTablet = width >= 768 && width < 1200;
+    final size = MediaQuery.sizeOf(context);
+    final width = size.width;
+    final shortestSide = size.shortestSide;
+    final isDesktop = width >= 1200 && shortestSide >= 600;
+    final isTablet = shortestSide >= 600 && !isDesktop;
     final convRepo = context.watch<ConversationRepository>();
     final allConvs = convRepo.getAllConversations();
     final unreadTotal = allConvs.where((c) => c.unreadCount > 0).length;
 
     // Default select first non-archived conversation for desktop/tablet if null
     final nonArchived = allConvs.where((c) => !c.isArchived).toList();
-    if ((isDesktop || isTablet) && _selectedDesktopConversation == null && nonArchived.isNotEmpty) {
+    if ((isDesktop || isTablet) &&
+        _selectedDesktopConversation == null &&
+        nonArchived.isNotEmpty) {
       _selectedDesktopConversation = nonArchived.first;
     }
 
     // Keep active conversation updated, or cleanly deselect if it was archived/deleted
     if (_selectedDesktopConversation != null) {
-      final fresh = convRepo.getConversationById(_selectedDesktopConversation!.id);
-      if (fresh == null || (fresh.isArchived && !_selectedDesktopConversation!.isArchived)) {
+      final fresh =
+          convRepo.getConversationById(_selectedDesktopConversation!.id);
+      if (fresh == null ||
+          (fresh.isArchived && !_selectedDesktopConversation!.isArchived)) {
         _selectedDesktopConversation = null;
       } else {
         _selectedDesktopConversation = fresh;
@@ -61,7 +67,8 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
   // --- MOBILE LAYOUT (< 768px) ---
   Widget _buildMobileLayout(BuildContext context, int unreadTotal) {
     final screens = [
-      DiscussionsScreen(onNavigateTab: (idx) => setState(() => _selectedIndex = idx)),
+      DiscussionsScreen(
+          onNavigateTab: (idx) => setState(() => _selectedIndex = idx)),
       const MomentsScreen(),
       const ContactsScreen(),
       const AssistantScreen(),
@@ -70,28 +77,27 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      body: Stack(
-        children: [
-          IndexedStack(
-            index: _selectedIndex,
-            children: screens,
+      body: IndexedStack(
+        index: _selectedIndex,
+        children: screens,
+      ),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            MediaQuery.sizeOf(context).width < 360 ? 6 : 12,
+            6,
+            MediaQuery.sizeOf(context).width < 360 ? 6 : 12,
+            4,
           ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: SafeArea(
-              top: false,
-              child: FloatingBottomNav(
-                selectedIndex: _selectedIndex,
-                unreadCount: unreadTotal,
-                onItemSelected: (index) {
-                  setState(() => _selectedIndex = index);
-                },
-              ),
-            ),
+          child: FloatingBottomNav(
+            selectedIndex: _selectedIndex,
+            unreadCount: unreadTotal,
+            onItemSelected: (index) {
+              setState(() => _selectedIndex = index);
+            },
           ),
-        ],
+        ),
       ),
     );
   }
@@ -107,7 +113,8 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
           NavigationRail(
             backgroundColor: theme.colorScheme.surface,
             selectedIndex: _selectedIndex,
-            onDestinationSelected: (idx) => setState(() => _selectedIndex = idx),
+            onDestinationSelected: (idx) =>
+                setState(() => _selectedIndex = idx),
             labelType: NavigationRailLabelType.all,
             leading: const Padding(
               padding: EdgeInsets.symmetric(vertical: 12.0),
@@ -117,7 +124,8 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
               NavigationRailDestination(
                 icon: const Icon(Icons.chat_bubble_outline),
                 selectedIcon: const Icon(Icons.chat_bubble),
-                label: const Text('Discussions', style: TextStyle(fontSize: 10.5)),
+                label:
+                    const Text('Discussions', style: TextStyle(fontSize: 10.5)),
               ),
               NavigationRailDestination(
                 icon: const Icon(Icons.slow_motion_video),
@@ -132,7 +140,8 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
               NavigationRailDestination(
                 icon: const Icon(Icons.auto_awesome_outlined),
                 selectedIcon: const Icon(Icons.auto_awesome),
-                label: const Text('Assistant', style: TextStyle(fontSize: 10.5)),
+                label:
+                    const Text('Assistant', style: TextStyle(fontSize: 10.5)),
               ),
               NavigationRailDestination(
                 icon: const Icon(Icons.account_circle_outlined),
@@ -141,24 +150,28 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
               ),
             ],
           ),
-          const VerticalDivider(width: 1, thickness: 1, color: Color(0xFFDFE4ED)),
+          const VerticalDivider(
+              width: 1, thickness: 1, color: Color(0xFFDFE4ED)),
 
           // 2-pane split if discussions is selected
           if (_selectedIndex == 0) ...[
             SizedBox(
-              width: (MediaQuery.of(context).size.width * 0.38).clamp(280.0, 340.0),
+              width: (MediaQuery.of(context).size.width * 0.38)
+                  .clamp(280.0, 340.0),
               child: DiscussionsScreen(
                 onSelectConversationDesktop: (conv) {
                   setState(() => _selectedDesktopConversation = conv);
                 },
               ),
             ),
-            const VerticalDivider(width: 1, thickness: 1, color: Color(0xFFCBD5E1)),
+            const VerticalDivider(
+                width: 1, thickness: 1, color: Color(0xFFCBD5E1)),
             Expanded(
               child: _selectedDesktopConversation != null
                   ? ConversationDetailScreen(
                       conversation: _selectedDesktopConversation!,
-                      onCloseDesktop: () => setState(() => _selectedDesktopConversation = null),
+                      onCloseDesktop: () =>
+                          setState(() => _selectedDesktopConversation = null),
                     )
                   : const Center(
                       child: Text(
@@ -209,29 +222,37 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
                   children: [
                     const MRixkLogo(size: 42),
                     const SizedBox(width: 12),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
-                        Text(
-                          'MRixk Desktop',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: AppTheme.onSurface,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: const [
+                          Text(
+                            'MRixk Desktop',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: AppTheme.onSurface,
+                            ),
                           ),
-                        ),
-                        Text(
-                          'Nœud souverain vérifié',
-                          style: TextStyle(fontSize: 11, color: AppTheme.secondary),
-                        ),
-                      ],
+                          Text(
+                            'Nœud souverain vérifié',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                fontSize: 11, color: AppTheme.secondary),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 24),
 
                 // Navigation items
-                _desktopNavItem(0, Icons.chat_bubble, 'Discussions', unreadTotal),
+                _desktopNavItem(
+                    0, Icons.chat_bubble, 'Discussions', unreadTotal),
                 _desktopNavItem(1, Icons.slow_motion_video, 'Moments'),
                 _desktopNavItem(2, Icons.contacts, 'Contacts'),
                 _desktopNavItem(3, Icons.auto_awesome, 'Assistant'),
@@ -264,11 +285,14 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
                           children: [
                             const Text(
                               'Cryptographie Active',
-                              style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold),
+                              style: TextStyle(
+                                  fontSize: 11.5, fontWeight: FontWeight.bold),
                             ),
                             Text(
                               profile.displayName,
-                              style: const TextStyle(fontSize: 10.5, color: AppTheme.onSurfaceVariant),
+                              style: const TextStyle(
+                                  fontSize: 10.5,
+                                  color: AppTheme.onSurfaceVariant),
                             ),
                           ],
                         ),
@@ -279,7 +303,8 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
               ],
             ),
           ),
-          const VerticalDivider(width: 1, thickness: 1, color: Color(0xFFCBD5E1)),
+          const VerticalDivider(
+              width: 1, thickness: 1, color: Color(0xFFCBD5E1)),
 
           // Pane 2: Middle Stream (fluid 450px)
           SizedBox(
@@ -298,14 +323,16 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
                     const ProfileScreen(),
                   ][_selectedIndex],
           ),
-          const VerticalDivider(width: 1, thickness: 1, color: Color(0xFFCBD5E1)),
+          const VerticalDivider(
+              width: 1, thickness: 1, color: Color(0xFFCBD5E1)),
 
           // Pane 3: Right Pane: Active Detail or Sovereign Inspector
           Expanded(
             child: _selectedDesktopConversation != null
                 ? ConversationDetailScreen(
                     conversation: _selectedDesktopConversation!,
-                    onCloseDesktop: () => setState(() => _selectedDesktopConversation = null),
+                    onCloseDesktop: () =>
+                        setState(() => _selectedDesktopConversation = null),
                   )
                 : Container(
                     color: Colors.white,
@@ -313,7 +340,8 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: const [
-                          Icon(Icons.shield_outlined, size: 48, color: AppTheme.primary),
+                          Icon(Icons.shield_outlined,
+                              size: 48, color: AppTheme.primary),
                           SizedBox(height: 12),
                           Text(
                             'Sélectionnez une discussion pour afficher l\'échange sécurisé',

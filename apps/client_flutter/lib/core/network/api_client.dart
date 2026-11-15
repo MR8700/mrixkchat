@@ -12,9 +12,14 @@ class ApiClient {
       'https://mrixk-backend.onrender.com/api/v1';
   String baseUrl = prodRemoteUrl;
   String? _sessionToken;
+  String? get sessionToken => _sessionToken;
 
   void setSessionToken(String token) {
     _sessionToken = token;
+  }
+
+  void clearSessionToken() {
+    _sessionToken = null;
   }
 
   /// Optional override at build time: --dart-define=API_URL=https://host/api/v1
@@ -374,6 +379,35 @@ class ApiClient {
     }
   }
 
+  /// Creates a device session for an identity verified with its recovery code.
+  Future<String?> authorizeRecoveryDevice({
+    required String userId,
+    required String recoveryCode,
+    required String deviceName,
+    required String platform,
+  }) async {
+    try {
+      final base = await getActiveBaseUrl();
+      final res = await http.post(
+        Uri.parse('$base/devices/authorize'),
+        headers: _headers(),
+        body: jsonEncode({
+          'user_id': userId,
+          'recovery_code': recoveryCode,
+          'device_name': deviceName,
+          'platform': platform,
+        }),
+      );
+      if (res.statusCode != 201) return null;
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      final token = data['session_token'] as String?;
+      if (token != null && token.isNotEmpty) setSessionToken(token);
+      return token;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Sends an encrypted E2EE message envelope to the relay server.
   Future<bool> sendEncryptedMessage({
     required String conversationId,
@@ -532,17 +566,69 @@ class ApiClient {
     required String sdpOffer,
   }) async {
     try {
-      final res = await http.post(
-        Uri.parse('$baseUrl/calls/offer'),
-        headers: _headers(),
-        body: jsonEncode({
-          'call_id': callId,
-          'callee_id': calleeId,
-          'type': type,
-          'sdp_offer': sdpOffer,
-        }),
-      );
+      final res = await _send((base) => http.post(
+            Uri.parse('$base/calls/offer'),
+            headers: _headers(),
+            body: jsonEncode({
+              'call_id': callId,
+              'callee_id': calleeId,
+              'type': type,
+              'sdp_offer': sdpOffer,
+            }),
+          ));
       return res.statusCode == 201;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> sendCallAnswer({
+    required String callId,
+    required String sdpAnswer,
+  }) async {
+    try {
+      final res = await _send((base) => http.post(
+            Uri.parse('$base/calls/answer'),
+            headers: _headers(),
+            body: jsonEncode({'call_id': callId, 'sdp_answer': sdpAnswer}),
+          ));
+      return res.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> sendCallIceCandidate({
+    required String callId,
+    required String candidate,
+    String? sdpMid,
+    int? sdpMLineIndex,
+  }) async {
+    try {
+      final res = await _send((base) => http.post(
+            Uri.parse('$base/calls/ice'),
+            headers: _headers(),
+            body: jsonEncode({
+              'call_id': callId,
+              'candidate': candidate,
+              'sdp_mid': sdpMid,
+              'sdp_m_line_index': sdpMLineIndex,
+            }),
+          ));
+      return res.statusCode == 202;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> endCall(String callId) async {
+    try {
+      final res = await _send((base) => http.post(
+            Uri.parse('$base/calls/hangup'),
+            headers: _headers(),
+            body: jsonEncode({'call_id': callId}),
+          ));
+      return res.statusCode == 200;
     } catch (_) {
       return false;
     }

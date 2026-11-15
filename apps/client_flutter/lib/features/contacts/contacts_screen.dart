@@ -130,8 +130,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
       builder: (ctx) => CallDialog(
         peerName: contact.name,
         peerAvatar: contact.avatarUrl,
+        peerUserId: contact.id,
         isVideo: isVideo,
-        isPeerOnline: contact.isOnline,
       ),
     );
   }

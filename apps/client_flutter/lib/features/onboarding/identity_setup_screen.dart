@@ -629,10 +629,17 @@ class _IdentitySetupScreenState extends State<IdentitySetupScreen> {
                               )
                             : Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
+                                mainAxisSize: MainAxisSize.min,
                                 children: const [
-                                  Text(
-                                    'Commencer sur MRixk',
-                                    style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.bold),
+                                  Flexible(
+                                    child: Text(
+                                      'Commencer sur MRixk',
+                                      style: TextStyle(
+                                          fontSize: 14.5,
+                                          fontWeight: FontWeight.bold),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
                                   ),
                                   SizedBox(width: 8),
                                   Icon(Icons.arrow_forward_rounded, size: 18),
@@ -642,15 +649,24 @@ class _IdentitySetupScreenState extends State<IdentitySetupScreen> {
                     ),
                     const SizedBox(height: 12),
 
-                    TextButton.icon(
+                    TextButton(
                       onPressed: () => setState(() {
                         _isRecoveryMode = true;
                         _errorMessage = null;
                       }),
-                      icon: const Icon(Icons.key_rounded, size: 16),
-                      label: const Text(
-                        'Déjà un compte ? Saisir un code de récupération',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: const [
+                          Icon(Icons.key_rounded, size: 16),
+                          SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              'Déjà un compte ? Saisir un code de secours',
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ] else ...[
@@ -830,15 +846,24 @@ class _IdentitySetupScreenState extends State<IdentitySetupScreen> {
                     ),
                     const SizedBox(height: 12),
 
-                    TextButton.icon(
+                    TextButton(
                       onPressed: () => setState(() {
                         _isRecoveryMode = false;
                         _errorMessage = null;
                       }),
-                      icon: const Icon(Icons.arrow_back_rounded, size: 16),
-                      label: const Text(
-                        'Retour : Créer une nouvelle identité',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: const [
+                          Icon(Icons.arrow_back_rounded, size: 16),
+                          SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              'Retour : Créer une nouvelle identité',
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],

@@ -270,7 +270,8 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.center,
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: _buildWaveformBars(isOut),
+                            children: _buildWaveformBars(
+                                isOut, constraints.maxWidth),
                           ),
                         ),
                       ),
@@ -280,46 +281,75 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
                 const SizedBox(height: 4),
 
                 // Timers & Voice info
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      _isPlaying ? _formattedTime : '0:00',
-                      style: TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: isOut ? Colors.white : const Color(0xFF0043B8),
-                      ),
-                    ),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isUltraNarrow = constraints.maxWidth < 130;
+                    final showVocalLabel = constraints.maxWidth > 180;
+                    return Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Icon(
-                          Icons.mic_rounded,
-                          size: 11,
-                          color: isOut ? Colors.white70 : const Color(0xFF64748B),
+                        Flexible(
+                          child: Text(
+                            _isPlaying ? _formattedTime : '0:00',
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: isUltraNarrow ? 9.5 : 10.5,
+                              fontWeight: FontWeight.bold,
+                              color:
+                                  isOut ? Colors.white : const Color(0xFF0043B8),
+                            ),
+                          ),
                         ),
-                        const SizedBox(width: 3),
-                        Text(
-                          isOut ? 'Vocal chiffré' : 'Vocal vérifié',
-                          style: TextStyle(
-                            fontSize: 9.5,
-                            fontWeight: FontWeight.w500,
-                            color: isOut ? Colors.white70 : const Color(0xFF64748B),
+                        if (showVocalLabel) ...[
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.mic_rounded,
+                                  size: 11,
+                                  color: isOut
+                                      ? Colors.white70
+                                      : const Color(0xFF64748B),
+                                ),
+                                const SizedBox(width: 3),
+                                Flexible(
+                                  child: Text(
+                                    isOut ? 'Vocal chiffré' : 'Vocal vérifié',
+                                    style: TextStyle(
+                                      fontSize: 9.5,
+                                      fontWeight: FontWeight.w500,
+                                      color: isOut
+                                          ? Colors.white70
+                                          : const Color(0xFF64748B),
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(
+                            widget.duration,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.end,
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: isUltraNarrow ? 9.5 : 10.5,
+                              color: isOut
+                                  ? Colors.white70
+                                  : const Color(0xFF64748B),
+                            ),
                           ),
                         ),
                       ],
-                    ),
-                    Text(
-                      widget.duration,
-                      style: TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 11,
-                        color: isOut ? Colors.white70 : const Color(0xFF64748B),
-                      ),
-                    ),
-                  ],
+                    );
+                  },
                 ),
               ],
             ),
@@ -366,13 +396,19 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
     );
   }
 
-  List<Widget> _buildWaveformBars(bool isOut) {
-    final bars = widget.waveform ?? [
+  List<Widget> _buildWaveformBars(bool isOut, [double? maxWidth]) {
+    final rawBars = widget.waveform ?? [
       0.3, 0.5, 0.8, 0.4, 0.9, 0.6, 0.3, 0.7, 0.4, 0.6,
       0.8, 0.5, 0.3, 0.6, 0.4, 0.7, 0.2, 0.5, 0.7, 0.4,
       0.6, 0.8, 0.3, 0.7, 0.5, 0.9, 0.4, 0.6
     ];
-    final progress = _totalSeconds > 0 ? (_currentSeconds / _totalSeconds) : 0.0;
+    final maxBars = maxWidth != null
+        ? (maxWidth / 4.8).floor().clamp(8, rawBars.length)
+        : rawBars.length;
+    final bars =
+        maxBars < rawBars.length ? rawBars.take(maxBars).toList() : rawBars;
+    final progress =
+        _totalSeconds > 0 ? (_currentSeconds / _totalSeconds) : 0.0;
 
     return bars.asMap().entries.map((entry) {
       final index = entry.key;

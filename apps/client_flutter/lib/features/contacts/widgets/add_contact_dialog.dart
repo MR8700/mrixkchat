@@ -223,20 +223,26 @@ class _AddContactDialogState extends State<AddContactDialog> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Row(
-                    children: const [
-                Icon(Icons.person_add_rounded,
-                    color: Color(0xFF0043B8), size: 22),
-                      SizedBox(width: 8),
-                      Text(
-                        'Ajouter un contact',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: AppTheme.onSurface,
+                  Expanded(
+                    child: Row(
+                      children: const [
+                        Icon(Icons.person_add_rounded,
+                            color: Color(0xFF0043B8), size: 22),
+                        SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            'Ajouter un contact',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: AppTheme.onSurface,
+                            ),
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                   IconButton(
                     icon: const Icon(Icons.close, size: 20),
@@ -339,14 +345,18 @@ class _AddContactDialogState extends State<AddContactDialog> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    _queryController.text.trim().isEmpty
-                        ? 'Membres inscrits sur le réseau (${nonSelfResults.length}) :'
-                        : 'Utilisateurs certifiés correspondants (${nonSelfResults.length}) :',
-              style: const TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF0043B8)),
+                  Expanded(
+                    child: Text(
+                      _queryController.text.trim().isEmpty
+                          ? 'Membres inscrits sur le réseau (${nonSelfResults.length}) :'
+                          : 'Utilisateurs certifiés correspondants (${nonSelfResults.length}) :',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF0043B8)),
+                    ),
                   ),
                   IconButton(
               icon: const Icon(Icons.refresh_rounded,

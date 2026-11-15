@@ -270,8 +270,11 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
       builder: (ctx) => CallDialog(
         peerName: widget.conversation.title,
         peerAvatar: widget.conversation.peerAvatar,
+        peerUserId: widget.conversation.peerUserId ??
+            (widget.conversation.id.startsWith('conv_')
+                ? widget.conversation.id.substring(5)
+                : ''),
         isVideo: isVideo,
-        isPeerOnline: widget.conversation.isOnline,
         onCallEnded: (duration, wasVideo) {
           final now = DateTime.now();
           final timeStr =
@@ -1429,18 +1432,22 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                         ),
                       ),
                       const SizedBox(width: 4),
-                      Text(
-                        currentConv.isGroup
-                            ? '${currentConv.totalUserAccountsCount} ${currentConv.totalUserAccountsCount <= 1 ? "membre" : "membres"} • Chiffré'
-                            : (currentConv.isOnline
-                                ? 'En ligne'
-                                : 'Vu récemment'),
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: currentConv.isOnline
-                              ? AppTheme.statusGreen
-                              : const Color(0xFF64748B),
-                          fontWeight: FontWeight.w500,
+                      Flexible(
+                        child: Text(
+                          currentConv.isGroup
+                              ? '${currentConv.totalUserAccountsCount} ${currentConv.totalUserAccountsCount <= 1 ? "membre" : "membres"} • Chiffré'
+                              : (currentConv.isOnline
+                                  ? 'En ligne'
+                                  : 'Vu récemment'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: currentConv.isOnline
+                                ? AppTheme.statusGreen
+                                : const Color(0xFF64748B),
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
                       ),
                     ],
@@ -2508,12 +2515,16 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                                   children: const [
                                     Icon(Icons.graphic_eq, size: 14, color: Color(0xFF166534)),
                                     SizedBox(width: 4),
-                                    Text(
-                                      'Transcription automatique',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.bold,
-                                        color: Color(0xFF166534),
+                                    Flexible(
+                                      child: Text(
+                                        'Transcription automatique',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFF166534),
+                                        ),
                                       ),
                                     ),
                                   ],
@@ -2563,12 +2574,16 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                       const SizedBox(width: 4),
                       const Icon(Icons.verified, size: 12, color: AppTheme.secondary),
                       const SizedBox(width: 2),
-                      const Text(
-                        'Signature vérifiée',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.secondary,
+                      Flexible(
+                        child: Text(
+                          'Signature vérifiée',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.secondary,
+                          ),
                         ),
                       ),
                     ],
@@ -2865,18 +2880,28 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Row(
-                        children: const [
-                          Icon(Icons.shield, size: 12, color: Colors.white70),
-                          SizedBox(width: 4),
-                          Text(
-                            'Protégé de bout en bout',
-                            style: TextStyle(fontSize: 10.5, color: Colors.white70),
-                          ),
-                        ],
+                      Expanded(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: const [
+                            Icon(Icons.shield, size: 12, color: Colors.white70),
+                            SizedBox(width: 4),
+                            Flexible(
+                              child: Text(
+                                'Protégé de bout en bout',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                    fontSize: 10.5, color: Colors.white70),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
+                      const SizedBox(width: 6),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
                           color: Colors.white.withOpacity(0.2),
                           borderRadius: BorderRadius.circular(4),

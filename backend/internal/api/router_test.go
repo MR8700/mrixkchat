@@ -216,7 +216,11 @@ func TestAPI_FullEndToEndFlow(t *testing.T) {
 	}
 
 	// 14. Test WebRTC Call Offer Signaling
-	callOfferPayload := `{"call_id":"call_001","callee_id":"user_sophie","type":"AUDIO","sdp_offer":"v=0\r\no=- 42 2 IN IP4 127.0.0.1"}`
+	sophie, err := server.idService.Register("@mrixk.sophie", "mypassword2026", "recpub_sophie", "Sophie VÉRAN")
+	if err != nil {
+		t.Fatalf("Failed to register sophie: %v", err)
+	}
+	callOfferPayload := fmt.Sprintf(`{"call_id":"call_001","callee_id":"%s","type":"AUDIO","sdp_offer":"v=0\r\no=- 42 2 IN IP4 127.0.0.1"}`, sophie.ID)
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/calls/offer", bytes.NewBufferString(callOfferPayload))
 	req.Header.Set("Authorization", "Bearer "+token1)

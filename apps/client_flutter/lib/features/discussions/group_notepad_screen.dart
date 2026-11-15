@@ -2048,13 +2048,21 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
           children: [
             Row(
               children: [
-                const Text(
-                  'Bloc-Note Collaboratif',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.onSurface),
+                const Flexible(
+                  child: Text(
+                    'Bloc-Note Collaboratif',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.onSurface),
+                  ),
                 ),
                 if (_currentNote.isLocked) ...[
                   const SizedBox(width: 6),
-                  const Icon(Icons.lock_rounded, size: 15, color: Color(0xFFE11D48)),
+                  const Icon(Icons.lock_rounded,
+                      size: 15, color: Color(0xFFE11D48)),
                 ],
               ],
             ),

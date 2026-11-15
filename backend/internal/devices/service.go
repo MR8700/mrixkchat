@@ -9,8 +9,8 @@ import (
 )
 
 var (
-	ErrInvalidPlatform  = errors.New("invalid platform: must be Android, iOS, Windows, or Linux")
-	ErrMissingKey        = errors.New("identity public key and diffie hellman public key are required")
+	ErrInvalidPlatform = errors.New("invalid platform: must be Android, iOS, Windows, Linux, or Web")
+	ErrMissingKey      = errors.New("identity public key and diffie hellman public key are required")
 )
 
 type Service struct {
@@ -29,7 +29,7 @@ func (s *Service) AuthorizeDevice(userID, deviceName, platform, identityPubKey, 
 	}
 
 	validPlatform := false
-	for _, p := range []string{"Android", "iOS", "Windows", "Linux"} {
+	for _, p := range []string{"Android", "iOS", "Windows", "Linux", "Web"} {
 		if platform == p {
 			validPlatform = true
 			break
@@ -40,15 +40,15 @@ func (s *Service) AuthorizeDevice(userID, deviceName, platform, identityPubKey, 
 	}
 
 	device := &database.Device{
-		ID:                    fmt.Sprintf("dev-%d", time.Now().UnixNano()),
-		UserID:                userID,
-		DeviceName:            deviceName,
-		Platform:              platform,
-		IdentityPublicKey:     identityPubKey,
+		ID:                     fmt.Sprintf("dev-%d", time.Now().UnixNano()),
+		UserID:                 userID,
+		DeviceName:             deviceName,
+		Platform:               platform,
+		IdentityPublicKey:      identityPubKey,
 		DiffieHellmanPublicKey: dhPubKey,
-		Status:                database.DeviceStatusActive,
-		CreatedAt:             time.Now(),
-		LastSeenAt:            time.Now(),
+		Status:                 database.DeviceStatusActive,
+		CreatedAt:              time.Now(),
+		LastSeenAt:             time.Now(),
 	}
 
 	// Register in repository (will enforce max 3 active devices quota)

@@ -142,12 +142,15 @@ class _AssistantScreenState extends State<AssistantScreen> {
                   ),
                 ),
                 const SizedBox(width: 4),
-                const Text(
-                  'IA Souveraine active • 100% local',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: AppTheme.statusGreen,
-                    fontWeight: FontWeight.w500,
+                const Flexible(
+                  child: Text(
+                    'IA Souveraine active • 100% local',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: AppTheme.statusGreen,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
@@ -431,12 +434,15 @@ class _AssistantScreenState extends State<AssistantScreen> {
                     children: [
                       const Icon(Icons.lock_outline, size: 14, color: Color(0xFF047857)),
                       const SizedBox(width: 6),
-                      Text(
-                        '$activeMemoriesCount informations retenues en mémoire protégée',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF047857),
+                      Flexible(
+                        child: Text(
+                          '$activeMemoriesCount informations retenues en mémoire protégée',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF047857),
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                     ],

@@ -125,6 +125,7 @@ func (s *Server) routes() {
 	// WebRTC Calls Signaling
 	s.mux.HandleFunc("POST /api/v1/calls/offer", s.handleCallOffer)
 	s.mux.HandleFunc("POST /api/v1/calls/answer", s.handleCallAnswer)
+	s.mux.HandleFunc("POST /api/v1/calls/ice", s.handleCallICE)
 	s.mux.HandleFunc("POST /api/v1/calls/hangup", s.handleCallHangup)
 
 	// Encrypted Media Attachments Relay
@@ -675,6 +676,7 @@ type AuthorizeDeviceRequest struct {
 	UserID                 string `json:"user_id,omitempty"`
 	Handle                 string `json:"handle,omitempty"`
 	Password               string `json:"password,omitempty"`
+	RecoveryCode           string `json:"recovery_code,omitempty"`
 	DeviceName             string `json:"device_name"`
 	Platform               string `json:"platform"`
 	IdentityPublicKey      string `json:"identity_public_key,omitempty"`
@@ -694,6 +696,13 @@ func (s *Server) handleAuthorizeDevice(w http.ResponseWriter, r *http.Request) {
 	existingDev, authErr := s.authenticateDeviceSession(r)
 	if authErr == nil && existingDev != nil {
 		targetUserID = existingDev.UserID
+	} else if req.RecoveryCode != "" {
+		user, err := s.repo.GetUserByRecoveryCode(strings.ToUpper(strings.TrimSpace(req.RecoveryCode)))
+		if err != nil || user == nil || (targetUserID != "" && targetUserID != user.ID) {
+			jsonError(w, http.StatusUnauthorized, "Authentication failed: invalid recovery code")
+			return
+		}
+		targetUserID = user.ID
 	} else if req.Password != "" {
 		if req.Handle != "" {
 			user, err := s.idService.Authenticate(req.Handle, req.Password)
@@ -956,6 +965,18 @@ func (s *Server) handleCallOffer(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusBadRequest, "Invalid request payload")
 		return
 	}
+	if strings.TrimSpace(req.CallID) == "" || strings.TrimSpace(req.CalleeID) == "" || strings.TrimSpace(req.SDPOffer) == "" {
+		jsonError(w, http.StatusBadRequest, "Call ID, recipient and SDP offer are required")
+		return
+	}
+	if req.CalleeID == dev.UserID {
+		jsonError(w, http.StatusBadRequest, "Cannot call the same account")
+		return
+	}
+	if _, err := s.repo.GetUserByID(req.CalleeID); err != nil {
+		jsonError(w, http.StatusNotFound, "Call recipient not found")
+		return
+	}
 
 	callType := calls.CallTypeAudio
 	if req.Type == "VIDEO" {
@@ -975,7 +996,7 @@ func (s *Server) handleCallOffer(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCallAnswer(w http.ResponseWriter, r *http.Request) {
-	_, err := s.authenticateDeviceSession(r)
+	dev, err := s.authenticateDeviceSession(r)
 	if err != nil {
 		jsonError(w, http.StatusUnauthorized, err.Error())
 		return
@@ -990,6 +1011,15 @@ func (s *Server) handleCallAnswer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	current, err := s.callService.GetCall(req.CallID)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if current.CalleeID != dev.UserID {
+		jsonError(w, http.StatusForbidden, "Only the callee can answer this call")
+		return
+	}
 	session, err := s.callService.AnswerCall(req.CallID, req.SDPAnswer)
 	if err != nil {
 		jsonError(w, http.StatusBadRequest, err.Error())
@@ -1001,17 +1031,68 @@ func (s *Server) handleCallAnswer(w http.ResponseWriter, r *http.Request) {
 		Payload:   session,
 		Timestamp: time.Now(),
 	}, "")
+	s.hub.BroadcastToUser(session.CalleeID, &WSEvent{
+		Type:      "CALL_ANSWERED_ELSEWHERE",
+		Payload:   session,
+		Timestamp: time.Now(),
+	}, dev.ID)
 
 	jsonResponse(w, http.StatusOK, session)
 }
 
-func (s *Server) handleCallHangup(w http.ResponseWriter, r *http.Request) {
-	_, err := s.authenticateDeviceSession(r)
+func (s *Server) handleCallICE(w http.ResponseWriter, r *http.Request) {
+	dev, err := s.authenticateDeviceSession(r)
 	if err != nil {
 		jsonError(w, http.StatusUnauthorized, err.Error())
 		return
 	}
+	var req struct {
+		CallID        string  `json:"call_id"`
+		Candidate     string  `json:"candidate"`
+		SDPMid        *string `json:"sdp_mid"`
+		SDPMLineIndex *int    `json:"sdp_m_line_index"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+	if strings.TrimSpace(req.Candidate) == "" {
+		jsonError(w, http.StatusBadRequest, "ICE candidate is required")
+		return
+	}
+	session, err := s.callService.GetCall(req.CallID)
+	if err != nil {
+		jsonError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if session.Status == calls.CallStatusEnded || session.Status == calls.CallStatusDeclined {
+		jsonError(w, http.StatusConflict, "Call has already ended")
+		return
+	}
+	targetID := session.CalleeID
+	if dev.UserID == session.CalleeID {
+		targetID = session.CallerID
+	} else if dev.UserID != session.CallerID {
+		jsonError(w, http.StatusForbidden, "Device is not a call participant")
+		return
+	}
+	s.hub.BroadcastToUser(targetID, &WSEvent{
+		Type: "CALL_ICE",
+		Payload: map[string]interface{}{
+			"call_id": req.CallID, "candidate": req.Candidate,
+			"sdp_mid": req.SDPMid, "sdp_m_line_index": req.SDPMLineIndex,
+		},
+		Timestamp: time.Now(),
+	}, "")
+	jsonResponse(w, http.StatusAccepted, map[string]string{"status": "relayed"})
+}
 
+func (s *Server) handleCallHangup(w http.ResponseWriter, r *http.Request) {
+	dev, err := s.authenticateDeviceSession(r)
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
 	var req struct {
 		CallID string `json:"call_id"`
 	}
@@ -1020,6 +1101,15 @@ func (s *Server) handleCallHangup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	current, err := s.callService.GetCall(req.CallID)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if dev.UserID != current.CallerID && dev.UserID != current.CalleeID {
+		jsonError(w, http.StatusForbidden, "Device is not a call participant")
+		return
+	}
 	session, err := s.callService.EndCall(req.CallID)
 	if err != nil {
 		jsonError(w, http.StatusBadRequest, err.Error())

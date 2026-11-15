@@ -13,6 +13,7 @@ class WebSocketClient {
   PlatformSocket? _socket;
   StreamSubscription? _socketSubscription;
   bool _isConnected = false;
+  bool _connecting = false;
   bool get isConnected => _isConnected;
 
   final StreamController<Map<String, dynamic>> _eventController =
@@ -25,7 +26,8 @@ class WebSocketClient {
 
   Future<void> connect(String token) async {
     _token = token;
-    if (_isConnected) return;
+    if (_isConnected || _connecting) return;
+    _connecting = true;
 
     try {
       final apiUri = Uri.parse(await ApiClient().getActiveBaseUrl());
@@ -49,18 +51,22 @@ class WebSocketClient {
         },
         onDone: () {
           _isConnected = false;
+          _connecting = false;
           _scheduleReconnect();
         },
         onError: (err) {
           _isConnected = false;
+          _connecting = false;
           _scheduleReconnect();
         },
         cancelOnError: true,
       );
     } catch (_) {
       _isConnected = false;
+      _connecting = false;
       _scheduleReconnect();
     }
+    _connecting = false;
   }
 
   void send(Map<String, dynamic> event) {
@@ -87,5 +93,7 @@ class WebSocketClient {
     _socket?.close();
     _socket = null;
     _isConnected = false;
+    _connecting = false;
+    _token = null;
   }
 }
