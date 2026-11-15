@@ -58,5 +58,35 @@ Ce document atteste de la validation des protocoles :
 
       expect(filename, equals('Fiche Sécurité Cryptographique.pdf'));
     });
+
+    test('exports document with intuitive callouts, math and code blocks seamlessly', () {
+      const title = 'Document Académique Avancé';
+      const content = '''
+!theoreme Théorème d'Échantillonnage
+Pour tout signal à bande limitée, \$fe >= 2 * fmax\$.
+
+!definition Espace Hilbertien
+Un espace vectoriel normé complet.
+
+```python
+def sample(rate):
+    return rate * 2
+```
+
+[^1]: Référence scientifique.
+''';
+
+      final wordFile = DocumentExportService.instance.exportWord(
+        title: title,
+        content: content,
+      );
+      expect(wordFile, equals('Document Académique Avancé.doc'));
+
+      final pdfFile = DocumentExportService.instance.exportPdf(
+        title: title,
+        content: content,
+      );
+      expect(pdfFile, equals('Document Académique Avancé.pdf'));
+    });
   });
 }

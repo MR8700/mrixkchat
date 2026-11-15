@@ -62,4 +62,60 @@ Voici une formule en ligne : \$x^2 + y^2 = r^2\$ et une fraction \$a/b\$.
     // Verify MathFormulaRenderer was invoked for inline and display math
     expect(find.byType(MathFormulaRenderer), findsWidgets);
   });
+
+  testWidgets('GroupNoteRenderer renders automatic TOC, fenced code blocks, and footnotes', (tester) async {
+    const academicDoc = '''
+!sommaire
+
+# Introduction Générale
+Contenu de l'introduction[^1].
+
+## Contexte Théorique
+Détails du contexte théorique.
+
+# Algorithmes et Implémentation
+Voici l'algorithme :
+
+```python
+def fibonacci(n):
+    return n if n <= 1 else fibonacci(n-1) + fibonacci(n-2)
+```
+
+> La simplicité est la sophistication suprême.
+> Léonard de Vinci
+
+[^1]: Référence bibliographique principale 2026.
+''';
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        themeMode: ThemeMode.dark,
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: GroupNoteRenderer(
+              content: academicDoc,
+              isFinalRenderMode: true,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    // Verify TOC header and sections
+    expect(find.text('SOMMAIRE'), findsOneWidget);
+    expect(find.text('1. Introduction Générale'), findsNothing); // Number prefix is separate Text widget
+    expect(find.text('Introduction Générale'), findsWidgets); // Appears in TOC and heading
+    expect(find.text('Contexte Théorique'), findsWidgets);
+    expect(find.text('Algorithmes et Implémentation'), findsWidgets);
+
+    // Verify Code block
+    expect(find.text('PYTHON'), findsOneWidget);
+    expect(find.textContaining('def fibonacci(n):'), findsOneWidget);
+
+    // Verify Blockquote
+    expect(find.textContaining('La simplicité est la sophistication suprême.'), findsOneWidget);
+
+    // Verify Footnote
+    expect(find.textContaining('Référence bibliographique principale 2026.'), findsOneWidget);
+  });
 }

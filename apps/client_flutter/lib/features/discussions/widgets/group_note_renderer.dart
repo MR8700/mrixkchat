@@ -12,7 +12,6 @@ import 'scientific_components_renderer.dart';
 import 'moe_interactive_table_widget.dart';
 import 'moe_interactive_chart_widget.dart';
 import 'moe_interactive_diagram_widget.dart';
-import 'moe_object_code_modal.dart';
 import 'math_formula_renderer.dart';
 
 /// Sanitizes untrusted HTML/SVG inputs to strictly prevent script injection, active elements or unsafe attributes.
@@ -140,9 +139,13 @@ class GroupNoteRenderer extends StatelessWidget {
 
     final screenWidth = MediaQuery.of(context).size.width;
     final isMobile = screenWidth < 680;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final deskBg = isDark ? const Color(0xFF0F172A) : const Color(0xFFF4F6F9);
+    final paperBg = isDark ? const Color(0xFF1E293B) : Colors.white;
+    final paperBorder = isDark ? Border.all(color: const Color(0xFF334155), width: 1.0) : null;
 
     return Container(
-      color: const Color(0xFFF4F6F9),
+      color: deskBg,
       child: Center(
         child: Container(
           constraints: const BoxConstraints(maxWidth: 820),
@@ -151,22 +154,31 @@ class GroupNoteRenderer extends StatelessWidget {
             vertical: isMobile ? 0 : 12,
           ),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: paperBg,
+            border: paperBorder,
             borderRadius: BorderRadius.circular(isMobile ? 0 : 12),
             boxShadow: isMobile
                 ? null
-                : const [
-                    BoxShadow(
-                      color: Color(0x0A000000),
-                      blurRadius: 18,
-                      offset: Offset(0, 4),
-                    ),
-                    BoxShadow(
-                      color: Color(0x05000000),
-                      blurRadius: 4,
-                      offset: Offset(0, 1),
-                    ),
-                  ],
+                : isDark
+                    ? const [
+                        BoxShadow(
+                          color: Color(0x33000000),
+                          blurRadius: 18,
+                          offset: Offset(0, 4),
+                        ),
+                      ]
+                    : const [
+                        BoxShadow(
+                          color: Color(0x0A000000),
+                          blurRadius: 18,
+                          offset: Offset(0, 4),
+                        ),
+                        BoxShadow(
+                          color: Color(0x05000000),
+                          blurRadius: 4,
+                          offset: Offset(0, 1),
+                        ),
+                      ],
           ),
           child: ListView.builder(
             shrinkWrap: true,
@@ -178,7 +190,7 @@ class GroupNoteRenderer extends StatelessWidget {
             itemCount: blocks.length,
             itemBuilder: (context, index) {
               final block = blocks[index];
-              return _buildBlock(context, block, computedVars);
+              return _buildBlock(context, block, computedVars, blocks);
             },
           ),
         ),
@@ -728,12 +740,20 @@ class GroupNoteRenderer extends StatelessWidget {
     return null;
   }
 
-  Widget _buildBlock(BuildContext context, _ContentBlock block, Map<String, double> vars) {
+  Widget _buildBlock(BuildContext context, _ContentBlock block, Map<String, double> vars, List<_ContentBlock> allBlocks) {
     Widget child;
 
     switch (block.type) {
+      case _BlockType.toc:
+        child = _buildTableOfContents(context, allBlocks);
+        break;
+
+      case _BlockType.footnote:
+        child = _buildFootnoteItem(context, block);
+        break;
+
       case _BlockType.heading:
-        child = _buildHeading(block);
+        child = _buildHeading(context, block);
         break;
 
       case _BlockType.hr:
@@ -743,34 +763,27 @@ class GroupNoteRenderer extends StatelessWidget {
         );
 
       case _BlockType.blockquote:
+        final isDark = Theme.of(context).brightness == Brightness.dark;
         child = Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          decoration: const BoxDecoration(
-            color: Color(0xFFF0FDF4),
-            border: Border(left: BorderSide(color: AppTheme.secondary, width: 4)),
-            borderRadius: BorderRadius.only(
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF142E28) : const Color(0xFFF0FDF4),
+            border: const Border(left: BorderSide(color: AppTheme.secondary, width: 4.5)),
+            borderRadius: const BorderRadius.only(
               topRight: Radius.circular(8),
               bottomRight: Radius.circular(8),
             ),
           ),
-          child: Text(
-            block.text,
-            style: TextStyle(
-              fontSize: 13.5,
-              fontStyle: FontStyle.italic,
-              color: const Color(0xFF065F46),
-              height: lineSpacing,
-            ),
-          ),
+          child: _buildRichParagraph(context, block.text),
         );
         break;
 
       case _BlockType.callout:
-        child = _buildCalloutCard(block);
+        child = _buildCalloutCard(context, block);
         break;
 
       case _BlockType.math:
-        child = _buildMathCard(block.text, block.macroName);
+        child = _buildMathCard(context, block.text, block.macroName);
         break;
 
       case _BlockType.table:
@@ -783,7 +796,7 @@ class GroupNoteRenderer extends StatelessWidget {
             onOpenCodeModal: onOpenMoeCodeModal != null ? () => onOpenMoeCodeModal!(moe) : null,
           );
         } else {
-          child = _buildTableCard(block.tableData!, block.macroName);
+          child = _buildTableCard(context, block.tableData!, block.macroName);
         }
         break;
 
@@ -818,7 +831,7 @@ class GroupNoteRenderer extends StatelessWidget {
               child: Icon(Icons.circle, size: 6, color: AppTheme.primary),
             ),
             Expanded(
-              child: _buildRichParagraph(block.text),
+              child: _buildRichParagraph(context, block.text),
             ),
           ],
         );
@@ -836,7 +849,7 @@ class GroupNoteRenderer extends StatelessWidget {
               ),
             ),
             Expanded(
-              child: _buildRichParagraph(block.text),
+              child: _buildRichParagraph(context, block.text),
             ),
           ],
         );
@@ -853,7 +866,7 @@ class GroupNoteRenderer extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             Expanded(
-              child: _buildRichParagraph(block.text),
+              child: _buildRichParagraph(context, block.text),
             ),
           ],
         );
@@ -887,22 +900,7 @@ class GroupNoteRenderer extends StatelessWidget {
         break;
 
       case _BlockType.code:
-        child = Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: const Color(0xFF0F172A),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Text(
-            block.text,
-            style: const TextStyle(
-              fontFamily: 'monospace',
-              fontSize: 12.5,
-              color: Color(0xFF38BDF8),
-              height: 1.3,
-            ),
-          ),
-        );
+        child = _buildCodeBlock(context, block);
         break;
 
       case _BlockType.mediaItem:
@@ -919,7 +917,7 @@ class GroupNoteRenderer extends StatelessWidget {
 
       case _BlockType.paragraph:
         if (block.text.trim().isEmpty) return SizedBox(height: paragraphSpacing / 2);
-        child = _buildRichParagraph(block.text, align: block.alignment);
+        child = _buildRichParagraph(context, block.text, align: block.alignment);
         break;
     }
 
@@ -929,7 +927,225 @@ class GroupNoteRenderer extends StatelessWidget {
     );
   }
 
-  Widget _buildHeading(_ContentBlock block) {
+  Widget _buildTableOfContents(BuildContext context, List<_ContentBlock> allBlocks) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final headings = allBlocks.where((b) => b.type == _BlockType.heading).toList();
+
+    int h1Count = 0;
+    int h2Count = 0;
+    int h3Count = 0;
+
+    final tocEntries = <_TocEntry>[];
+    for (final h in headings) {
+      final level = (h.headingLevel ?? 1).clamp(1, 3);
+      String numberPrefix;
+      if (level == 1) {
+        h1Count++;
+        h2Count = 0;
+        h3Count = 0;
+        numberPrefix = '$h1Count.';
+      } else if (level == 2) {
+        h2Count++;
+        h3Count = 0;
+        numberPrefix = '$h1Count.$h2Count';
+      } else {
+        h3Count++;
+        numberPrefix = '$h1Count.$h2Count.$h3Count';
+      }
+      tocEntries.add(_TocEntry(
+        title: h.text,
+        level: level,
+        numberPrefix: numberPrefix,
+      ));
+    }
+
+    final cardBg = isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC);
+    final borderColor = isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0);
+    final titleColor = isDark ? const Color(0xFF93C5FD) : const Color(0xFF1E3A8A);
+    final entryColor = isDark ? const Color(0xFFCBD5E1) : const Color(0xFF334155);
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: borderColor, width: 1.2),
+        boxShadow: [
+          BoxShadow(
+            color: isDark ? Colors.black26 : const Color(0x06000000),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.toc_rounded, size: 20, color: titleColor),
+              const SizedBox(width: 8),
+              Text(
+                'SOMMAIRE',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.2,
+                  color: titleColor,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '${tocEntries.length} section${tocEntries.length > 1 ? "s" : ""}',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Divider(color: borderColor, height: 1),
+          const SizedBox(height: 10),
+          if (tocEntries.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Text(
+                'Aucune section définie dans le document.',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontStyle: FontStyle.italic,
+                  color: isDark ? const Color(0xFF64748B) : const Color(0xFF94A3B8),
+                ),
+              ),
+            )
+          else
+            ...tocEntries.map((entry) {
+              final indent = (entry.level - 1) * 16.0;
+              return Padding(
+                padding: EdgeInsets.only(left: indent, top: 4, bottom: 4),
+                child: Row(
+                  children: [
+                    Text(
+                      '${entry.numberPrefix} ',
+                      style: TextStyle(
+                        fontSize: entry.level == 1 ? 13.5 : 12.5,
+                        fontWeight: entry.level == 1 ? FontWeight.bold : FontWeight.w600,
+                        color: titleColor,
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        entry.title,
+                        style: TextStyle(
+                          fontSize: entry.level == 1 ? 13.5 : 12.5,
+                          fontWeight: entry.level == 1 ? FontWeight.w600 : FontWeight.normal,
+                          color: entryColor,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCodeBlock(BuildContext context, _ContentBlock block) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final lang = block.title;
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 6),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF0F172A) : const Color(0xFF1E293B),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFF334155), width: 0.8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (lang != null && lang.isNotEmpty)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: Color(0xFF334155), width: 0.8)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    lang,
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.8,
+                      color: Color(0xFF94A3B8),
+                    ),
+                  ),
+                  const Icon(Icons.code_rounded, size: 14, color: Color(0xFF64748B)),
+                ],
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: SelectableText(
+              block.text,
+              style: const TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 12.5,
+                height: 1.4,
+                color: Color(0xFF38BDF8),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFootnoteItem(BuildContext context, _ContentBlock block) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      margin: const EdgeInsets.only(top: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0), width: 0.6)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '${block.title ?? "1"}. ',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              block.text,
+              style: TextStyle(
+                fontSize: 11.5,
+                fontStyle: FontStyle.italic,
+                color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                height: 1.4,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeading(BuildContext context, _ContentBlock block) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final level = block.headingLevel ?? 1;
     double fontSize;
     FontWeight weight;
@@ -939,32 +1155,32 @@ class GroupNoteRenderer extends StatelessWidget {
       case 1:
         fontSize = 22;
         weight = FontWeight.bold;
-        color = const Color(0xFF0F172A);
+        color = isDark ? const Color(0xFFF1F5F9) : const Color(0xFF0F172A);
         break;
       case 2:
         fontSize = 19;
         weight = FontWeight.bold;
-        color = const Color(0xFF1E293B);
+        color = isDark ? const Color(0xFFE2E8F0) : const Color(0xFF1E293B);
         break;
       case 3:
         fontSize = 17;
         weight = FontWeight.w700;
-        color = const Color(0xFF334155);
+        color = isDark ? const Color(0xFFCBD5E1) : const Color(0xFF334155);
         break;
       case 4:
         fontSize = 15.5;
         weight = FontWeight.w700;
-        color = const Color(0xFF334155);
+        color = isDark ? const Color(0xFF94A3B8) : const Color(0xFF334155);
         break;
       case 5:
         fontSize = 14.5;
         weight = FontWeight.w600;
-        color = const Color(0xFF475569);
+        color = isDark ? const Color(0xFF94A3B8) : const Color(0xFF475569);
         break;
       case 6:
         fontSize = 13.5;
         weight = FontWeight.w600;
-        color = const Color(0xFF475569);
+        color = isDark ? const Color(0xFF64748B) : const Color(0xFF475569);
         break;
       case 7:
         fontSize = 12.5;
@@ -1444,7 +1660,7 @@ class GroupNoteRenderer extends StatelessWidget {
   }
 
   /// Builds interactive RichText parsing inline tags, math formulas, indices and exponents
-  Widget _buildRichParagraph(String rawText, {TextAlign? align}) {
+  Widget _buildRichParagraph(BuildContext context, String rawText, {TextAlign? align}) {
     var text = rawText;
 
     // Clean any residual alignment and structural tags from paragraph text
@@ -1463,6 +1679,11 @@ class GroupNoteRenderer extends StatelessWidget {
     text = text.replaceAllMapped(RegExp(r'\$([^\$\n]+)\$'), (m) {
       final expr = Uri.encodeComponent(m.group(1)!.trim());
       return '<math expr="$expr"/>';
+    });
+
+    // Replace footnote references: [^1] or [^note]
+    text = text.replaceAllMapped(RegExp(r'\[\^([^\]]+)\]'), (m) {
+      return '<sup val="[${m.group(1)}]"/>';
     });
 
     // Replace subscripts: {{A_1}} -> <sub>
@@ -1610,9 +1831,12 @@ class GroupNoteRenderer extends StatelessWidget {
       return '<matrix raw="${m.group(1)?.trim()}"/>';
     });
 
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final baseTextColor = isDark ? const Color(0xFFE2E8F0) : const Color(0xFF334155);
+
     final baseTextStyle = TextStyle(
       fontSize: 14,
-      color: const Color(0xFF334155),
+      color: baseTextColor,
       height: lineSpacing,
     );
 
@@ -2126,15 +2350,16 @@ class GroupNoteRenderer extends StatelessWidget {
     return val != null ? Color(val) : const Color(0xFF0F172A);
   }
 
-  Widget _buildMathCard(String formula, String? macroName) {
+  Widget _buildMathCard(BuildContext context, String formula, String? macroName) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     if (macroName != null) {
       return Container(
         margin: const EdgeInsets.symmetric(vertical: 8),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: const Color(0xFFF8FAFC),
+          color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
+          border: Border.all(color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0)),
           boxShadow: const [
             BoxShadow(color: Color(0x04000000), blurRadius: 4, offset: Offset(0, 1)),
           ],
@@ -2157,7 +2382,7 @@ class GroupNoteRenderer extends StatelessWidget {
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFEFF6FF),
+                        color: isDark ? const Color(0xFF1E3A8A) : const Color(0xFFEFF6FF),
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: const Text('Modifier', style: TextStyle(fontSize: 10, color: AppTheme.primary, fontWeight: FontWeight.bold)),
@@ -2185,7 +2410,8 @@ class GroupNoteRenderer extends StatelessWidget {
     );
   }
 
-  Widget _buildCalloutCard(_ContentBlock block) {
+  Widget _buildCalloutCard(BuildContext context, _ContentBlock block) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final type = block.calloutType ?? CalloutType.note;
     final title = block.title;
     final text = block.text;
@@ -2199,51 +2425,50 @@ class GroupNoteRenderer extends StatelessWidget {
     switch (type) {
       case CalloutType.theorem:
         borderColor = const Color(0xFF2563EB);
-        bgColor = const Color(0xFFF8FAFC);
-        headerColor = const Color(0xFF1E40AF);
+        bgColor = isDark ? const Color(0xFF172554) : const Color(0xFFF8FAFC);
+        headerColor = isDark ? const Color(0xFF93C5FD) : const Color(0xFF1E40AF);
         icon = Icons.school_rounded;
         defaultLabel = 'THÉORÈME';
         break;
       case CalloutType.definition:
         borderColor = const Color(0xFF059669);
-        bgColor = const Color(0xFFF0FDF4);
-        headerColor = const Color(0xFF065F46);
+        bgColor = isDark ? const Color(0xFF064E3B) : const Color(0xFFF0FDF4);
+        headerColor = isDark ? const Color(0xFF6EE7B7) : const Color(0xFF065F46);
         icon = Icons.menu_book_rounded;
         defaultLabel = 'DÉFINITION';
         break;
       case CalloutType.tip:
         borderColor = const Color(0xFF7C3AED);
-        bgColor = const Color(0xFFF5F3FF);
-        headerColor = const Color(0xFF5B21B6);
+        bgColor = isDark ? const Color(0xFF2E1065) : const Color(0xFFF5F3FF);
+        headerColor = isDark ? const Color(0xFFC4B5FD) : const Color(0xFF5B21B6);
         icon = Icons.lightbulb_outline_rounded;
         defaultLabel = 'ASTUCE';
         break;
       case CalloutType.warning:
         borderColor = const Color(0xFFDC2626);
-        bgColor = const Color(0xFFFEF2F2);
-        headerColor = const Color(0xFF991B1B);
+        bgColor = isDark ? const Color(0xFF450A0A) : const Color(0xFFFEF2F2);
+        headerColor = isDark ? const Color(0xFFFCA5A5) : const Color(0xFF991B1B);
         icon = Icons.warning_amber_rounded;
         defaultLabel = 'ATTENTION';
         break;
       case CalloutType.example:
         borderColor = const Color(0xFF0D9488);
-        bgColor = const Color(0xFFF0FDFA);
-        headerColor = const Color(0xFF115E59);
+        bgColor = isDark ? const Color(0xFF134E4A) : const Color(0xFFF0FDFA);
+        headerColor = isDark ? const Color(0xFF5EEAD4) : const Color(0xFF115E59);
         icon = Icons.auto_awesome_outlined;
         defaultLabel = 'EXEMPLE';
         break;
       case CalloutType.proof:
         borderColor = const Color(0xFF475569);
-        bgColor = const Color(0xFFF8FAFC);
-        headerColor = const Color(0xFF334155);
+        bgColor = isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC);
+        headerColor = isDark ? const Color(0xFFCBD5E1) : const Color(0xFF334155);
         icon = Icons.psychology_outlined;
         defaultLabel = 'DÉMONSTRATION';
         break;
       case CalloutType.note:
-      default:
         borderColor = const Color(0xFFD97706);
-        bgColor = const Color(0xFFFFFBEB);
-        headerColor = const Color(0xFF92400E);
+        bgColor = isDark ? const Color(0xFF451A03) : const Color(0xFFFFFBEB);
+        headerColor = isDark ? const Color(0xFFFCD34D) : const Color(0xFF92400E);
         icon = Icons.info_outline_rounded;
         defaultLabel = 'REMARQUE';
         break;
@@ -2293,18 +2518,18 @@ class GroupNoteRenderer extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 8),
-                    _buildRichParagraph(text),
+                    _buildRichParagraph(context, text),
                     if (type == CalloutType.proof) ...[
                       const SizedBox(height: 4),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.end,
-                        children: const [
+                        children: [
                           Text(
                             '∎',
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
-                              color: Color(0xFF475569),
+                              color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF475569),
                             ),
                           ),
                         ],
@@ -2320,12 +2545,13 @@ class GroupNoteRenderer extends StatelessWidget {
     );
   }
 
-  Widget _buildTableCard(_TableData data, String? macroName) {
+  Widget _buildTableCard(BuildContext context, _TableData data, String? macroName) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? const Color(0xFF1E293B) : Colors.white,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
+        border: Border.all(color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0)),
         boxShadow: const [
           BoxShadow(color: Color(0x06000000), blurRadius: 4, offset: Offset(0, 2)),
         ],
@@ -2351,7 +2577,7 @@ class GroupNoteRenderer extends StatelessWidget {
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFF0FDFA),
+                          color: isDark ? const Color(0xFF134E4A) : const Color(0xFFF0FDFA),
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: const Text('Modifier', style: TextStyle(fontSize: 10, color: Color(0xFF0D9488), fontWeight: FontWeight.bold)),
@@ -2365,13 +2591,13 @@ class GroupNoteRenderer extends StatelessWidget {
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: DataTable(
-                headingRowColor: MaterialStateProperty.all(const Color(0xFFF1F5F9)),
-                headingTextStyle: const TextStyle(
+                headingRowColor: MaterialStateProperty.all(isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9)),
+                headingTextStyle: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.bold,
-                  color: Color(0xFF0F172A),
+                  color: isDark ? const Color(0xFFF1F5F9) : const Color(0xFF0F172A),
                 ),
-                dataTextStyle: const TextStyle(fontSize: 12.5, color: Color(0xFF334155)),
+                dataTextStyle: TextStyle(fontSize: 12.5, color: isDark ? const Color(0xFFCBD5E1) : const Color(0xFF334155)),
                 horizontalMargin: 16,
                 columnSpacing: 24,
                 columns: data.headers.map((h) => DataColumn(label: Text(h))).toList(),
@@ -2379,7 +2605,11 @@ class GroupNoteRenderer extends StatelessWidget {
                   final idx = entry.key;
                   final row = entry.value;
                   return DataRow(
-                    color: MaterialStateProperty.all(idx.isEven ? Colors.white : const Color(0xFFF8FAFC)),
+                    color: MaterialStateProperty.all(
+                      idx.isEven
+                          ? (isDark ? const Color(0xFF1E293B) : Colors.white)
+                          : (isDark ? const Color(0xFF192231) : const Color(0xFFF8FAFC)),
+                    ),
                     cells: row.map((cell) => DataCell(Text(cell))).toList(),
                   );
                 }).toList(),
@@ -3146,6 +3376,52 @@ class GroupNoteRenderer extends StatelessWidget {
         continue;
       }
 
+      // Table of Contents detection
+      final tocRegex = RegExp(r'^(?:!sommaire|\[sommaire\]|\[toc\]|\\tableofcontents|<!--\s*toc\s*-->)', caseSensitive: false);
+      if (tocRegex.hasMatch(line)) {
+        blocks.add(_ContentBlock(
+          type: _BlockType.toc,
+          text: 'Sommaire',
+        ));
+        i++;
+        continue;
+      }
+
+      // Footnote definitions: [^1]: ...
+      final footnoteMatch = RegExp(r'^\[\^([^\]]+)\]:\s*(.*)$').firstMatch(line);
+      if (footnoteMatch != null) {
+        final fnId = footnoteMatch.group(1)!;
+        final fnText = footnoteMatch.group(2)!.trim();
+        blocks.add(_ContentBlock(
+          type: _BlockType.footnote,
+          text: fnText,
+          title: fnId,
+        ));
+        i++;
+        continue;
+      }
+
+      // Fenced code blocks ```lang ... ```
+      if (line.startsWith('```')) {
+        final lang = line.substring(3).trim();
+        final codeLines = <String>[];
+        i++;
+        while (i < lines.length && !lines[i].trim().startsWith('```')) {
+          codeLines.add(lines[i]);
+          i++;
+        }
+        if (i < lines.length && lines[i].trim().startsWith('```')) {
+          i++;
+        }
+        blocks.add(_ContentBlock(
+          type: _BlockType.code,
+          text: codeLines.join('\n'),
+          title: lang.isNotEmpty ? lang.toUpperCase() : null,
+          alignment: lineAlign,
+        ));
+        continue;
+      }
+
       // HR
       if (line == '---' || line == '<hr/>' || line == '<hr>') {
         blocks.add(_ContentBlock(type: _BlockType.hr, text: ''));
@@ -3153,11 +3429,23 @@ class GroupNoteRenderer extends StatelessWidget {
         continue;
       }
 
-      // Blockquote
+      // Blockquote (multi-line supported)
       if (line.startsWith('> ') || (line.startsWith('<blockquote>') && line.endsWith('</blockquote>'))) {
-        final text = line.startsWith('> ') ? line.substring(2) : line.substring(12, line.length - 13);
-        blocks.add(_ContentBlock(type: _BlockType.blockquote, text: text, alignment: lineAlign));
+        if (line.startsWith('<blockquote>')) {
+          final text = line.substring(12, line.length - 13);
+          blocks.add(_ContentBlock(type: _BlockType.blockquote, text: text, alignment: lineAlign));
+          i++;
+          continue;
+        }
+        final quoteLines = <String>[line.substring(2).trim()];
         i++;
+        while (i < lines.length && lines[i].trim().startsWith('>')) {
+          var qLine = lines[i].trim();
+          if (qLine.startsWith('>')) qLine = qLine.substring(1).trim();
+          quoteLines.add(qLine);
+          i++;
+        }
+        blocks.add(_ContentBlock(type: _BlockType.blockquote, text: quoteLines.join('\n'), alignment: lineAlign));
         continue;
       }
 
@@ -3348,6 +3636,20 @@ enum _BlockType {
   mediaItem,
   mediaError,
   customWidget,
+  toc,
+  footnote,
+}
+
+class _TocEntry {
+  final String title;
+  final int level;
+  final String numberPrefix;
+
+  _TocEntry({
+    required this.title,
+    required this.level,
+    required this.numberPrefix,
+  });
 }
 
 class _ContentBlock {

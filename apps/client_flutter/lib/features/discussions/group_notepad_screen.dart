@@ -531,6 +531,36 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
                       },
                     ),
                     _buildInsertOption(
+                      icon: Icons.functions_rounded,
+                      color: const Color(0xFF4338CA),
+                      title: 'Équation Centrée (\$\$ ... \$\$)',
+                      subtitle: 'Formule mise en valeur au centre de la page',
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        _insertQuickSnippet('\n\$\$\n\\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}\n\$\$\n');
+                      },
+                    ),
+                    _buildInsertOption(
+                      icon: Icons.toc_rounded,
+                      color: const Color(0xFF1D4ED8),
+                      title: 'Sommaire Automatique (!sommaire)',
+                      subtitle: 'Génération automatique de la table des matières',
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        _insertQuickSnippet('\n!sommaire\n');
+                      },
+                    ),
+                    _buildInsertOption(
+                      icon: Icons.code_rounded,
+                      color: const Color(0xFF0284C7),
+                      title: 'Bloc de Code (```)',
+                      subtitle: 'Encadré sombre avec coloration et bouton copie',
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        _insertQuickSnippet('\n```dart\n// Votre code ici\n```\n');
+                      },
+                    ),
+                    _buildInsertOption(
                       icon: Icons.school_rounded,
                       color: const Color(0xFF2563EB),
                       title: 'Théorème (!theoreme)',
@@ -2510,6 +2540,7 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
                     const Text(
                       'Document Rendu • Consultation finale',
                       style: TextStyle(fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
@@ -2953,6 +2984,22 @@ class _GroupNotepadScreenState extends State<GroupNotepadScreen>
               backgroundColor: const Color(0xFFF8FAFC),
               side: const BorderSide(color: Color(0xFFE2E8F0)),
               onPressed: () => _insertQuickSnippet('\n---\n'),
+            ),
+            const SizedBox(width: 4),
+            ActionChip(
+              avatar: const Icon(Icons.toc_rounded, size: 14, color: Color(0xFF1D4ED8)),
+              label: const Text('Sommaire', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF1E40AF))),
+              backgroundColor: const Color(0xFFEFF6FF),
+              side: const BorderSide(color: Color(0xFFBFDBFE)),
+              onPressed: () => _insertQuickSnippet('\n!sommaire\n'),
+            ),
+            const SizedBox(width: 4),
+            ActionChip(
+              avatar: const Icon(Icons.code_rounded, size: 14, color: Color(0xFF0284C7)),
+              label: const Text('``` Code', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF0369A1))),
+              backgroundColor: const Color(0xFFF0F9FF),
+              side: const BorderSide(color: Color(0xFFBAE6FD)),
+              onPressed: () => _insertQuickSnippet('\n```dart\n// Code\n```\n'),
             ),
           ],
         ),

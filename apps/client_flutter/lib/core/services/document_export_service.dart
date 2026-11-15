@@ -198,9 +198,32 @@ class DocumentExportService {
     final out = StringBuffer();
 
     bool inTable = false;
+    bool inCode = false;
 
     for (var line in lines) {
       var trimmed = line.trim();
+
+      // Fenced code blocks ```lang ... ```
+      if (trimmed.startsWith('```')) {
+        if (!inCode) {
+          final lang = trimmed.substring(3).trim().toUpperCase();
+          out.writeln('<div style="background-color: #0F172A; color: #38BDF8; padding: 12px 16px; border-radius: 6px; margin: 12px 0; font-family: Consolas, monospace; font-size: 10pt;">');
+          if (lang.isNotEmpty) {
+            out.writeln('<div style="color: #94A3B8; font-size: 8pt; font-weight: bold; margin-bottom: 6px; border-bottom: 1px solid #334155; padding-bottom: 3px;">$lang</div>');
+          }
+          out.writeln('<pre style="margin: 0; white-space: pre-wrap; font-family: Consolas, monospace;">');
+          inCode = true;
+        } else {
+          out.writeln('</pre></div>');
+          inCode = false;
+        }
+        continue;
+      }
+
+      if (inCode) {
+        out.writeln(_escapeAndFormat(line));
+        continue;
+      }
 
       // Clean alignments
       String alignStyle = '';
@@ -225,6 +248,57 @@ class DocumentExportService {
 
       // Skip raw component definition blocks
       if (trimmed.startsWith('{{id=') || trimmed == '}}') {
+        continue;
+      }
+
+      // Sommaire / TOC detection
+      if (RegExp(r'^(?:!sommaire|\[sommaire\]|\[toc\]|\\tableofcontents|<!--\s*toc\s*-->)', caseSensitive: false).hasMatch(trimmed)) {
+        out.writeln('<div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; padding: 14px 18px; margin: 16px 0;">');
+        out.writeln('<div style="font-weight: bold; color: #1E3A8A; font-size: 11pt; margin-bottom: 8px;">SOMMAIRE</div>');
+        out.writeln('<hr style="border: none; border-top: 1px solid #E2E8F0; margin: 6px 0 10px 0;"/>');
+        out.writeln('</div>');
+        continue;
+      }
+
+      // Intuitive Callout detection: !theoreme, !definition, !note, !astuce, !attention, !exemple, !preuve
+      final calloutMatch = RegExp(
+        r'^!(theoreme|théorème|theorem|definition|définition|note|remarque|astuce|tip|attention|warning|alerte|exemple|example|preuve|demonstration|démonstration|proof)(?:\s+(.*))?$',
+        caseSensitive: false,
+      ).firstMatch(trimmed);
+      if (calloutMatch != null) {
+        final kind = calloutMatch.group(1)!.toLowerCase();
+        final title = calloutMatch.group(2)?.trim() ?? '';
+        final (label, color, bg) = switch (kind) {
+          'theoreme' || 'théorème' || 'theorem' => ('THÉORÈME', '#2563EB', '#EFF6FF'),
+          'definition' || 'définition' => ('DÉFINITION', '#059669', '#ECFDF5'),
+          'astuce' || 'tip' => ('ASTUCE', '#7C3AED', '#F5F3FF'),
+          'attention' || 'warning' || 'alerte' => ('ATTENTION', '#DC2626', '#FEF2F2'),
+          'exemple' || 'example' => ('EXEMPLE', '#0D9488', '#F0FDFA'),
+          'preuve' || 'demonstration' || 'démonstration' || 'proof' => ('DÉMONSTRATION', '#475569', '#F8FAFC'),
+          _ => ('REMARQUE', '#D97706', '#FFFBEB'),
+        };
+        final headerText = title.isNotEmpty ? '$label : $title' : label;
+        out.writeln('<div style="border-left: 4px solid $color; background-color: $bg; padding: 10px 14px; margin: 12px 0; border-radius: 4px;">');
+        out.writeln('<div style="font-weight: bold; color: $color; font-size: 10.5pt; margin-bottom: 4px;">$headerText</div>');
+        out.writeln('</div>');
+        continue;
+      }
+
+      // Footnote definitions: [^1]: ...
+      final fnMatch = RegExp(r'^\[\^([^\]]+)\]:\s*(.*)$').firstMatch(trimmed);
+      if (fnMatch != null) {
+        out.writeln('<div style="border-top: 1px solid #E2E8F0; padding-top: 4px; margin-top: 8px; font-size: 9pt; color: #64748B;">');
+        out.writeln('<strong>${fnMatch.group(1)}.</strong> <em>${_escapeAndFormat(fnMatch.group(2)!)}</em>');
+        out.writeln('</div>');
+        continue;
+      }
+
+      // Display math $$ ... $$
+      if (trimmed.startsWith(r'$$') && trimmed.endsWith(r'$$') && trimmed.length >= 4) {
+        final expr = trimmed.substring(2, trimmed.length - 2).trim();
+        out.writeln('<div style="text-align: center; margin: 14px 0; padding: 10px; background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; font-family: \'Cambria Math\', serif; font-size: 12pt; color: #1E3A8A;">');
+        out.writeln('<em>${_escapeAndFormat(expr)}</em>');
+        out.writeln('</div>');
         continue;
       }
 
@@ -262,6 +336,9 @@ class DocumentExportService {
     if (inTable) {
       out.writeln('</table>');
     }
+    if (inCode) {
+      out.writeln('</pre></div>');
+    }
 
     return out.toString();
   }
@@ -283,6 +360,10 @@ class DocumentExportService {
     res = res.replaceAllMapped(RegExp(r'(?<!\*)\*([^*]+)\*(?!\*)'), (m) => '<em>${m.group(1)}</em>');
     // Code
     res = res.replaceAllMapped(RegExp(r'`([^`]+)`'), (m) => '<span class="badge">${m.group(1)}</span>');
+    // Math inline $...$
+    res = res.replaceAllMapped(RegExp(r'\$([^\$\n]+)\$'), (m) => '<span style="font-family: \'Cambria Math\', serif; font-style: italic; color: #1E3A8A; background-color: #F1F5F9; padding: 1px 4px; border-radius: 3px;">${m.group(1)}</span>');
+    // Footnote reference [^1]
+    res = res.replaceAllMapped(RegExp(r'\[\^([^\]]+)\]'), (m) => '<sup>[${m.group(1)}]</sup>');
 
     return res;
   }
@@ -367,6 +448,45 @@ class DocumentExportService {
       }
 
       if (line.startsWith('{{id=') || line == '}}') continue;
+
+      if (line.startsWith('```')) {
+        y -= 6.0;
+        final lang = line.substring(3).trim();
+        streamContent.writeln('BT');
+        streamContent.writeln('0.2 0.5 0.7 rg');
+        streamContent.writeln('/F2 9 Tf');
+        streamContent.writeln('$leftMargin $y Td');
+        streamContent.writeln('(${_pdfEscape("[CODE${lang.isNotEmpty ? ' : $lang' : ''}]")}) Tj');
+        streamContent.writeln('0 0 0 rg');
+        streamContent.writeln('ET');
+        y -= 12.0;
+        continue;
+      }
+
+      final calloutMatch = RegExp(r'^!(theoreme|théorème|theorem|definition|définition|note|remarque|astuce|tip|attention|warning|alerte|exemple|example|preuve|demonstration|démonstration|proof)(?:\s+(.*))?$', caseSensitive: false).firstMatch(line);
+      if (calloutMatch != null) {
+        final kind = calloutMatch.group(1)!.toLowerCase();
+        final title = calloutMatch.group(2)?.trim() ?? '';
+        final label = switch (kind) {
+          'theoreme' || 'théorème' || 'theorem' => 'THEOREME',
+          'definition' || 'définition' => 'DEFINITION',
+          'astuce' || 'tip' => 'ASTUCE',
+          'attention' || 'warning' || 'alerte' => 'ATTENTION',
+          'exemple' || 'example' => 'EXEMPLE',
+          'preuve' || 'demonstration' || 'démonstration' || 'proof' => 'DEMONSTRATION',
+          _ => 'REMARQUE',
+        };
+        y -= 6.0;
+        streamContent.writeln('BT');
+        streamContent.writeln('0.15 0.35 0.75 rg');
+        streamContent.writeln('/F2 10.5 Tf');
+        streamContent.writeln('$leftMargin $y Td');
+        streamContent.writeln('(${_pdfEscape("[$label${title.isNotEmpty ? ' : $title' : ''}]")}) Tj');
+        streamContent.writeln('0 0 0 rg');
+        streamContent.writeln('ET');
+        y -= 14.0;
+        continue;
+      }
 
       if (line.startsWith('# ')) {
         y -= 10.0;

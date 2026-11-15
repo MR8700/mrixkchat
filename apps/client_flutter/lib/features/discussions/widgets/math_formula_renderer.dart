@@ -24,7 +24,9 @@ class MathFormulaRenderer extends StatelessWidget {
     final cleanExpr = _stripDelimiters(formula).trim();
     if (cleanExpr.isEmpty) return const SizedBox.shrink();
 
-    final textColor = color ?? const Color(0xFF0F172A);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final defaultTextColor = isDark ? const Color(0xFFF1F5F9) : const Color(0xFF0F172A);
+    final textColor = color ?? defaultTextColor;
     final parsed = _MathParser.parse(cleanExpr);
 
     final mathWidget = _MathNodeWidget(
@@ -41,9 +43,9 @@ class MathFormulaRenderer extends StatelessWidget {
       margin: const EdgeInsets.symmetric(vertical: 12),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: const Color(0xFFFBFBFC),
+        color: isDark ? const Color(0xFF1E293B) : const Color(0xFFFBFBFC),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFEAEFF5)),
+        border: Border.all(color: isDark ? const Color(0xFF334155) : const Color(0xFFEAEFF5)),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -65,7 +67,7 @@ class MathFormulaRenderer extends StatelessWidget {
                 fontFamily: 'serif',
                 fontStyle: FontStyle.italic,
                 fontSize: fontSize * 0.85,
-                color: const Color(0xFF64748B),
+                color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
               ),
             ),
           ],
