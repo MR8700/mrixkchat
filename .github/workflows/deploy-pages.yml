@@ -40,7 +40,8 @@ jobs:
       - name: Build Flutter Web for GitHub Pages
         run: |
           cd apps/client_flutter
-          flutter build web --release --base-href="/mrixkchat/"
+          flutter build web --release --base-href="/mrixkchat/" \
+            --dart-define=API_URL=https://mrixk-backend.onrender.com/api/v1
           # Fallback pour le routage direct Single Page Application
           cp build/web/index.html build/web/404.html
 

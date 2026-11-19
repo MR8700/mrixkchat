@@ -3,6 +3,7 @@ import '../../shared/responsive/responsive.dart';
 import 'package:provider/provider.dart';
 import '../../core/models/conversation.dart';
 import '../../core/models/message.dart';
+import '../../core/models/message_request.dart';
 import '../../core/repositories/conversation_repository.dart';
 import '../../core/repositories/device_repository.dart';
 import '../../core/repositories/message_repository.dart';
@@ -44,6 +45,7 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
   bool _isViewOnceMode = false;
   Message? _editingMessage;
   bool _isRecordingVoice = false;
+  bool _requestBusy = false;
 
   @override
   void initState() {
@@ -133,6 +135,32 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
         );
       }
     });
+  }
+
+  Future<void> _respondToRequest(MessageRequest request,
+      {required bool accept}) async {
+    setState(() => _requestBusy = true);
+    try {
+      final repository = context.read<MessageRepository>();
+      if (accept) {
+        await repository.acceptMessageRequest(request);
+      } else {
+        await repository.ignoreMessageRequest(request);
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(accept
+            ? '${request.senderName} a été ajouté à vos contacts.'
+            : 'Demande de ${request.senderName} refusée.'),
+      ));
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Impossible de traiter la demande : $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _requestBusy = false);
+    }
   }
 
   void _startVoiceRecording() {
@@ -1263,6 +1291,9 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
   Widget build(BuildContext context) {
     final currentConv = context.watch<ConversationRepository>().getConversationById(widget.conversation.id) ?? widget.conversation;
     final messages = context.watch<MessageRepository>().getMessagesForConversation(widget.conversation.id);
+    final pendingRequest = context
+        .watch<MessageRepository>()
+        .getPendingRequestForConversation(currentConv);
 
     return Scaffold(
       backgroundColor: AppTheme.surfaceWarm,
@@ -1271,6 +1302,8 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
         children: [
           Column(
             children: [
+              if (pendingRequest != null)
+                _buildMessageRequestBanner(pendingRequest),
               _buildSecurityBanner(),
               _buildDateDivider(),
               Expanded(
@@ -1299,6 +1332,66 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
             bottom: 0,
             child: _buildComposer(),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMessageRequestBanner(MessageRequest request) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF7E6),
+        border: Border.all(color: const Color(0xFFF2C66D)),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Icon(Icons.person_add_alt_1, color: Color(0xFF9A5B00)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Demande de contact de ${request.senderName}',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ]),
+          const SizedBox(height: 6),
+          const Text(
+            'Ajoutez cette personne pour accepter son message et poursuivre la discussion.',
+            style: TextStyle(fontSize: 13, height: 1.3),
+          ),
+          const SizedBox(height: 12),
+          Row(children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: _requestBusy
+                    ? null
+                    : () => _respondToRequest(request, accept: false),
+                child: const Text('Refuser'),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: _requestBusy
+                    ? null
+                    : () => _respondToRequest(request, accept: true),
+                icon: _requestBusy
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.person_add_alt_1),
+                label: const Text('Ajouter'),
+              ),
+            ),
+          ]),
         ],
       ),
     );
@@ -3216,6 +3309,26 @@ class _ConversationDetailScreenState extends State<ConversationDetailScreen> {
     final isGroupAdmin = currentConv.isUserAdmin(myProfile.id);
 
     if (currentConv.isBlocked) return _buildBlockedComposer();
+    if (context
+            .read<MessageRepository>()
+            .getPendingRequestForConversation(currentConv) !=
+        null) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: const BoxDecoration(
+          color: Color(0xFFFFF7E6),
+          border: Border(top: BorderSide(color: Color(0xFFF2C66D))),
+        ),
+        child: const SafeArea(
+          child: Text(
+            'Ajoutez cette personne ou refusez sa demande pour continuer.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+        ),
+      );
+    }
 
     if (currentConv.isGroup) {
       final currentMember = currentConv.groupMembers.firstWhere(

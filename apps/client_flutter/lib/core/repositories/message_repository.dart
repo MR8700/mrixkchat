@@ -89,8 +89,11 @@ class MessageRepository extends ChangeNotifier {
       if (local == null || local['status'] != request.status) {
         await _db.insert('message_requests', request.id, request.toJson());
       }
-      if (request.status == 'ACCEPTED')
+      if (request.status == 'PENDING' || request.status == 'ACCEPTED') {
         await _materializeAcceptedRequest(request);
+      } else if (request.status == 'IGNORED') {
+        await _removePendingRequestPreview(request);
+      }
     }
   }
 
@@ -104,6 +107,21 @@ class MessageRepository extends ChangeNotifier {
     return requests;
   }
 
+  MessageRequest? getPendingRequestForConversation(Conversation conversation) {
+    final peerId = conversation.peerUserId ??
+        (conversation.id.startsWith('conv_')
+            ? conversation.id.substring('conv_'.length)
+            : '');
+    if (peerId.isEmpty) return null;
+    for (final data in _db.getAll('message_requests')) {
+      final request = MessageRequest.fromJson(data);
+      if (request.status == 'PENDING' && request.senderId == peerId) {
+        return request;
+      }
+    }
+    return null;
+  }
+
   Future<void> acceptMessageRequest(MessageRequest request) async {
     final users = _db.getAll('users');
     final rawProfile = users.firstWhere(
@@ -111,12 +129,15 @@ class MessageRepository extends ChangeNotifier {
       orElse: () => users.first,
     );
     final profile = UserProfile.fromJson(rawProfile);
-    await ApiClient().respondToMessageRequest(
+    final acceptedOnServer = await ApiClient().respondToMessageRequest(
       userId: profile.id,
       recoveryCode: profile.recoveryCode ?? '',
       requestId: request.id,
       accept: true,
     );
+    if (!acceptedOnServer) {
+      throw StateError('Le serveur n’a pas confirmé l’acceptation.');
+    }
     final accepted = MessageRequest(
       id: request.id,
       senderId: request.senderId,
@@ -141,12 +162,15 @@ class MessageRepository extends ChangeNotifier {
       orElse: () => users.first,
     );
     final profile = UserProfile.fromJson(rawProfile);
-    await ApiClient().respondToMessageRequest(
+    final ignoredOnServer = await ApiClient().respondToMessageRequest(
       userId: profile.id,
       recoveryCode: profile.recoveryCode ?? '',
       requestId: request.id,
       accept: false,
     );
+    if (!ignoredOnServer) {
+      throw StateError('Le serveur n’a pas confirmé le refus.');
+    }
     final ignored = MessageRequest(
       id: request.id,
       senderId: request.senderId,
@@ -161,12 +185,13 @@ class MessageRepository extends ChangeNotifier {
       status: 'IGNORED',
     );
     await _db.insert('message_requests', request.id, ignored.toJson());
+    await _removePendingRequestPreview(ignored);
     notifyListeners();
   }
 
   Future<void> _materializeAcceptedRequest(MessageRequest request) async {
-    if (_db.get('messages', request.id) != null) return;
-    if (_db.get('contacts', request.senderId) == null) {
+    final accepted = request.status == 'ACCEPTED';
+    if (accepted && _db.get('contacts', request.senderId) == null) {
       final category = request.senderName.isNotEmpty
           ? request.senderName[0].toUpperCase()
           : 'U';
@@ -191,7 +216,7 @@ class MessageRepository extends ChangeNotifier {
             peerUserId: request.senderId,
             title: request.senderName,
             peerAvatar: request.senderAvatar,
-            isVerified: true,
+            isVerified: accepted,
             lastMessage: request.content,
             lastMessageTime: _formatTime(request.createdAt),
             unreadCount: 1,
@@ -200,9 +225,16 @@ class MessageRepository extends ChangeNotifier {
         : Conversation.fromJson(oldConversation).copyWith(
             lastMessage: request.content,
             lastMessageTime: _formatTime(request.createdAt),
-            unreadCount: Conversation.fromJson(oldConversation).unreadCount + 1,
+            isVerified: accepted ||
+                Conversation.fromJson(oldConversation).isVerified,
+            unreadCount: Conversation.fromJson(oldConversation).unreadCount +
+                (_db.get('messages', request.id) == null ? 1 : 0),
           );
     await _db.insert('conversations', conversationId, conversation.toJson());
+    if (_db.get('messages', request.id) != null) {
+      notifyListeners();
+      return;
+    }
     final message = Message(
       id: request.id,
       conversationId: conversationId,
@@ -217,6 +249,19 @@ class MessageRepository extends ChangeNotifier {
     );
     await _db.insert('messages', request.id, message.toJson());
     notifyListeners();
+  }
+
+  Future<void> _removePendingRequestPreview(MessageRequest request) async {
+    final conversationId = 'conv_${request.senderId}';
+    await _db.delete('messages', request.id);
+    if (_db.get('contacts', request.senderId) != null) return;
+    final hasOtherRequests = _db.getAll('message_requests').any((data) {
+      final other = MessageRequest.fromJson(data);
+      return other.senderId == request.senderId && other.status == 'PENDING';
+    });
+    if (!hasOtherRequests) {
+      await _db.delete('conversations', conversationId);
+    }
   }
 
   String _formatTime(DateTime date) =>

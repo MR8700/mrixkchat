@@ -35,7 +35,14 @@ class ApiClient {
       baseUrl = _envUrl;
       return baseUrl;
     }
-    // On web/PWA, if no override is provided, seamlessly bind to the host origin
+    // GitHub Pages only hosts the static PWA; its origin cannot serve the API.
+    // Keep this fallback here as well as in the Pages workflow so local release
+    // builds do not silently send account and message requests to github.io.
+    if (kIsWeb && Uri.base.host.toLowerCase().endsWith('github.io')) {
+      baseUrl = prodRemoteUrl;
+      return baseUrl;
+    }
+    // On web/PWA hosted alongside the API, bind to the host origin.
     if (kIsWeb && Uri.base.scheme.startsWith('http')) {
       baseUrl = '${Uri.base.origin}/api/v1';
       return baseUrl;
@@ -499,9 +506,16 @@ class ApiClient {
           body: jsonEncode({'status': accept ? 'ACCEPTED' : 'IGNORED'}),
         ));
     if (res.statusCode == 200) return true;
-    if (res.statusCode == 404) return false;
+    if (res.statusCode == 403) {
+      throw ApiUnavailableException(
+          'Code de secours refusé : reconnectez votre compte puis réessayez.');
+    }
+    if (res.statusCode == 404) {
+      throw ApiUnavailableException(
+          'Cette demande n’existe plus sur le serveur. Actualisez les demandes.');
+    }
     throw ApiUnavailableException(
-        'La demande n’a pas pu être traitée (${res.statusCode})');
+        'Le serveur a refusé la réponse à la demande (${res.statusCode}).');
   }
 
   /// Fetches delta synchronization events from the server since sequence cursor.
