@@ -1,9 +1,9 @@
 # ==============================================================================
-# MRixk — Dockerfile pour Déploiement Cloud (Railway, Render, Fly, VPS)
+# MRixk — Fullstack All-in-One Cloud Deployment (Backend Go + Client PWA Web)
 # ==============================================================================
 
 # Étape 1 : Compilation du binaire Go
-FROM golang:1.22-alpine AS builder
+FROM docker.io/library/golang:1.22-alpine AS builder
 
 WORKDIR /app
 RUN apk add --no-cache git gcc musl-dev
@@ -16,16 +16,20 @@ COPY packages ./packages
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/bin/mrixk-server ./backend/cmd/server
 
 # Étape 2 : Image d'exécution ultra-légère et sécurisée
-FROM alpine:3.19
+FROM docker.io/library/alpine:3.19
 
 WORKDIR /app
-RUN apk add --no-cache ca-certificates tzdata && mkdir -p /app/data
+RUN apk add --no-cache ca-certificates tzdata && mkdir -p /app/data /app/web
 
 COPY --from=builder /app/bin/mrixk-server /app/mrixk-server
+
+# Embarque automatiquement le client PWA Web Flutter
+COPY apps/client_flutter/build/web /app/web
 
 EXPOSE 8080 10000
 
 ENV PORT=8080
+ENV STATIC_WEB_DIR=/app/web
 ENV DATA_FILE_PATH=/app/data/mrixk_state.json
 ENV APP_ENV=production
 ENV JWT_SIGNING_KEY=mrixk_default_jwt_signing_secret_railway_2026

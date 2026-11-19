@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -179,6 +180,11 @@ func (s *Server) registerStaticRoutes() {
 	if staticDir == "" {
 		return
 	}
+
+	_ = mime.AddExtensionType(".wasm", "application/wasm")
+	_ = mime.AddExtensionType(".js", "application/javascript")
+	_ = mime.AddExtensionType(".json", "application/json")
+	_ = mime.AddExtensionType(".png", "image/png")
 
 	log.Printf("[MRixk Server] PWA static client enabled from: %s", staticDir)
 	fs := http.FileServer(http.Dir(staticDir))
