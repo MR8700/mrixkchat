@@ -309,10 +309,12 @@ func (h *Hub) HandleWebSocketConnection(userID, deviceID string, conn net.Conn, 
 			client.writeMu.Lock()
 			if err := WriteWebSocketTextFrame(bufrw, msg); err != nil {
 				client.writeMu.Unlock()
+				_ = conn.Close() // Unblock the reader so the dead client is unregistered.
 				break
 			}
 			if err := bufrw.Flush(); err != nil {
 				client.writeMu.Unlock()
+				_ = conn.Close()
 				break
 			}
 			client.writeMu.Unlock()

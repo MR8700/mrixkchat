@@ -38,6 +38,9 @@ class WebSocketClient {
       );
       _socket = await createPlatformSocket(uri.toString(), timeout: const Duration(seconds: 4));
       _isConnected = true;
+      // A reconnect can happen while the app is already open. Let listeners
+      // reconcile durable state as soon as the stream is live again.
+      _eventController.add({'type': '_CONNECTED'});
 
       _socketSubscription?.cancel();
       _socketSubscription = _socket!.stream.listen(

@@ -194,7 +194,12 @@ class _ReconciliationRunnerState extends State<ReconciliationRunner>
         }
       });
       _realtimeSubscription ??= WebSocketClient().events.listen((event) {
-        if (event['type'] == 'MESSAGE_REQUEST') {
+        final type = event['type'];
+        if (type == '_CONNECTED' ||
+            type == 'MESSAGE_REQUEST') {
+          // Requests are stored durably by the server, so syncing here also
+          // recovers events missed during a disconnect. Updating the local DB
+          // notifies repositories and refreshes conversation/request UI.
           unawaited(
               context.read<MessageRepository>().syncIncomingMessageRequests());
         }
