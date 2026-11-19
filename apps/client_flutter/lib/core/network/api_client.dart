@@ -552,8 +552,14 @@ class ApiClient {
       throw ApiUnavailableException(
           'Cette demande n’existe plus sur le serveur. Actualisez les demandes.');
     }
+    var serverMessage = '';
+    try {
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      serverMessage = (data['error'] ?? '').toString();
+    } catch (_) {}
     throw ApiUnavailableException(
-        'Le serveur a refusé la réponse à la demande (${res.statusCode}).');
+        'Le serveur a refusé la réponse (${res.statusCode})'
+        '${serverMessage.isEmpty ? '.' : ' : $serverMessage'}');
   }
 
   /// Fetches delta synchronization events from the server since sequence cursor.

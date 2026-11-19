@@ -409,11 +409,18 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
   @override
   Widget build(BuildContext context) {
     final convRepo = context.watch<ConversationRepository>();
+    final messageRepo = context.watch<MessageRepository>();
     final profile = context.watch<ProfileRepository>().getProfile();
     final conversations = convRepo.getFilteredConversations(
       filter: _selectedFilter,
       searchQuery: _searchQuery,
     );
+    conversations.sort((a, b) {
+      final aHasRequest = messageRepo.getPendingRequestForConversation(a) != null;
+      final bHasRequest = messageRepo.getPendingRequestForConversation(b) != null;
+      if (aHasRequest == bHasRequest) return 0;
+      return aHasRequest ? -1 : 1;
+    });
 
     final allConversations = convRepo.getAllConversations();
     final nonArchived = allConversations.where((c) => !c.isArchived).toList();
@@ -1490,6 +1497,9 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
   }
 
   Widget _buildConversationCard(Conversation conv) {
+    final pendingRequest = context
+        .watch<MessageRepository>()
+        .getPendingRequestForConversation(conv);
     return Dismissible(
       key: ValueKey('conv_${conv.id}'),
       direction: DismissDirection.horizontal,
@@ -1759,6 +1769,27 @@ class _DiscussionsScreenState extends State<DiscussionsScreen> {
                                     fontSize: 9.5,
                                     fontWeight: FontWeight.bold,
                                     color: Color(0xFF059669),
+                                  ),
+                                ),
+                              ),
+                            ],
+                            if (pendingRequest != null) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 7, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFFF1CC),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                      color: const Color(0xFFF2C66D)),
+                                ),
+                                child: const Text(
+                                  'DEMANDE',
+                                  style: TextStyle(
+                                    fontSize: 8.5,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF9A5B00),
                                   ),
                                 ),
                               ),
