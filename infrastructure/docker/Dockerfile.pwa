@@ -1,0 +1,36 @@
+# ==============================================================================
+# MRixk — Dockerfile PWA Client (Railway / Web)
+# ==============================================================================
+
+# Étape 1 : Compilation Flutter Web depuis les sources
+FROM ghcr.io/cirruslabs/flutter:3.24.0 AS builder
+
+WORKDIR /app
+
+# Copie des configurations de dépendances
+COPY apps/client_flutter/pubspec.yaml apps/client_flutter/pubspec.lock* ./
+RUN flutter config --enable-web && flutter pub get
+
+# Copie des sources Flutter
+COPY apps/client_flutter ./
+
+# Argument d'URL API pour le build (si non fourni, l'application résoudra dynamiquement à l'exécution)
+ARG API_URL=""
+RUN if [ -n "$API_URL" ]; then \
+      flutter build web --release --dart-define=API_URL=$API_URL ; \
+    else \
+      flutter build web --release ; \
+    fi
+
+# Étape 2 : Serveur HTTP Nginx ultra-léger et sécurisé
+FROM nginx:1.27-alpine
+
+# Railway injecte la variable PORT au démarrage du conteneur
+ENV PORT=80
+
+COPY infrastructure/docker/nginx.conf.template /etc/nginx/templates/default.conf.template
+COPY --from=builder /app/build/web /usr/share/nginx/html
+
+EXPOSE 80 8080
+
+CMD ["nginx", "-g", "daemon off;"]

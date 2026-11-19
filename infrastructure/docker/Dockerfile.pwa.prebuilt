@@ -1,0 +1,13 @@
+# ==============================================================================
+# MRixk — Dockerfile PWA Client Déployant le Build Existant (Ultra Rapide)
+# ==============================================================================
+FROM nginx:1.27-alpine
+
+ENV PORT=80
+
+COPY infrastructure/docker/nginx.conf.template /etc/nginx/templates/default.conf.template
+COPY apps/client_flutter/build/web /usr/share/nginx/html
+
+EXPOSE 80 8080
+
+CMD ["nginx", "-g", "daemon off;"]

@@ -7,6 +7,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -153,6 +155,60 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /api/v1/groups/{id}/documents/{docId}/components/{name}", s.handleDeleteGroupDocumentComponent)
 	s.mux.HandleFunc("PUT /api/v1/groups/{id}/members/{userId}/role", s.handleAssignGroupMemberRole)
 	s.mux.HandleFunc("GET /api/v1/groups/{id}/documents/{docId}/audit", s.handleGetGroupDocumentAuditLogs)
+
+	// Static Web / PWA Single Page App serving
+	s.registerStaticRoutes()
+}
+
+func (s *Server) registerStaticRoutes() {
+	staticDir := os.Getenv("STATIC_WEB_DIR")
+	if staticDir == "" {
+		candidates := []string{
+			"web",
+			"/app/web",
+			"apps/client_flutter/build/web",
+		}
+		for _, c := range candidates {
+			if fi, err := os.Stat(c); err == nil && fi.IsDir() {
+				staticDir = c
+				break
+			}
+		}
+	}
+
+	if staticDir == "" {
+		return
+	}
+
+	log.Printf("[MRixk Server] PWA static client enabled from: %s", staticDir)
+	fs := http.FileServer(http.Dir(staticDir))
+
+	s.mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			http.NotFound(w, r)
+			return
+		}
+
+		cleanPath := filepath.Clean(r.URL.Path)
+		targetFile := filepath.Join(staticDir, cleanPath)
+
+		if fi, err := os.Stat(targetFile); err == nil && !fi.IsDir() {
+			if strings.HasSuffix(cleanPath, "flutter_service_worker.js") ||
+				strings.HasSuffix(cleanPath, "index.html") ||
+				strings.HasSuffix(cleanPath, "manifest.json") ||
+				strings.HasSuffix(cleanPath, "version.json") {
+				w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+			} else {
+				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			}
+			fs.ServeHTTP(w, r)
+			return
+		}
+
+		// Single Page App fallback for Flutter client router
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
+	})
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

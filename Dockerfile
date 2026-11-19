@@ -1,5 +1,5 @@
 # ==============================================================================
-# MRixk — Dockerfile pour Déploiement Cloud (Render, Fly, VPS)
+# MRixk — Dockerfile pour Déploiement Cloud (Railway, Render, Fly, VPS)
 # ==============================================================================
 
 # Étape 1 : Compilation du binaire Go
@@ -23,9 +23,9 @@ RUN apk add --no-cache ca-certificates tzdata && mkdir -p /app/data
 
 COPY --from=builder /app/bin/mrixk-server /app/mrixk-server
 
-EXPOSE 10000 8080
+EXPOSE 8080 10000
 
-ENV PORT=10000
+ENV PORT=8080
 ENV DATA_FILE_PATH=/app/data/mrixk_state.json
 ENV APP_ENV=production
 

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/message_request.dart';
 
@@ -32,6 +33,11 @@ class ApiClient {
   Future<String> getActiveBaseUrl() async {
     if (_envUrl.isNotEmpty) {
       baseUrl = _envUrl;
+      return baseUrl;
+    }
+    // On web/PWA, if no override is provided, seamlessly bind to the host origin
+    if (kIsWeb && Uri.base.scheme.startsWith('http')) {
+      baseUrl = '${Uri.base.origin}/api/v1';
       return baseUrl;
     }
     baseUrl = prodRemoteUrl;
