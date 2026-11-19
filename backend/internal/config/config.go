@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"log"
 	"os"
 	"strconv"
@@ -59,9 +61,16 @@ func LoadConfig() *Config {
 	jwtSecret := os.Getenv("JWT_SIGNING_KEY")
 	if jwtSecret == "" {
 		if env == "production" {
-			log.Fatalf("[CRITICAL SECURITY] JWT_SIGNING_KEY must be explicitly configured in production environment!")
+			b := make([]byte, 32)
+			if _, err := rand.Read(b); err == nil {
+				jwtSecret = hex.EncodeToString(b)
+				log.Printf("[SECURITY NOTICE] JWT_SIGNING_KEY not set in environment. Generated ephemeral 256-bit secure key. Configure JWT_SIGNING_KEY in Railway variables to preserve sessions across deployments.")
+			} else {
+				log.Fatalf("[CRITICAL SECURITY] JWT_SIGNING_KEY must be explicitly configured in production environment!")
+			}
+		} else {
+			jwtSecret = "mrixk_jwt_dev_secret_2026_super_secure"
 		}
-		jwtSecret = "mrixk_jwt_dev_secret_2026_super_secure"
 	}
 
 	return &Config{
