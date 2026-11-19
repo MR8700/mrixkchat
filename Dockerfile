@@ -28,5 +28,6 @@ EXPOSE 8080 10000
 ENV PORT=8080
 ENV DATA_FILE_PATH=/app/data/mrixk_state.json
 ENV APP_ENV=production
+ENV JWT_SIGNING_KEY=mrixk_default_jwt_signing_secret_railway_2026
 
 ENTRYPOINT ["/app/mrixk-server"]
