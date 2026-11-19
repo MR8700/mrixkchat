@@ -398,6 +398,7 @@ class ApiClient {
     required String recoveryCode,
     required String deviceName,
     required String platform,
+    String? clientDeviceKey,
   }) async {
     try {
       final base = await getActiveBaseUrl();
@@ -409,12 +410,49 @@ class ApiClient {
           'recovery_code': recoveryCode,
           'device_name': deviceName,
           'platform': platform,
+          if (clientDeviceKey != null && clientDeviceKey.isNotEmpty)
+            'client_device_key': clientDeviceKey,
         }),
       );
       if (res.statusCode != 201) return null;
       final data = jsonDecode(res.body) as Map<String, dynamic>;
       final token = data['session_token'] as String?;
       if (token != null && token.isNotEmpty) setSessionToken(token);
+      return token;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Returns false only when the server explicitly rejects the saved token;
+  /// null means the server could not be reached, so callers should keep it.
+  Future<bool?> validateRealtimeSession() async {
+    if (_sessionToken == null || _sessionToken!.isEmpty) return false;
+    try {
+      final res = await _send(
+        (base) => http.get(Uri.parse('$base/devices'), headers: _headers()),
+        retries: 0,
+      );
+      if (res.statusCode == 200) return true;
+      if (res.statusCode == 401) return false;
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<String?> linkRealtimeDeviceKey(String clientDeviceKey) async {
+    try {
+      final res = await _send((base) => http.post(
+            Uri.parse('$base/devices/session/device-key'),
+            headers: _headers(),
+            body: jsonEncode({'client_device_key': clientDeviceKey}),
+          ));
+      if (res.statusCode != 200) return null;
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      final token = data['session_token'] as String?;
+      if (token == null || token.isEmpty) return null;
+      setSessionToken(token);
       return token;
     } catch (_) {
       return null;

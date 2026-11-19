@@ -95,3 +95,76 @@ func TestDeviceAuthorization_StrictThreeDeviceQuotaAndRevocation(t *testing.T) {
 		t.Fatalf("Expected 3 active devices after adding replacement, got %d", len(deviceService.ListActiveDevices(user.ID)))
 	}
 }
+
+func TestAuthorizeDeviceForInstallationReusesDeviceAfterSessionRenewal(t *testing.T) {
+	repo := database.NewMemoryRepository(3)
+	idService := identity.NewService(repo)
+	deviceService := NewService(repo)
+	user, err := idService.Register("@mrixk.persistent", "super_secret_pwd_123", "rec-pub-key", "Persistent User")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first, firstToken, err := deviceService.AuthorizeDeviceForInstallation(
+		user.ID, "MRixk Web", "Web", "identity-key", "dh-key", "stable-installation-key",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, secondToken, err := deviceService.AuthorizeDeviceForInstallation(
+		user.ID, "MRixk Web", "Web", "new-identity-key", "new-dh-key", "stable-installation-key",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ID != second.ID {
+		t.Fatalf("expected same device to be reused, got %q and %q", first.ID, second.ID)
+	}
+	if firstToken == secondToken {
+		t.Fatal("session renewal should issue a fresh token")
+	}
+	if got := len(deviceService.ListActiveDevices(user.ID)); got != 1 {
+		t.Fatalf("renewal created another device: active count = %d", got)
+	}
+	if _, _, err := deviceService.ValidateSession(secondToken); err != nil {
+		t.Fatalf("renewed session is invalid: %v", err)
+	}
+}
+
+func TestLinkLegacyDeviceKeyAllowsRenewalWithoutUsingAnotherSlot(t *testing.T) {
+	repo := database.NewMemoryRepository(3)
+	idService := identity.NewService(repo)
+	deviceService := NewService(repo)
+	user, err := idService.Register("@mrixk.legacy", "super_secret_pwd_123", "rec-pub-key", "Legacy User")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	legacy, oldToken, err := deviceService.AuthorizeDevice(user.ID, "MRixk Web", "Web", "id", "dh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	linkedToken, err := deviceService.LinkInstallationKey(user.ID, legacy.ID, "migrated-installation-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := deviceService.ValidateSession(oldToken); !errors.Is(err, database.ErrSessionExpired) {
+		t.Fatalf("expected old session token to be rotated, got %v", err)
+	}
+
+	renewed, token, err := deviceService.AuthorizeDeviceForInstallation(
+		user.ID, "MRixk Web", "Web", "new-id", "new-dh", "migrated-installation-key",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if renewed.ID != legacy.ID || len(deviceService.ListActiveDevices(user.ID)) != 1 {
+		t.Fatalf("legacy renewal created a second device: %+v", deviceService.ListActiveDevices(user.ID))
+	}
+	if _, _, err := deviceService.ValidateSession(linkedToken); !errors.Is(err, database.ErrSessionExpired) {
+		t.Fatalf("expected renewal to rotate linked token, got %v", err)
+	}
+	if _, _, err := deviceService.ValidateSession(token); err != nil {
+		t.Fatalf("renewed token is invalid: %v", err)
+	}
+}

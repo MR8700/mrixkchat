@@ -94,6 +94,7 @@ const (
 type Device struct {
 	ID                     string       `json:"id"`
 	UserID                 string       `json:"user_id"`
+	ClientDeviceKey        string       `json:"client_device_key,omitempty"`
 	DeviceName             string       `json:"device_name"`
 	Platform               string       `json:"platform"` // Android, iOS, Windows, Linux
 	IdentityPublicKey      string       `json:"identity_public_key"`
@@ -849,6 +850,59 @@ func (r *MemoryRepository) GetActiveDevicesForUser(userID string) []*Device {
 	return list
 }
 
+// GetActiveDeviceByClientKey finds a previously authorized installation.
+func (r *MemoryRepository) GetActiveDeviceByClientKey(userID, clientDeviceKey string) *Device {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, dev := range r.devices {
+		if dev.UserID == userID && dev.Status == DeviceStatusActive &&
+			dev.ClientDeviceKey == clientDeviceKey {
+			copy := *dev
+			return &copy
+		}
+	}
+	return nil
+}
+
+// GetUniqueLegacyDevice finds an unlinked active device by its displayed name and platform.
+// It returns nil when the match is ambiguous, so two physical devices are never merged.
+func (r *MemoryRepository) GetUniqueLegacyDevice(userID, deviceName, platform string) *Device {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var match *Device
+	for _, dev := range r.devices {
+		if dev.UserID != userID || dev.Status != DeviceStatusActive ||
+			dev.ClientDeviceKey != "" || dev.DeviceName != deviceName || dev.Platform != platform {
+			continue
+		}
+		if match != nil {
+			return nil
+		}
+		copy := *dev
+		match = &copy
+	}
+	return match
+}
+
+// SetDeviceClientKey binds a valid existing session to its stable local installation key.
+func (r *MemoryRepository) SetDeviceClientKey(userID, deviceID, clientDeviceKey string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	defer r.saveIfConfigured()
+	dev, ok := r.devices[deviceID]
+	if !ok || dev.UserID != userID || dev.Status != DeviceStatusActive {
+		return ErrDeviceNotFound
+	}
+	for id, other := range r.devices {
+		if id != deviceID && other.UserID == userID && other.Status == DeviceStatusActive &&
+			other.ClientDeviceKey == clientDeviceKey {
+			return errors.New("client device key is already linked to another device")
+		}
+	}
+	dev.ClientDeviceKey = clientDeviceKey
+	return nil
+}
+
 // RevokeDevice marks a device as REVOKED and invalidates all its sessions.
 func (r *MemoryRepository) RevokeDevice(userID, deviceID string) error {
 	r.mu.Lock()
@@ -890,12 +944,18 @@ func (r *MemoryRepository) CreateSession(deviceID string, ttl time.Duration) (st
 	rawToken := hex.EncodeToString(rawTokenBytes)
 
 	tokenHash := HashToken(rawToken)
+	now := time.Now()
+	for _, previous := range r.sessions {
+		if previous.DeviceID == deviceID && previous.RevokedAt == nil {
+			previous.RevokedAt = &now
+		}
+	}
 	session := &DeviceSession{
 		ID:               fmt.Sprintf("sess-%d", time.Now().UnixNano()),
 		DeviceID:         deviceID,
 		SessionTokenHash: tokenHash,
-		ExpiresAt:        time.Now().Add(ttl),
-		CreatedAt:        time.Now(),
+		ExpiresAt:        now.Add(ttl),
+		CreatedAt:        now,
 	}
 
 	r.sessions[tokenHash] = session

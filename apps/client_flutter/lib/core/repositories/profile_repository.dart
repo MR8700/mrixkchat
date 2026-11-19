@@ -38,8 +38,34 @@ class ProfileRepository extends ChangeNotifier {
   String? getRealtimeSessionToken() =>
       _db.get('settings', 'realtime_session')?['token'] as String?;
 
+  bool get realtimeSessionNeedsRenewal {
+    final savedAt = _db.get('settings', 'realtime_session')?['saved_at'];
+    if (savedAt is! num) return true;
+    final created = DateTime.fromMillisecondsSinceEpoch(savedAt.toInt());
+    return DateTime.now().difference(created) >= const Duration(days: 20);
+  }
+
+  String? getRealtimeDeviceKey() =>
+      _db.get('settings', 'realtime_device_key')?['key'] as String?;
+
+  Future<String> getOrCreateRealtimeDeviceKey() async {
+    final existing = getRealtimeDeviceKey();
+    if (existing != null && existing.isNotEmpty) return existing;
+    final random = Random.secure();
+    final key = List<int>.generate(32, (_) => random.nextInt(256))
+        .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+        .join();
+    await _db.insert('settings', 'realtime_device_key', {'key': key});
+    await _db.flush();
+    return key;
+  }
+
   Future<void> saveRealtimeSessionToken(String token) async {
-    await _db.insert('settings', 'realtime_session', {'token': token});
+    await _db.insert('settings', 'realtime_session', {
+      'token': token,
+      'saved_at': DateTime.now().millisecondsSinceEpoch,
+    });
+    await _db.flush();
   }
 
   // --- CRUD: READ ---
@@ -372,6 +398,7 @@ class ProfileRepository extends ChangeNotifier {
     WebSocketClient().disconnect();
     ApiClient().clearSessionToken();
     await _db.delete('settings', 'realtime_session');
+    await _db.delete('settings', 'realtime_device_key');
     await _db.delete('settings', 'identity_configured');
     final allUsers = _db.getAll('users');
     for (final u in allUsers) {

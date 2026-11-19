@@ -130,16 +130,43 @@ class _ReconciliationRunnerState extends State<ReconciliationRunner>
   Future<void> _ensureRealtime(ProfileRepository profileRepo) async {
     final api = ApiClient();
     final profile = profileRepo.getProfile();
-    if (_connectingRealtime || profile.recoveryCode == null) return;
+    final saved = profileRepo.getRealtimeSessionToken();
+    if (_connectingRealtime) return;
+    if ((profile.recoveryCode == null || profile.recoveryCode!.isEmpty) &&
+        (api.sessionToken == null || api.sessionToken!.isEmpty) &&
+        (saved == null || saved.isEmpty)) {
+      return;
+    }
     _connectingRealtime = true;
     try {
+      final deviceKey = await profileRepo.getOrCreateRealtimeDeviceKey();
       var token = api.sessionToken;
-      final saved = profileRepo.getRealtimeSessionToken();
-      if (token == null && saved != null && saved.isNotEmpty) {
+      if ((token == null || token.isEmpty) && saved != null && saved.isNotEmpty) {
         api.setSessionToken(saved);
         token = saved;
       }
+
+      final needsRenewal = profileRepo.realtimeSessionNeedsRenewal;
+      if (token != null &&
+          token.isNotEmpty &&
+          (needsRenewal || !WebSocketClient().isConnected)) {
+        final valid = await api.validateRealtimeSession();
+        if (valid == false) {
+          api.clearSessionToken();
+          token = null;
+        } else if (valid == true && needsRenewal) {
+          // Refresh every 20 days, before the server's 30-day session expiry.
+          // The stable key reuses this device record instead of consuming quota.
+          final renewed = await api.linkRealtimeDeviceKey(deviceKey);
+          if (renewed != null) {
+            token = renewed;
+            await profileRepo.saveRealtimeSessionToken(renewed);
+          }
+        }
+      }
+
       if (token == null || token.isEmpty) {
+        if (profile.recoveryCode == null || profile.recoveryCode!.isEmpty) return;
         final platform = kIsWeb
             ? 'Web'
             : switch (defaultTargetPlatform) {
@@ -153,6 +180,7 @@ class _ReconciliationRunnerState extends State<ReconciliationRunner>
           recoveryCode: profile.recoveryCode!,
           deviceName: kIsWeb ? 'MRixk Web' : 'MRixk $platform',
           platform: platform,
+          clientDeviceKey: deviceKey,
         );
         if (token != null) await profileRepo.saveRealtimeSessionToken(token);
       }

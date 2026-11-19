@@ -24,6 +24,12 @@ func NewService(repo *database.MemoryRepository) *Service {
 // AuthorizeDevice registers an independent device for the user.
 // Enforces: Max 3 devices. A 4th device will be explicitly rejected.
 func (s *Service) AuthorizeDevice(userID, deviceName, platform, identityPubKey, dhPubKey string) (*database.Device, string, error) {
+	return s.AuthorizeDeviceForInstallation(userID, deviceName, platform, identityPubKey, dhPubKey, "")
+}
+
+// AuthorizeDeviceForInstallation reuses the same server device when a client
+// presents its persistent installation key after its short-lived session expires.
+func (s *Service) AuthorizeDeviceForInstallation(userID, deviceName, platform, identityPubKey, dhPubKey, clientDeviceKey string) (*database.Device, string, error) {
 	if identityPubKey == "" || dhPubKey == "" {
 		return nil, "", ErrMissingKey
 	}
@@ -39,11 +45,33 @@ func (s *Service) AuthorizeDevice(userID, deviceName, platform, identityPubKey, 
 		return nil, "", ErrInvalidPlatform
 	}
 
+	if clientDeviceKey != "" {
+		existing := s.repo.GetActiveDeviceByClientKey(userID, clientDeviceKey)
+		if existing == nil {
+			// One-time migration for installations authorized before stable keys existed.
+			existing = s.repo.GetUniqueLegacyDevice(userID, deviceName, platform)
+			if existing != nil {
+				if err := s.repo.SetDeviceClientKey(userID, existing.ID, clientDeviceKey); err != nil {
+					return nil, "", err
+				}
+				existing.ClientDeviceKey = clientDeviceKey
+			}
+		}
+		if existing != nil {
+			token, _, err := s.repo.CreateSession(existing.ID, 30*24*time.Hour)
+			if err != nil {
+				return nil, "", err
+			}
+			return existing, token, nil
+		}
+	}
+
 	device := &database.Device{
 		ID:                     fmt.Sprintf("dev-%d", time.Now().UnixNano()),
 		UserID:                 userID,
 		DeviceName:             deviceName,
 		Platform:               platform,
+		ClientDeviceKey:        clientDeviceKey,
 		IdentityPublicKey:      identityPubKey,
 		DiffieHellmanPublicKey: dhPubKey,
 		Status:                 database.DeviceStatusActive,
@@ -80,6 +108,19 @@ func (s *Service) AuthorizeDevice(userID, deviceName, platform, identityPubKey, 
 	})
 
 	return device, rawToken, nil
+}
+
+// LinkInstallationKey associates an already authenticated legacy device with
+// a persistent installation key, allowing later session renewal without a new device slot.
+func (s *Service) LinkInstallationKey(userID, deviceID, clientDeviceKey string) (string, error) {
+	if clientDeviceKey == "" {
+		return "", errors.New("client device key is required")
+	}
+	if err := s.repo.SetDeviceClientKey(userID, deviceID, clientDeviceKey); err != nil {
+		return "", err
+	}
+	token, _, err := s.repo.CreateSession(deviceID, 30*24*time.Hour)
+	return token, err
 }
 
 // ListDevices returns all devices for a user.

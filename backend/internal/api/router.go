@@ -112,6 +112,7 @@ func (s *Server) routes() {
 
 	// Devices (Max 3 limit enforced)
 	s.mux.HandleFunc("POST /api/v1/devices/authorize", s.handleAuthorizeDevice)
+	s.mux.HandleFunc("POST /api/v1/devices/session/device-key", s.handleLinkDeviceKey)
 	s.mux.HandleFunc("GET /api/v1/devices", s.handleListDevices)
 	s.mux.HandleFunc("DELETE /api/v1/devices/{id}", s.handleRevokeDevice)
 
@@ -741,6 +742,7 @@ type AuthorizeDeviceRequest struct {
 	RecoveryCode           string `json:"recovery_code,omitempty"`
 	DeviceName             string `json:"device_name"`
 	Platform               string `json:"platform"`
+	ClientDeviceKey        string `json:"client_device_key,omitempty"`
 	IdentityPublicKey      string `json:"identity_public_key,omitempty"`
 	DiffieHellmanPublicKey string `json:"diffie_hellman_public_key,omitempty"`
 }
@@ -798,8 +800,8 @@ func (s *Server) handleAuthorizeDevice(w http.ResponseWriter, r *http.Request) {
 		dhKey = fmt.Sprintf("auto-dh-key-%s-%d", req.Platform, time.Now().UnixNano())
 	}
 
-	dev, token, err := s.deviceService.AuthorizeDevice(
-		targetUserID, req.DeviceName, req.Platform, idKey, dhKey,
+	dev, token, err := s.deviceService.AuthorizeDeviceForInstallation(
+		targetUserID, req.DeviceName, req.Platform, idKey, dhKey, req.ClientDeviceKey,
 	)
 	if err != nil {
 		if errors.Is(err, database.ErrMaxDevicesExceeded) {
@@ -815,6 +817,27 @@ func (s *Server) handleAuthorizeDevice(w http.ResponseWriter, r *http.Request) {
 		"device":        dev,
 		"session_token": token,
 	})
+}
+
+func (s *Server) handleLinkDeviceKey(w http.ResponseWriter, r *http.Request) {
+	dev, err := s.authenticateDeviceSession(r)
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	var req struct {
+		ClientDeviceKey string `json:"client_device_key"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.ClientDeviceKey) == "" {
+		jsonError(w, http.StatusBadRequest, "Valid client_device_key is required")
+		return
+	}
+	token, err := s.deviceService.LinkInstallationKey(dev.UserID, dev.ID, strings.TrimSpace(req.ClientDeviceKey))
+	if err != nil {
+		jsonError(w, http.StatusConflict, err.Error())
+		return
+	}
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"linked": true, "session_token": token})
 }
 
 func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
