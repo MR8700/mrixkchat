@@ -228,8 +228,17 @@ class _ReconciliationRunnerState extends State<ReconciliationRunner>
           // Requests are stored durably by the server, so syncing here also
           // recovers events missed during a disconnect. Updating the local DB
           // notifies repositories and refreshes conversation/request UI.
-          unawaited(
-              context.read<MessageRepository>().syncIncomingMessageRequests());
+          unawaited(context
+              .read<MessageRepository>()
+              .syncIncomingMessageRequests()
+              .catchError((_) {}));
+        } else if (type == 'MESSAGE_REQUEST_UPDATED' &&
+            event['payload'] is Map) {
+          unawaited(context
+              .read<MessageRepository>()
+              .handleMessageRequestUpdated(
+                  Map<String, dynamic>.from(event['payload'] as Map))
+              .catchError((_) {}));
         }
       });
       await WebSocketClient().connect(token);

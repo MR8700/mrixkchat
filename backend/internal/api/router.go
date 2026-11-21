@@ -699,13 +699,23 @@ func (s *Server) handleRespondMessageRequest(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	status := strings.ToUpper(strings.TrimSpace(req.Status))
+	if status != "ACCEPTED" && status != "IGNORED" {
+		jsonError(w, http.StatusBadRequest, "invalid message request status")
+		return
+	}
 	if err := s.repo.RespondToMessageRequest(userID, r.PathValue("requestId"), status); err != nil {
 		if errors.Is(err, database.ErrMessageRequestNotFound) {
 			jsonError(w, http.StatusNotFound, err.Error())
 		} else {
-			jsonError(w, http.StatusBadRequest, err.Error())
+			jsonError(w, http.StatusServiceUnavailable, "La réponse n’a pas pu être enregistrée durablement")
 		}
 		return
+	}
+	updated, err := s.repo.GetMessageRequest(r.PathValue("requestId"))
+	if err == nil {
+		event := &WSEvent{Type: "MESSAGE_REQUEST_UPDATED", Payload: updated, Timestamp: time.Now()}
+		s.hub.BroadcastToUser(updated.RecipientID, event, "")
+		s.hub.BroadcastToUser(updated.SenderID, event, "")
 	}
 	jsonResponse(w, http.StatusOK, map[string]string{"status": status})
 }

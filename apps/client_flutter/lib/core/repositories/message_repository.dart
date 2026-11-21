@@ -11,6 +11,7 @@ import '../network/api_client.dart';
 class MessageRepository extends ChangeNotifier {
   final LocalDatabase _db;
   StreamSubscription? _sub;
+  Future<void>? _incomingRequestsSync;
 
   MessageRepository(this._db) {
     _sub = _db.changes.listen((event) {
@@ -72,7 +73,17 @@ class MessageRepository extends ChangeNotifier {
         .catchError((_) => false);
   }
 
-  Future<void> syncIncomingMessageRequests() async {
+  Future<void> syncIncomingMessageRequests() {
+    final activeSync = _incomingRequestsSync;
+    if (activeSync != null) return activeSync;
+    final sync = _syncIncomingMessageRequests();
+    _incomingRequestsSync = sync.whenComplete(() {
+      _incomingRequestsSync = null;
+    });
+    return _incomingRequestsSync!;
+  }
+
+  Future<void> _syncIncomingMessageRequests() async {
     final users = _db.getAll('users');
     if (users.isEmpty) return;
     final rawProfile = users.firstWhere(
@@ -95,6 +106,55 @@ class MessageRepository extends ChangeNotifier {
         await _removePendingRequestPreview(request);
       }
     }
+  }
+
+  Future<void> handleMessageRequestUpdated(Map<String, dynamic> payload) async {
+    final request = MessageRequest.fromJson(payload);
+    final users = _db.getAll('users');
+    if (users.isEmpty) return;
+    final rawProfile = users.firstWhere(
+      (u) => (u['displayName'] as String? ?? '').trim().isNotEmpty,
+      orElse: () => users.first,
+    );
+    final profile = UserProfile.fromJson(rawProfile);
+
+    if (request.recipientId == profile.id) {
+      await syncIncomingMessageRequests();
+      return;
+    }
+    if (request.senderId != profile.id) return;
+
+    await _db.insert('message_requests', request.id, request.toJson());
+    if (request.status == 'ACCEPTED') {
+      final rawConversation = _db.get('conversations', request.conversationId);
+      if (rawConversation != null) {
+        final conversation = Conversation.fromJson(rawConversation);
+        if (_db.get('contacts', request.recipientId) == null) {
+          final name = conversation.title.trim().isNotEmpty
+              ? conversation.title
+              : request.recipientId;
+          await _db.insert(
+            'contacts',
+            request.recipientId,
+            Contact(
+              id: request.recipientId,
+              name: name,
+              handle: '',
+              avatarUrl: conversation.peerAvatar,
+              statusText: 'Demande acceptée',
+              isVerified: true,
+              category: name.isEmpty ? 'U' : name[0].toUpperCase(),
+            ).toJson(),
+          );
+        }
+        await _db.insert(
+          'conversations',
+          conversation.id,
+          conversation.copyWith(isVerified: true).toJson(),
+        );
+      }
+    }
+    notifyListeners();
   }
 
   List<MessageRequest> getPendingMessageRequests() {
@@ -209,6 +269,7 @@ class MessageRepository extends ChangeNotifier {
           ).toJson());
     }
     final conversationId = 'conv_${request.senderId}';
+    final isNewMessage = _db.get('messages', request.id) == null;
     final oldConversation = _db.get('conversations', conversationId);
     final conversation = oldConversation == null
         ? Conversation(
@@ -223,15 +284,19 @@ class MessageRepository extends ChangeNotifier {
             tagText: 'Privé',
           )
         : Conversation.fromJson(oldConversation).copyWith(
-            lastMessage: request.content,
-            lastMessageTime: _formatTime(request.createdAt),
+            lastMessage: isNewMessage
+                ? request.content
+                : Conversation.fromJson(oldConversation).lastMessage,
+            lastMessageTime: isNewMessage
+                ? _formatTime(request.createdAt)
+                : Conversation.fromJson(oldConversation).lastMessageTime,
             isVerified: accepted ||
                 Conversation.fromJson(oldConversation).isVerified,
             unreadCount: Conversation.fromJson(oldConversation).unreadCount +
-                (_db.get('messages', request.id) == null ? 1 : 0),
+                (isNewMessage ? 1 : 0),
           );
     await _db.insert('conversations', conversationId, conversation.toJson());
-    if (_db.get('messages', request.id) != null) {
+    if (!isNewMessage) {
       notifyListeners();
       return;
     }

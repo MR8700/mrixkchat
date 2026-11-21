@@ -133,9 +133,59 @@ func TestFirstContactMessageRequestCanBeReceivedAndAccepted(t *testing.T) {
 	if err := json.Unmarshal(inbox.Body.Bytes(), &response); err != nil || len(response.Requests) != 1 {
 		t.Fatalf("bad inbox payload: %v", err)
 	}
+	senderClient := &ClientConnection{UserID: senderID, DeviceID: "sender-device", sendChan: make(chan []byte, 2)}
+	recipientClient := &ClientConnection{UserID: recipientID, DeviceID: "recipient-device", sendChan: make(chan []byte, 2)}
+	s.hub.Register(senderClient)
+	s.hub.Register(recipientClient)
 	acceptPath := inboxPath + "/" + response.Requests[0].ID
 	if r := call(s, "POST", acceptPath, `{"status":"ACCEPTED"}`, map[string]string{"X-MRixk-Recovery-Code": "MRX-RECIPIENT-1"}); r.Code != http.StatusOK {
 		t.Fatalf("accept request: %d %s", r.Code, r.Body.String())
+	}
+	for _, client := range []*ClientConnection{senderClient, recipientClient} {
+		select {
+		case event := <-client.sendChan:
+			if !bytes.Contains(event, []byte(`"type":"MESSAGE_REQUEST_UPDATED"`)) {
+				t.Fatalf("acceptance event missing or incorrect: %s", event)
+			}
+		default:
+			t.Fatal("acceptance was not broadcast to every participant")
+		}
+	}
+	secondSenderID := register("@sender2", "MRX-SENDER-2")
+	secondPostPath := "/api/v1/users/" + secondSenderID + "/message-requests"
+	ignoredBody := `{"id":"msg-ignored","recipient_id":"` + recipientID + `","conversation_id":"conv-2","content":"Refuser","message_type":"text"}`
+	if r := call(s, "POST", secondPostPath, ignoredBody, map[string]string{"X-MRixk-Recovery-Code": "MRX-SENDER-2"}); r.Code != http.StatusCreated {
+		t.Fatalf("send second request: %d %s", r.Code, r.Body.String())
+	}
+	inbox = call(s, "GET", inboxPath, "", map[string]string{"X-MRixk-Recovery-Code": "MRX-RECIPIENT-1"})
+	if inbox.Code != http.StatusOK || !strings.Contains(inbox.Body.String(), `"status":"PENDING"`) {
+		t.Fatalf("second request should be pending: %d %s", inbox.Code, inbox.Body.String())
+	}
+	var pending struct {
+		Requests []struct {
+			ID       string `json:"id"`
+			SenderID string `json:"sender_id"`
+		} `json:"requests"`
+	}
+	if err := json.Unmarshal(inbox.Body.Bytes(), &pending); err != nil || len(pending.Requests) != 2 {
+		t.Fatalf("second request should be returned alongside accepted request: %v", err)
+	}
+	ignoredID := ""
+	for _, request := range pending.Requests {
+		if request.SenderID == secondSenderID {
+			ignoredID = request.ID
+		}
+	}
+	if ignoredID == "" {
+		t.Fatal("second sender's invitation was not returned")
+	}
+	ignoredPath := inboxPath + "/" + ignoredID
+	if r := call(s, "POST", ignoredPath, `{"status":"IGNORED"}`, map[string]string{"X-MRixk-Recovery-Code": "MRX-RECIPIENT-1"}); r.Code != http.StatusOK {
+		t.Fatalf("ignore request: %d %s", r.Code, r.Body.String())
+	}
+	inbox = call(s, "GET", inboxPath, "", map[string]string{"X-MRixk-Recovery-Code": "MRX-RECIPIENT-1"})
+	if inbox.Code != http.StatusOK || !strings.Contains(inbox.Body.String(), `"status":"IGNORED"`) {
+		t.Fatalf("ignored status must be synchronized to other devices: %d %s", inbox.Code, inbox.Body.String())
 	}
 	postBody = strings.Replace(postBody, "msg-1", "msg-2", 1)
 	if r := call(s, "POST", postPath, postBody, map[string]string{"X-MRixk-Recovery-Code": "MRX-SENDER-1"}); r.Code != http.StatusCreated || !strings.Contains(r.Body.String(), `"status":"ACCEPTED"`) {

@@ -523,7 +523,20 @@ class ApiClient {
               '$base/users/${Uri.encodeComponent(userId)}/message-requests'),
           headers: _headers(recoveryCode: recoveryCode.trim().toUpperCase()),
         ));
-    if (res.statusCode != 200) return const [];
+    if (res.statusCode != 200) {
+      if (res.statusCode == 403) {
+        throw ApiUnavailableException(
+            'Code de secours refusé pour actualiser les demandes.');
+      }
+      var serverMessage = '';
+      try {
+        final error = jsonDecode(res.body) as Map<String, dynamic>;
+        serverMessage = (error['error'] ?? '').toString();
+      } catch (_) {}
+      throw ApiUnavailableException(
+          'Impossible d’actualiser les demandes (${res.statusCode})'
+          '${serverMessage.isEmpty ? '.' : ' : $serverMessage'}');
+    }
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     return (data['requests'] as List? ?? [])
         .map((item) =>

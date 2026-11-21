@@ -758,13 +758,24 @@ func (r *MemoryRepository) ListMessageRequests(recipientID string) []*MessageReq
 	defer r.mu.RUnlock()
 	var requests []*MessageRequest
 	for _, request := range r.messageRequests {
-		if request.RecipientID == recipientID && request.Status != "IGNORED" {
+		if request.RecipientID == recipientID {
 			copy := *request
 			requests = append(requests, &copy)
 		}
 	}
 	sort.Slice(requests, func(i, j int) bool { return requests[i].CreatedAt.Before(requests[j].CreatedAt) })
 	return requests
+}
+
+func (r *MemoryRepository) GetMessageRequest(requestID string) (*MessageRequest, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	request, ok := r.messageRequests[requestID]
+	if !ok {
+		return nil, ErrMessageRequestNotFound
+	}
+	copy := *request
+	return &copy, nil
 }
 
 func (r *MemoryRepository) RespondToMessageRequest(recipientID, requestID, status string) error {
